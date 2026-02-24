@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
+import { EffectComposer, Bloom, SMAA, Vignette, ChromaticAberration } from "@react-three/postprocessing";
 import * as THREE from "three";
 import KnowledgeOrb from "./KnowledgeOrb";
 import ParticleSystem, { type ParticleSystemHandle } from "./ParticleSystem";
@@ -13,17 +13,18 @@ import type { WikiEditEvent } from "@/lib/types";
 // ─── Color palette helpers ────────────────────────────────────────────────────
 
 function getBaseColor(event: WikiEditEvent): THREE.Color {
-  if (event.isRevert) return new THREE.Color(0x330a00);
-  if (event.isBot) return new THREE.Color(0x1a2233);
-  if (event.sizeDelta > 0) return new THREE.Color(0x0d1a3a);
-  return new THREE.Color(0x1a0d2e);
+  if (event.isRevert) return new THREE.Color(0x1a0520);
+  if (event.isBot)    return new THREE.Color(0x041520);
+  if (event.sizeDelta > 0) return new THREE.Color(0x020d1a);
+  return new THREE.Color(0x060a1e);
 }
 
 function getEmissiveColor(event: WikiEditEvent): THREE.Color {
-  if (event.isRevert) return new THREE.Color(0xff3300);
-  if (event.isBot) return new THREE.Color(0x6699bb);
-  if (event.sizeDelta > 0) return new THREE.Color(0x2266ff);
-  return new THREE.Color(0x8833cc);
+  // Ori palette: white-cyan for adds, deep blue for removes, magenta for reverts
+  if (event.isRevert) return new THREE.Color(0.9, 0.1, 1.0);
+  if (event.isBot)    return new THREE.Color(0.2, 0.9, 0.8);
+  if (event.sizeDelta > 0) return new THREE.Color(0.55, 0.92, 1.0);
+  return new THREE.Color(0.1, 0.45, 1.0);
 }
 
 function getDisplace(magnitude: WikiEditEvent["magnitude"]): number {
@@ -35,50 +36,93 @@ function getDisplace(magnitude: WikiEditEvent["magnitude"]): number {
   }
 }
 
-// ─── Camera shake ─────────────────────────────────────────────────────────────
+// ─── Camera drift ─────────────────────────────────────────────────────────────
 
-function CameraShake({ shakeRef }: { shakeRef: React.MutableRefObject<number> }) {
+function CameraDrift({ driftRef }: { driftRef: React.MutableRefObject<number> }) {
   const { camera } = useThree();
-  const originRef = useRef(new THREE.Vector3(0, 0, 6));
-  const orbitAngle = useRef(0);
+  const originRef   = useRef(new THREE.Vector3(0, 0, 5.5));
+  const orbitAngle  = useRef(0);
+  const lookTarget  = useRef(new THREE.Vector3());
+  const shakeTarget = useRef(new THREE.Vector3());
 
-  useFrame((_, delta) => {
-    orbitAngle.current += delta * 0.08;
-    const ox = Math.sin(orbitAngle.current) * 0.3;
-    const oy = Math.cos(orbitAngle.current * 0.7) * 0.15;
-    originRef.current.set(ox, oy, 6);
+  useFrame((state, delta) => {
+    const t = state.clock.elapsedTime;
+    // Very slow cinematic orbit — like a camera floating in a forest
+    orbitAngle.current += delta * 0.025;
 
-    const shake = shakeRef.current;
-    if (shake > 0) {
-      camera.position.set(
-        originRef.current.x + (Math.random() - 0.5) * shake * 0.15,
-        originRef.current.y + (Math.random() - 0.5) * shake * 0.15,
-        originRef.current.z + (Math.random() - 0.5) * shake * 0.05
+    const ox = Math.sin(orbitAngle.current) * 0.7 + Math.cos(t * 0.07) * 0.25;
+    const oy = Math.cos(orbitAngle.current * 0.5) * 0.4 + Math.sin(t * 0.05) * 0.2;
+    const oz = 5.5 + Math.sin(t * 0.04) * 0.4;
+    originRef.current.set(ox, oy, oz);
+
+    const drift = driftRef.current;
+    if (drift > 0) {
+      shakeTarget.current.set(
+        originRef.current.x + (Math.random() - 0.5) * drift * 0.06,
+        originRef.current.y + (Math.random() - 0.5) * drift * 0.06,
+        originRef.current.z
       );
-      shakeRef.current = Math.max(0, shake - delta * 3);
+      camera.position.lerp(shakeTarget.current, 0.025);
+      driftRef.current = Math.max(0, drift - delta * 1.2);
     } else {
-      camera.position.lerp(originRef.current, 0.04);
+      camera.position.lerp(originRef.current, 0.012);
     }
-    camera.lookAt(0, 0, 0);
+
+    // Subtle look-at wander — orb breathes, camera notices
+    lookTarget.current.set(
+      Math.sin(t * 0.08) * 0.12,
+      Math.cos(t * 0.06) * 0.08,
+      0
+    );
+    camera.lookAt(lookTarget.current);
   });
 
   return null;
 }
 
+// ── Volumetric-style inner glow ring ─────────────────────────────────────────
+function SpiritGlow({ amplitude, lowFreq }: { amplitude: number; lowFreq: number }) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const matRef  = useRef<THREE.MeshBasicMaterial>(null);
+
+  useFrame((state) => {
+    if (!meshRef.current || !matRef.current) return;
+    const t = state.clock.elapsedTime;
+    const pulse = 1.0 + Math.sin(t * 0.7) * 0.08 + amplitude * 0.25 + lowFreq * 0.15;
+    meshRef.current.scale.setScalar(pulse * 1.0);
+    matRef.current.opacity = 0.06 + amplitude * 0.12 + lowFreq * 0.06;
+  });
+
+  return (
+    <mesh ref={meshRef}>
+      <sphereGeometry args={[2.6, 32, 32]} />
+      <meshBasicMaterial
+        ref={matRef}
+        color={new THREE.Color(0.0, 0.7, 1.0)}
+        transparent
+        side={THREE.BackSide}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </mesh>
+  );
+}
+
 // ─── Inner scene (needs R3F context) ─────────────────────────────────────────
 
-function InnerScene() {
+function InnerScene({ isLowTier }: { isLowTier: boolean }) {
   const particleRef = useRef<ParticleSystemHandle>(null);
-  const shakeRef = useRef(0);
+  const driftRef = useRef(0);
   const audioRef = useRef(getAudioEngine());
+  const chromaOffset = useMemo(() => new THREE.Vector2(0.0009, 0.0012), []);
 
   const [visualState, setVisualState] = useState({
     amplitude: 0,
     lowFreq: 0,
     highFreq: 0,
     displace: 0,
-    baseColor: new THREE.Color(0x0d1a3a),
-    emissiveColor: new THREE.Color(0x2266ff),
+    baseColor: new THREE.Color(0x0a1a2e),
+    emissiveColor: new THREE.Color(0x7dd3fc),
     isRevert: 0,
   });
 
@@ -89,7 +133,7 @@ function InnerScene() {
   const dequeue = useStore((s) => s.dequeue);
 
   // Poll event queue each frame
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const audio = audioRef.current;
     const amp = audio.getAmplitude();
     const low = audio.getLowFreq();
@@ -97,12 +141,12 @@ function InnerScene() {
 
     setAudio({ amplitude: amp, lowFreq: low, highFreq: high });
 
-    // Decay displace & revert
-    displaceRef.current = Math.max(0, displaceRef.current - delta * 1.2);
-    isRevertRef.current = Math.max(0, isRevertRef.current - delta * 1.5);
+    // Decay displace & revert (slower for dreamy feel)
+    displaceRef.current = Math.max(0, displaceRef.current - delta * 0.8);
+    isRevertRef.current = Math.max(0, isRevertRef.current - delta * 1.0);
 
-    // Process up to 3 events per frame to avoid audio pile-up
-    for (let i = 0; i < 3; i++) {
+    // Process up to 2 events per frame for gentler flow
+    for (let i = 0; i < 2; i++) {
       const event = dequeue();
       if (!event) break;
 
@@ -113,8 +157,8 @@ function InnerScene() {
       displaceRef.current = newDisplace;
 
       if (event.isRevert || event.magnitude === "LARGE") {
-        shakeRef.current = Math.min(1, shakeRef.current + 0.6);
-        isRevertRef.current = event.isRevert ? 1 : 0.3;
+        driftRef.current = Math.min(1, driftRef.current + 0.4);
+        isRevertRef.current = event.isRevert ? 1 : 0.2;
       }
 
       setVisualState({
@@ -131,9 +175,23 @@ function InnerScene() {
 
   return (
     <>
-      <CameraShake shakeRef={shakeRef} />
-      <ambientLight intensity={0.15} />
-      <pointLight position={[5, 5, 5]} intensity={1.2} color={0x4488ff} />
+      <CameraDrift driftRef={driftRef} />
+
+      {/* Deep forest darkness — very low ambient */}
+      <ambientLight intensity={0.04} color={0x0a1a2e} />
+
+      {/* Ori's spirit light: cool white-blue key light */}
+      <pointLight position={[0, 0, 4]}  intensity={2.5} color={0xaaddff} distance={12} decay={2} />
+
+      {/* Bioluminescent fill: teal from below (forest floor glow) */}
+      <pointLight position={[0, -4, 2]} intensity={1.2} color={0x00ccaa} distance={10} decay={2} />
+
+      {/* Deep purple rim from behind (Kuro's shadow) */}
+      <pointLight position={[-3, 2, -4]} intensity={0.8} color={0x4400aa} distance={14} decay={2} />
+
+      {/* Soft cyan fill from above */}
+      <pointLight position={[2, 5, 1]}  intensity={0.6} color={0x00aaff} distance={12} decay={2} />
+
       <KnowledgeOrb
         amplitude={visualState.amplitude}
         lowFreq={visualState.lowFreq}
@@ -142,18 +200,56 @@ function InnerScene() {
         baseColor={visualState.baseColor}
         emissiveColor={visualState.emissiveColor}
         isRevert={visualState.isRevert}
+        isLowTier={isLowTier}
       />
-      <ParticleSystem ref={particleRef} highFreq={visualState.highFreq} />
-      <EffectComposer>
-        <Bloom
-          intensity={0.8 + visualState.amplitude * 1.5}
-          luminanceThreshold={0.2}
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-      </EffectComposer>
+
+      {/* Volumetric inner glow sphere */}
+      <SpiritGlow amplitude={visualState.amplitude} lowFreq={visualState.lowFreq} />
+
+      <ParticleSystem
+        ref={particleRef}
+        highFreq={visualState.highFreq}
+        lowFreq={visualState.lowFreq}
+        isLowTier={isLowTier}
+      />
+
+      {/* Deep forest fog — starts close, very dark blue */}
+      <fog attach="fog" args={[0x010510, 5, 22]} />
+
+      {isLowTier ? (
+        <EffectComposer multisampling={0}>
+          <Bloom
+            intensity={1.8 + visualState.amplitude * 1.4}
+            luminanceThreshold={0.03}
+            luminanceSmoothing={0.85}
+            mipmapBlur
+          />
+          <ChromaticAberration offset={chromaOffset} radialModulation modulationOffset={0.35} />
+          <Vignette eskil={false} offset={0.22} darkness={0.6} />
+        </EffectComposer>
+      ) : (
+        <EffectComposer multisampling={0}>
+          <Bloom
+            intensity={2.6 + visualState.amplitude * 2.2}
+            luminanceThreshold={0.03}
+            luminanceSmoothing={0.85}
+            mipmapBlur
+          />
+          <SMAA />
+          <ChromaticAberration offset={chromaOffset} radialModulation modulationOffset={0.35} />
+          <Vignette eskil={false} offset={0.22} darkness={0.6} />
+        </EffectComposer>
+      )}
     </>
   );
+}
+
+function detectLowTierDevice() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent.toLowerCase();
+  const isMobile = /iphone|ipad|ipod|android|mobile/.test(ua);
+  const lowCpu = (navigator.hardwareConcurrency ?? 8) <= 6;
+  return isMobile || lowCpu;
 }
 
 // ─── Public Scene component ───────────────────────────────────────────────────
@@ -162,6 +258,7 @@ export default function Scene() {
   const setConnected = useStore((s) => s.setConnected);
   const enqueue = useStore((s) => s.enqueue);
   const [audioReady, setAudioReady] = useState(false);
+  const isLowTier = useMemo(() => detectLowTierDevice(), []);
 
   const initAudio = useCallback(async () => {
     if (audioReady) return;
@@ -218,12 +315,18 @@ export default function Scene() {
         </div>
       )}
       <Canvas
-        camera={{ position: [0, 0, 6], fov: 50 }}
-        gl={{ antialias: true, alpha: false }}
+        camera={{ position: [0, 0, 5.5], fov: 42 }}
+        gl={{ antialias: false, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.7 }}
+        onCreated={({ gl }) => {
+          gl.outputColorSpace = THREE.SRGBColorSpace;
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = isLowTier ? 1.5 : 1.8;
+          gl.setPixelRatio(Math.min(window.devicePixelRatio, isLowTier ? 1.5 : 2));
+        }}
         dpr={[1, 2]}
-        style={{ background: "#020408" }}
+        style={{ background: "#010510" }}
       >
-        <InnerScene />
+        <InnerScene isLowTier={isLowTier} />
       </Canvas>
     </div>
   );
