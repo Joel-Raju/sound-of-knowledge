@@ -2,7 +2,6 @@
 
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { EffectComposer, Bloom, SMAA, Vignette, ChromaticAberration } from "@react-three/postprocessing";
 import * as THREE from "three";
 import KnowledgeOrb from "./KnowledgeOrb";
 import ParticleSystem, { type ParticleSystemHandle } from "./ParticleSystem";
@@ -114,7 +113,6 @@ function InnerScene({ isLowTier }: { isLowTier: boolean }) {
   const particleRef = useRef<ParticleSystemHandle>(null);
   const driftRef = useRef(0);
   const audioRef = useRef(getAudioEngine());
-  const chromaOffset = useMemo(() => new THREE.Vector2(0.0009, 0.0012), []);
 
   const [visualState, setVisualState] = useState({
     amplitude: 0,
@@ -215,31 +213,6 @@ function InnerScene({ isLowTier }: { isLowTier: boolean }) {
 
       {/* Deep forest fog — starts close, very dark blue */}
       <fog attach="fog" args={[0x010510, 5, 22]} />
-
-      {isLowTier ? (
-        <EffectComposer multisampling={0}>
-          <Bloom
-            intensity={1.8 + visualState.amplitude * 1.4}
-            luminanceThreshold={0.03}
-            luminanceSmoothing={0.85}
-            mipmapBlur
-          />
-          <ChromaticAberration offset={chromaOffset} radialModulation modulationOffset={0.35} />
-          <Vignette eskil={false} offset={0.22} darkness={0.6} />
-        </EffectComposer>
-      ) : (
-        <EffectComposer multisampling={0}>
-          <Bloom
-            intensity={2.6 + visualState.amplitude * 2.2}
-            luminanceThreshold={0.03}
-            luminanceSmoothing={0.85}
-            mipmapBlur
-          />
-          <SMAA />
-          <ChromaticAberration offset={chromaOffset} radialModulation modulationOffset={0.35} />
-          <Vignette eskil={false} offset={0.22} darkness={0.6} />
-        </EffectComposer>
-      )}
     </>
   );
 }

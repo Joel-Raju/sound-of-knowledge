@@ -150,8 +150,10 @@ const PARTICLE_VERT = /* glsl */`
   void main() {
     vColor = aColor;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    // Size attenuation
-    gl_PointSize = aSize * (350.0 / -mv.z);
+    // Size attenuation with guard rails to avoid huge/invalid point sizes
+    // when particles are too close to (or behind) the camera.
+    float z = max(0.1, -mv.z);
+    gl_PointSize = clamp(aSize * (350.0 / z), 0.0, 128.0);
     gl_Position  = projectionMatrix * mv;
     vAlpha = 1.0;
   }

@@ -125,6 +125,14 @@ export function getAudioEngine(): AudioEngine {
     volume: -20,
   }).connect(masterGain);
 
+  droneSynth.maxPolyphony = 24;
+  shimmerSynth.maxPolyphony = 24;
+  harpSynth.maxPolyphony = 64;
+  celestaSynth.maxPolyphony = 64;
+  choirSynth.maxPolyphony = 48;
+  orchestraSynth.maxPolyphony = 48;
+  botSynth.maxPolyphony = 32;
+
   // ── Note pools — Ori uses A minor pentatonic / modal scales ──────────────────
   // A minor pentatonic: A C D E G — ethereal, ancient, forest-like
   const harpNotes    = ["A5", "C6", "D6", "E6", "G6", "A6", "C7"];
@@ -151,6 +159,7 @@ export function getAudioEngine(): AudioEngine {
 
   let noteIdx       = 0;
   let nextTrigger   = 0;
+  let lastTriggerAt = 0;
   let droneStarted  = false;
   let droneInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -183,6 +192,8 @@ export function getAudioEngine(): AudioEngine {
       droneIdx = (droneIdx + 1) % droneChords.length;
       const next = droneChords[droneIdx];
       const t = Tone.now() + 3;
+      droneSynth.releaseAll(t - 0.05);
+      shimmerSynth.releaseAll(t + 0.95);
       droneSynth.triggerAttack(next.bass, t, 0.06);
       shimmerSynth.triggerAttack(next.shimmer, t + 1, 0.03);
     }, 16000);
@@ -195,6 +206,14 @@ export function getAudioEngine(): AudioEngine {
     _sizeDelta: number
   ) {
     if (!initialized) return;
+    const now = Tone.now();
+    const minGap = isRevert || magnitude === "LARGE"
+      ? 0.12
+      : magnitude === "MEDIUM"
+        ? 0.09
+        : 0.06;
+    if (now - lastTriggerAt < minGap) return;
+    lastTriggerAt = now;
     const t = getNextTriggerTime();
 
     if (isBot) {
