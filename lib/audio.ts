@@ -22,13 +22,13 @@ export function getAudioEngine(): AudioEngine {
   const fftAnalyser    = new Tone.Analyser("fft", 64);
 
   // ── Master FX chain ──────────────────────────────────────────────────────────
-  const limiter = new Tone.Limiter(-1).toDestination();
+  const limiter = new Tone.Limiter(-0.5).toDestination();
   const reverb = new Tone.Reverb({ decay: 8, wet: 0.45, preDelay: 0.1 }).connect(limiter);
   const delay = new Tone.PingPongDelay({ delayTime: "8n", feedback: 0.35, wet: 0.25 }).connect(reverb);
   const chorus = new Tone.Chorus({ frequency: 0.5, delayTime: 2.5, depth: 0.4, wet: 0.2 }).connect(delay);
   const eq = new Tone.EQ3({ low: 2, mid: -1, high: 3 }).connect(chorus);
   
-  const masterGain = new Tone.Gain(1.5).connect(eq);
+  const masterGain = new Tone.Gain(2.25).connect(eq);
   masterGain.connect(masterAnalyser);
   masterGain.connect(fftAnalyser);
 
@@ -37,7 +37,7 @@ export function getAudioEngine(): AudioEngine {
   const arpSynth = new Tone.PolySynth(Tone.Synth, {
     oscillator: { type: "amtriangle", harmonicity: 2.5, modulationType: "sine" },
     envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1 },
-    volume: -10,
+    volume: -6,
   }).connect(masterGain);
 
   // Deep pulsing bass
@@ -46,7 +46,7 @@ export function getAudioEngine(): AudioEngine {
     filter: { Q: 2, type: "lowpass", rolloff: -24 },
     envelope: { attack: 0.05, decay: 0.3, sustain: 0.1, release: 1.5 },
     filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1, baseFrequency: 60, octaves: 4 },
-    volume: -6,
+    volume: -3,
   }).connect(masterGain);
 
   // Lush pad for large edits
@@ -57,7 +57,7 @@ export function getAudioEngine(): AudioEngine {
     envelope: { attack: 0.5, decay: 1.0, sustain: 0.5, release: 4 },
     modulation: { type: "triangle" },
     modulationEnvelope: { attack: 0.5, decay: 0.5, sustain: 0.8, release: 2 },
-    volume: -8,
+    volume: -5,
   }).connect(masterGain);
 
   // Sparkly bell synth for standard edits
@@ -66,7 +66,7 @@ export function getAudioEngine(): AudioEngine {
     modulationIndex: 5,
     oscillator: { type: "triangle" },
     envelope: { attack: 0.005, decay: 0.4, sustain: 0, release: 1.5 },
-    volume: -4,
+    volume: -1,
   }).connect(masterGain);
 
   // Percussive synth for bot edits
@@ -75,7 +75,7 @@ export function getAudioEngine(): AudioEngine {
     octaves: 4,
     oscillator: { type: "sine" },
     envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.8 },
-    volume: -4,
+    volume: 2,
   }).connect(masterGain);
 
   // Dark gong/bell for reverts
@@ -85,7 +85,7 @@ export function getAudioEngine(): AudioEngine {
     modulationIndex: 32,
     resonance: 4000,
     octaves: 1.5,
-    volume: -2,
+    volume: 2,
   }).connect(masterGain);
 
   // ── Musical Data ─────────────────────────────────────────────────────────────
