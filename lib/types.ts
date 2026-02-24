@@ -8,4 +8,6 @@ export type WikiEditEvent = {
   isRevert: boolean;
   timestamp: number;
   magnitude: EditMagnitude;
+  pageUrl?: string;
+  editUrl?: string;
 };

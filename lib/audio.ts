@@ -1,9 +1,9 @@
 import * as Tone from "tone";
-import type { EditMagnitude } from "./types";
+import type { WikiEditEvent } from "./types";
 
 type AudioEngine = {
   init: () => Promise<void>;
-  triggerEdit: (magnitude: EditMagnitude, isBot: boolean, isRevert: boolean, sizeDelta: number) => void;
+  triggerEdit: (event: WikiEditEvent) => void;
   getAmplitude: () => number;
   getLowFreq: () => number;
   getHighFreq: () => number;
@@ -157,11 +157,26 @@ export function getAudioEngine(): AudioEngine {
   const kuroNotes = ["A1", "E1", "D1", "G1"];
   const botNotes  = ["A7", "E7", "C7", "G7"];
 
-  let noteIdx       = 0;
-  let nextTrigger   = 0;
+  let noteIdx = 0;
+  let nextTrigger = 0;
   let lastTriggerAt = 0;
-  let droneStarted  = false;
+  let droneStarted = false;
   let droneInterval: ReturnType<typeof setInterval> | null = null;
+  let variationTick = 0;
+
+  function hashEvent(event: WikiEditEvent): number {
+    const raw = `${event.id}-${event.title}-${event.timestamp}-${event.sizeDelta}`;
+    let hash = 2166136261;
+    for (let i = 0; i < raw.length; i++) {
+      hash ^= raw.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  function rand(seed: number, salt: number): number {
+    return ((seed ^ Math.imul(salt, 1103515245)) >>> 0) / 4294967295;
+  }
 
   function getNextTriggerTime(): number {
     const now = Tone.now();
@@ -199,13 +214,15 @@ export function getAudioEngine(): AudioEngine {
     }, 16000);
   }
 
-  function triggerEdit(
-    magnitude: EditMagnitude,
-    isBot: boolean,
-    isRevert: boolean,
-    _sizeDelta: number
-  ) {
+  function triggerEdit(event: WikiEditEvent) {
     if (!initialized) return;
+    variationTick += 1;
+    const magnitude = event.magnitude;
+    const isBot = event.isBot;
+    const isRevert = event.isRevert;
+    const seed = hashEvent(event) ^ variationTick;
+    const energy = Math.min(1, Math.log10(Math.abs(event.sizeDelta) + 10) / 4);
+
     const now = Tone.now();
     const minGap = isRevert || magnitude === "LARGE"
       ? 0.12
@@ -214,56 +231,69 @@ export function getAudioEngine(): AudioEngine {
         : 0.06;
     if (now - lastTriggerAt < minGap) return;
     lastTriggerAt = now;
-    const t = getNextTriggerTime();
+    const jitteredTime = getNextTriggerTime() + (rand(seed, 3) - 0.5) * 0.02;
+
+    chorus.frequency.rampTo(0.16 + rand(seed, 5) * 0.45, 0.2);
+    delay.delayTime.rampTo(0.15 + rand(seed, 7) * 0.35, 0.12);
+    reverb.wet.rampTo(0.4 + energy * 0.4 + rand(seed, 11) * 0.12, 0.3);
 
     if (isBot) {
-      botSynth.triggerAttackRelease(botNotes[noteIdx % botNotes.length], "32n", t);
+      botSynth.triggerAttackRelease(botNotes[(noteIdx + Math.floor(rand(seed, 13) * botNotes.length)) % botNotes.length], "32n", jitteredTime, 0.4 + rand(seed, 17) * 0.45);
       noteIdx++;
       return;
     }
 
     if (isRevert) {
       // Kuro's dark gong + dissonant chord
-      kuroSynth.triggerAttackRelease(kuroNotes[noteIdx % kuroNotes.length], "1n", t);
+      kuroSynth.modulationIndex.value = 18 + rand(seed, 19) * 26;
+      kuroSynth.triggerAttackRelease(kuroNotes[(noteIdx + Math.floor(rand(seed, 23) * kuroNotes.length)) % kuroNotes.length], "1n", jitteredTime, 0.8 + energy * 0.2);
       noteIdx++;
       return;
     }
 
     switch (magnitude) {
       case "TINY": {
-        // Single harp pluck — like a spirit mote appearing
+        const noteOffset = Math.floor(rand(seed, 29) * harpNotes.length);
         harpSynth.triggerAttackRelease(
-          harpNotes[noteIdx % harpNotes.length], "16n", t
+          harpNotes[(noteIdx + noteOffset) % harpNotes.length],
+          rand(seed, 31) > 0.5 ? "16n" : "32n",
+          jitteredTime,
+          0.45 + rand(seed, 37) * 0.45
         );
         break;
       }
       case "SMALL": {
-        // Celesta sparkle — 2 notes, slight delay for harp-run feel
-        const n1 = celestaNotes[noteIdx % celestaNotes.length];
-        const n2 = celestaNotes[(noteIdx + 2) % celestaNotes.length];
-        celestaSynth.triggerAttackRelease(n1, "16n", t);
-        celestaSynth.triggerAttackRelease(n2, "16n", t + 0.06);
+        const n1 = celestaNotes[(noteIdx + Math.floor(rand(seed, 41) * celestaNotes.length)) % celestaNotes.length];
+        const n2 = celestaNotes[(noteIdx + 2 + Math.floor(rand(seed, 43) * 3)) % celestaNotes.length];
+        const lag = 0.03 + rand(seed, 47) * 0.07;
+        celestaSynth.triggerAttackRelease(n1, "16n", jitteredTime, 0.42 + rand(seed, 53) * 0.4);
+        celestaSynth.triggerAttackRelease(n2, rand(seed, 59) > 0.5 ? "16n" : "8n", jitteredTime + lag, 0.38 + rand(seed, 61) * 0.4);
         break;
       }
       case "MEDIUM": {
-        // Choir swell — emotional, Ori-like
-        const chord = choirChords[noteIdx % choirChords.length];
-        choirSynth.triggerAttackRelease(chord, "2n", t);
-        // Add a harp arpeggio on top
+        const chord = choirChords[(noteIdx + Math.floor(rand(seed, 67) * choirChords.length)) % choirChords.length];
+        choirSynth.triggerAttackRelease(chord, rand(seed, 71) > 0.5 ? "2n" : "1n", jitteredTime, 0.52 + energy * 0.35);
         chord.forEach((note, i) => {
-          harpSynth.triggerAttackRelease(note.replace(/\d/, (d) => String(parseInt(d) + 1)), "16n", t + i * 0.05);
+          harpSynth.triggerAttackRelease(
+            note.replace(/\d/, (d) => String(parseInt(d, 10) + 1)),
+            "16n",
+            jitteredTime + i * (0.035 + rand(seed, 73 + i) * 0.03),
+            0.28 + rand(seed, 79 + i) * 0.3
+          );
         });
         break;
       }
       case "LARGE": {
-        // Full orchestral swell — the forest awakens
-        const chord = orchestraChords[noteIdx % orchestraChords.length];
-        orchestraSynth.triggerAttackRelease(chord, "1n", t);
-        // Harp glissando cascade
+        const chord = orchestraChords[(noteIdx + Math.floor(rand(seed, 89) * orchestraChords.length)) % orchestraChords.length];
+        orchestraSynth.triggerAttackRelease(chord, rand(seed, 97) > 0.45 ? "1n" : "2n", jitteredTime, 0.7 + energy * 0.28);
         chord.forEach((note, i) => {
-          harpSynth.triggerAttackRelease(note, "8n", t + i * 0.08);
+          const step = 0.05 + rand(seed, 101 + i) * 0.06;
+          harpSynth.triggerAttackRelease(note, "8n", jitteredTime + i * step, 0.42 + rand(seed, 109 + i) * 0.3);
           celestaSynth.triggerAttackRelease(
-            note.replace(/\d/, (d) => String(parseInt(d) + 1)), "16n", t + i * 0.08 + 0.04
+            note.replace(/\d/, (d) => String(parseInt(d, 10) + 1)),
+            "16n",
+            jitteredTime + i * step + 0.03 + rand(seed, 127 + i) * 0.03,
+            0.3 + rand(seed, 131 + i) * 0.26
           );
         });
         break;

@@ -4,7 +4,10 @@ import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import KnowledgeOrb from "./KnowledgeOrb";
-import ParticleSystem, { type ParticleSystemHandle } from "./ParticleSystem";
+import ParticleSystem, {
+  type ParticlePointerInfo,
+  type ParticleSystemHandle,
+} from "./ParticleSystem";
 import { useStore } from "@/lib/store";
 import { getAudioEngine } from "@/lib/audio";
 import type { WikiEditEvent } from "@/lib/types";
@@ -109,7 +112,15 @@ function SpiritGlow({ amplitude, lowFreq }: { amplitude: number; lowFreq: number
 
 // ─── Inner scene (needs R3F context) ─────────────────────────────────────────
 
-function InnerScene({ isLowTier }: { isLowTier: boolean }) {
+function InnerScene({
+  isLowTier,
+  onHoverChange,
+  onParticleClick,
+}: {
+  isLowTier: boolean;
+  onHoverChange: (info: ParticlePointerInfo | null) => void;
+  onParticleClick: (info: ParticlePointerInfo) => void;
+}) {
   const particleRef = useRef<ParticleSystemHandle>(null);
   const driftRef = useRef(0);
   const audioRef = useRef(getAudioEngine());
@@ -148,7 +159,7 @@ function InnerScene({ isLowTier }: { isLowTier: boolean }) {
       const event = dequeue();
       if (!event) break;
 
-      audio.triggerEdit(event.magnitude, event.isBot, event.isRevert, event.sizeDelta);
+      audio.triggerEdit(event);
       particleRef.current?.spawn(event);
 
       const newDisplace = Math.max(displaceRef.current, getDisplace(event.magnitude));
@@ -209,6 +220,8 @@ function InnerScene({ isLowTier }: { isLowTier: boolean }) {
         highFreq={visualState.highFreq}
         lowFreq={visualState.lowFreq}
         isLowTier={isLowTier}
+        onHoverChange={onHoverChange}
+        onParticleClick={onParticleClick}
       />
 
       {/* Deep forest fog — starts close, very dark blue */}
@@ -231,7 +244,20 @@ export default function Scene() {
   const setConnected = useStore((s) => s.setConnected);
   const enqueue = useStore((s) => s.enqueue);
   const [audioReady, setAudioReady] = useState(false);
+  const [popoverInfo, setPopoverInfo] = useState<ParticlePointerInfo | null>(null);
   const isLowTier = useMemo(() => detectLowTierDevice(), []);
+
+  const handleParticleHover = useCallback((info: ParticlePointerInfo | null) => {
+    setPopoverInfo(info);
+  }, []);
+
+  const handleParticleClick = useCallback((info: ParticlePointerInfo) => {
+    setPopoverInfo(info);
+    const targetUrl = info.event.editUrl ?? info.event.pageUrl;
+    if (targetUrl) {
+      window.open(targetUrl, "_blank", "noopener,noreferrer");
+    }
+  }, []);
 
   const initAudio = useCallback(async () => {
     if (audioReady) return;
@@ -299,8 +325,29 @@ export default function Scene() {
         dpr={[1, 2]}
         style={{ background: "#010510" }}
       >
-        <InnerScene isLowTier={isLowTier} />
+        <InnerScene
+          isLowTier={isLowTier}
+          onHoverChange={handleParticleHover}
+          onParticleClick={handleParticleClick}
+        />
       </Canvas>
+
+      {popoverInfo && (
+        <div
+          className="absolute z-30 max-w-xs rounded-lg border border-cyan-300/35 bg-slate-950/90 px-3 py-2 text-xs text-cyan-100 shadow-[0_0_30px_rgba(34,211,238,0.25)] pointer-events-none"
+          style={{
+            left: Math.min(window.innerWidth - 280, popoverInfo.screenX + 14),
+            top: Math.max(10, popoverInfo.screenY - 24),
+          }}
+        >
+          <p className="font-semibold text-cyan-50 truncate">{popoverInfo.event.title || "Untitled page"}</p>
+          <p className="mt-1 text-cyan-200/80">
+            delta: {popoverInfo.event.sizeDelta > 0 ? "+" : ""}
+            {popoverInfo.event.sizeDelta.toLocaleString()} bytes
+          </p>
+          <p className="text-cyan-300/75">click particle to open this exact edit</p>
+        </div>
+      )}
     </div>
   );
 }
