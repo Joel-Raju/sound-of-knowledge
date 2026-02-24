@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const WIKIMEDIA_SSE =
   "https://stream.wikimedia.org/v2/stream/recentchange";
 
-export async function GET() {
+export async function GET(request: Request) {
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -15,17 +15,22 @@ export async function GET() {
       try {
         upstreamRes = await fetch(WIKIMEDIA_SSE, {
           headers: { Accept: "text/event-stream" },
+          signal: request.signal,
         });
       } catch (err) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: String(err) })}\n\n`)
-        );
-        controller.close();
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ error: String(err) })}\n\n`)
+          );
+          controller.close();
+        } catch {
+          // ignore if controller is already errored
+        }
         return;
       }
 
       if (!upstreamRes.body) {
-        controller.close();
+        try { controller.close(); } catch {}
         return;
       }
 
@@ -35,6 +40,8 @@ export async function GET() {
 
       try {
         while (true) {
+          if (request.signal.aborted) break;
+          
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -62,13 +69,20 @@ export async function GET() {
             }
           }
         }
-      } catch {
-        // client disconnected
+      } catch (err) {
+        // upstream connection died or client disconnected
       } finally {
-        reader.cancel();
-        controller.close();
+        try {
+          await reader.cancel().catch(() => {});
+        } catch {}
+        try {
+          controller.close();
+        } catch {}
       }
     },
+    cancel() {
+      // Handle client disconnects gracefully
+    }
   });
 
   return new Response(stream, {
