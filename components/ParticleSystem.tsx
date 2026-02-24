@@ -16,13 +16,6 @@ export type ParticlePointerInfo = {
   size: number;
 };
 
-const ORI_COLORS = {
-  revert: new THREE.Color(0.9, 0.1, 1.0),
-  bot: new THREE.Color(0.2, 0.9, 0.8),
-  add: new THREE.Color(0.6, 0.95, 1.0),
-  remove: new THREE.Color(0.1, 0.5, 1.0),
-};
-
 type Particle = {
   active: boolean;
   position: THREE.Vector3;
@@ -50,7 +43,7 @@ function createInitialParticles(maxParticles: number): Particle[] {
       maxLife: 1,
       baseSize: 0,
       size: 0,
-      color: ORI_COLORS.add.clone(),
+      color: new THREE.Color(),
       event: null,
       seed: i,
       phase: 0,
@@ -77,35 +70,49 @@ function sizeFromEdit(event: WikiEditEvent, seed: number): number {
   const normalized = Math.min(1, Math.log10(absDelta + 1) / 4);
   const magnitudeBase =
     event.magnitude === "LARGE"
-      ? 0.36
+      ? 0.45
       : event.magnitude === "MEDIUM"
-        ? 0.25
+        ? 0.3
         : event.magnitude === "SMALL"
-          ? 0.16
-          : 0.09;
-  const rangeFactor = 0.8 + seedNorm(seed, 7) * 2.2;
-  return (magnitudeBase + normalized * 0.5) * rangeFactor;
+          ? 0.2
+          : 0.12;
+  const rangeFactor = 0.8 + seedNorm(seed, 7) * 2.5;
+  return (magnitudeBase + normalized * 0.6) * rangeFactor;
 }
 
 function lifeFromMagnitude(magnitude: WikiEditEvent["magnitude"], seed: number): number {
-  const variation = 0.65 + seedNorm(seed, 11) * 0.9;
+  const variation = 0.65 + seedNorm(seed, 11) * 1.2;
   switch (magnitude) {
-    case "TINY":
-      return 2.2 * variation;
-    case "SMALL":
-      return 3.6 * variation;
-    case "MEDIUM":
-      return 5.4 * variation;
-    case "LARGE":
-      return 8.2 * variation;
+    case "TINY": return 3.0 * variation;
+    case "SMALL": return 4.5 * variation;
+    case "MEDIUM": return 6.5 * variation;
+    case "LARGE": return 10.0 * variation;
   }
 }
 
-function editColor(event: WikiEditEvent): THREE.Color {
-  if (event.isRevert) return ORI_COLORS.revert;
-  if (event.isBot) return ORI_COLORS.bot;
-  if (event.sizeDelta > 0) return ORI_COLORS.add;
-  return ORI_COLORS.remove;
+// More varied atmospheric colors
+function editColor(event: WikiEditEvent, seed: number): THREE.Color {
+  const color = new THREE.Color();
+  if (event.isRevert) {
+    color.setHSL(0.8 + seedNorm(seed, 1) * 0.1, 0.9, 0.6); // Magentas/Purples
+  } else if (event.isBot) {
+    color.setHSL(0.45 + seedNorm(seed, 2) * 0.15, 0.9, 0.6); // Cyans/Teals
+  } else if (event.sizeDelta > 0) {
+    // Warm adds: yellow/orange/pink
+    color.setHSL(0.05 + seedNorm(seed, 3) * 0.15, 0.9, 0.6);
+  } else {
+    // Cool removes: blue/purple
+    color.setHSL(0.55 + seedNorm(seed, 4) * 0.15, 0.9, 0.6);
+  }
+  return color;
+}
+
+// A fast pseudo-random noise for turbulence
+function curlNoise(p: THREE.Vector3, t: number): THREE.Vector3 {
+  const x = Math.sin(p.y * 0.5 + t) + Math.cos(p.z * 0.3 - t);
+  const y = Math.sin(p.z * 0.5 + t) + Math.cos(p.x * 0.3 - t);
+  const z = Math.sin(p.x * 0.5 + t) + Math.cos(p.y * 0.3 - t);
+  return new THREE.Vector3(x, y, z);
 }
 
 // ── Particle shader (custom glowing sprite) ───────────────────────────────────
@@ -119,8 +126,6 @@ const PARTICLE_VERT = /* glsl */`
   void main() {
     vColor = aColor;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    // Size attenuation with guard rails to avoid huge/invalid point sizes
-    // when particles are too close to (or behind) the camera.
     float z = max(0.1, -mv.z);
     gl_PointSize = clamp(aSize * (520.0 / z), 0.0, 196.0);
     gl_Position  = projectionMatrix * mv;
@@ -166,6 +171,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
     const aColorsRef = useRef<Float32Array>(new Float32Array(0));
     const aSizesRef = useRef<Float32Array>(new Float32Array(0));
     const particlesRef = useRef<Particle[]>([]);
+    
     const [positionsAttr, setPositionsAttr] = useState<Float32Array>(new Float32Array(0));
     const [colorsAttr, setColorsAttr] = useState<Float32Array>(new Float32Array(0));
     const [sizesAttr, setSizesAttr] = useState<Float32Array>(new Float32Array(0));
@@ -202,8 +208,8 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
 
         const theta = seedNorm(seed, 17) * Math.PI * 2;
         const phi = Math.acos(seedNorm(seed, 19) * 2 - 1);
-        const radius = 1.75 + seedNorm(seed, 23) * 0.45;
-        const speed = 0.1 + seedNorm(seed, 31) * 0.55;
+        const radius = 1.2 + seedNorm(seed, 23) * 1.5; // More varied spawn radius
+        const speed = 0.05 + seedNorm(seed, 31) * 0.8;
         const life = lifeFromMagnitude(event.magnitude, seed);
 
         p.active = true;
@@ -215,7 +221,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
         p.life = life;
         p.maxLife = life;
         p.bornAt = performance.now();
-        p.color.copy(editColor(event));
+        p.color.copy(editColor(event, seed));
 
         p.position.set(
           radius * Math.sin(phi) * Math.cos(theta),
@@ -227,15 +233,16 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
         const up = Math.abs(outward.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
         const tangent = new THREE.Vector3().crossVectors(outward, up).normalize();
 
+        // Introduce more chaotic initial velocity
         p.velocity
           .copy(outward)
-          .multiplyScalar(speed * (0.35 + seedNorm(seed, 47) * 0.8))
-          .addScaledVector(tangent, speed * (0.12 + seedNorm(seed, 53) * 0.5));
+          .multiplyScalar(speed * (0.2 + seedNorm(seed, 47) * 0.5))
+          .addScaledVector(tangent, speed * (0.3 + seedNorm(seed, 53) * 0.6));
 
         p.acceleration.set(
-          (seedNorm(seed, 59) - 0.5) * 0.1,
-          0.03 + seedNorm(seed, 61) * 0.14,
-          (seedNorm(seed, 67) - 0.5) * 0.1
+          (seedNorm(seed, 59) - 0.5) * 0.15,
+          0.02 + seedNorm(seed, 61) * 0.1,
+          (seedNorm(seed, 67) - 0.5) * 0.15
         );
       },
       []
@@ -294,7 +301,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
       if (particles.length === 0) return;
 
       const t = state.clock.elapsedTime;
-      const audioBoost = 1 + highFreq * 0.25 + lowFreq * 0.2;
+      const audioBoost = 1 + highFreq * 0.4 + lowFreq * 0.3;
 
       for (let i = 0; i < maxParticles; i++) {
         const p = particles[i];
@@ -312,7 +319,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
         }
 
         p.life -= delta;
-        if (p.life <= 0 || p.position.lengthSq() > 44 * 44) {
+        if (p.life <= 0 || p.position.lengthSq() > 50 * 50) {
           p.active = false;
           p.event = null;
           positions[i3] = 0;
@@ -325,27 +332,35 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
           continue;
         }
 
-        const swirl = new THREE.Vector3(-p.position.z, 0, p.position.x).normalize();
-        const swirlStrength = 0.02 + seedNorm(p.seed, 71) * 0.08;
+        // Add turbulence / flow field
+        const turbulence = curlNoise(p.position, t * 0.2 + p.seed * 0.1);
+        p.velocity.addScaledVector(turbulence, delta * (0.4 + lowFreq * 1.5));
 
-        p.velocity.addScaledVector(swirl, swirlStrength * delta * (1 + lowFreq * 0.6));
+        // Central gravity/swirl to keep them from flying completely away
+        const swirl = new THREE.Vector3(-p.position.z, p.position.y * 0.1, p.position.x).normalize();
+        const swirlStrength = 0.05 + seedNorm(p.seed, 71) * 0.1;
+
+        p.velocity.addScaledVector(swirl, swirlStrength * delta * (1 + lowFreq * 0.8));
         p.velocity.addScaledVector(p.acceleration, delta);
-        p.velocity.multiplyScalar(0.984 + seedNorm(p.seed, 79) * 0.008);
-        p.position.addScaledVector(p.velocity, delta * audioBoost * 0.38);
+        p.velocity.multiplyScalar(0.975 + seedNorm(p.seed, 79) * 0.015); // more varied drag
+        p.position.addScaledVector(p.velocity, delta * audioBoost * 0.5);
 
         const lifeRatio = p.life / p.maxLife;
         const fadeCurve = Math.pow(Math.max(0, lifeRatio), 0.75) * Math.sin((1 - lifeRatio) * Math.PI);
-        const flicker = 0.75 + Math.sin(t * (1.1 + seedNorm(p.seed, 83) * 2.1) + p.phase) * 0.45;
+        const flicker = 0.75 + Math.sin(t * (2.1 + seedNorm(p.seed, 83) * 3.1) + p.phase) * 0.45;
 
-        p.size = p.baseSize * Math.max(0.3, fadeCurve) * flicker * (1 + highFreq * 0.45);
+        p.size = p.baseSize * Math.max(0.2, fadeCurve) * flicker * (1 + highFreq * 0.6);
 
         positions[i3] = p.position.x;
         positions[i3 + 1] = p.position.y;
         positions[i3 + 2] = p.position.z;
         aSizes[i] = p.size;
-        aColors[i3] = p.color.r * flicker;
-        aColors[i3 + 1] = p.color.g * flicker;
-        aColors[i3 + 2] = p.color.b * flicker;
+        
+        // Color pulsing with audio and life
+        const colorPulse = 1.0 + (lowFreq * 0.5 * Math.sin(t * 10 + p.phase));
+        aColors[i3] = p.color.r * flicker * colorPulse;
+        aColors[i3 + 1] = p.color.g * flicker * colorPulse;
+        aColors[i3 + 2] = p.color.b * flicker * colorPulse;
       }
 
       geo.attributes.position.needsUpdate = true;

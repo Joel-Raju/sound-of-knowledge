@@ -22,286 +22,176 @@ export function getAudioEngine(): AudioEngine {
   const fftAnalyser    = new Tone.Analyser("fft", 64);
 
   // ── Master FX chain ──────────────────────────────────────────────────────────
-  // Ori's sound: enormous cathedral reverb, gentle shimmer, wide stereo
-  const limiter = new Tone.Limiter(-3).toDestination();
-
-  // Long hall reverb — Ori's world feels vast
-  const reverb = new Tone.Reverb({ decay: 12, wet: 0.55, preDelay: 0.3 }).connect(limiter);
-
-  // Ping-pong delay for spatial width
-  const delay = new Tone.PingPongDelay({ delayTime: "4n", feedback: 0.28, wet: 0.18 }).connect(reverb);
-
-  // Chorus for that shimmering, otherworldly quality
-  const chorus = new Tone.Chorus({ frequency: 0.2, delayTime: 4, depth: 0.5, wet: 0.35 }).connect(delay);
-
-  // EQ: boost highs for sparkle, cut harsh mids
-  const eq = new Tone.EQ3({ low: 2, mid: -3, high: 4 }).connect(chorus);
-
-  const masterGain = new Tone.Gain(0.5).connect(eq);
+  const limiter = new Tone.Limiter(-1).toDestination();
+  const reverb = new Tone.Reverb({ decay: 8, wet: 0.45, preDelay: 0.1 }).connect(limiter);
+  const delay = new Tone.PingPongDelay({ delayTime: "8n", feedback: 0.35, wet: 0.25 }).connect(reverb);
+  const chorus = new Tone.Chorus({ frequency: 0.5, delayTime: 2.5, depth: 0.4, wet: 0.2 }).connect(delay);
+  const eq = new Tone.EQ3({ low: 2, mid: -1, high: 3 }).connect(chorus);
+  
+  const masterGain = new Tone.Gain(1.5).connect(eq);
   masterGain.connect(masterAnalyser);
   masterGain.connect(fftAnalyser);
 
-  // ── Ambient forest drone ──────────────────────────────────────────────────────
-  // Low, breathing pad — like the forest itself is alive
-  const droneSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 0.25,
-    modulationIndex: 1.5,
-    oscillator: { type: "sine" },
-    envelope: { attack: 6, decay: 2, sustain: 1, release: 8 },
-    modulation: { type: "sine" },
-    modulationEnvelope: { attack: 4, decay: 0, sustain: 1, release: 6 },
-    volume: -22,
+  // ── Synths ───────────────────────────────────────────────────────────────────
+  // A dynamic arpeggiator synth
+  const arpSynth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { type: "amtriangle", harmonicity: 2.5, modulationType: "sine" },
+    envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1 },
+    volume: -10,
   }).connect(masterGain);
 
-  // High shimmer layer — like light through leaves
-  const shimmerSynth = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: "sine" },
-    envelope: { attack: 3, decay: 1, sustain: 0.8, release: 5 },
-    volume: -28,
+  // Deep pulsing bass
+  const bassSynth = new Tone.MonoSynth({
+    oscillator: { type: "square" },
+    filter: { Q: 2, type: "lowpass", rolloff: -24 },
+    envelope: { attack: 0.05, decay: 0.3, sustain: 0.1, release: 1.5 },
+    filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1, baseFrequency: 60, octaves: 4 },
+    volume: -6,
   }).connect(masterGain);
 
-  // ── TINY: Harp pluck — single crystalline note ───────────────────────────────
-  const harpSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 4.5,
-    modulationIndex: 6,
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 2.0 },
-    modulation: { type: "sine" },
-    modulationEnvelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.8 },
-    volume: -14,
-  }).connect(masterGain);
-
-  // ── SMALL: Celesta / music box — Ori's iconic sparkle ────────────────────────
-  const celestaSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 6,
-    modulationIndex: 12,
-    oscillator: { type: "sine" },
-    envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 2.5 },
-    modulation: { type: "triangle" },
-    modulationEnvelope: { attack: 0.005, decay: 0.15, sustain: 0, release: 1.0 },
-    volume: -12,
-  }).connect(masterGain);
-
-  // ── MEDIUM: Choir pad — Ori's emotional swell ────────────────────────────────
-  const choirSynth = new Tone.PolySynth(Tone.AMSynth, {
-    harmonicity: 1.0,
-    oscillator: { type: "sine" },
-    envelope: { attack: 0.6, decay: 0.8, sustain: 0.6, release: 3.5 },
-    modulation: { type: "sine" },
-    modulationEnvelope: { attack: 1.0, decay: 0, sustain: 1, release: 2 },
-    volume: -9,
-  }).connect(masterGain);
-
-  // ── LARGE: Orchestral swell — strings + brass hit ────────────────────────────
-  const orchestraSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 1.5,
+  // Lush pad for large edits
+  const chordSynth = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 2.0,
     modulationIndex: 3,
-    oscillator: { type: "sawtooth" },
-    envelope: { attack: 1.2, decay: 1.5, sustain: 0.7, release: 5 },
-    modulation: { type: "sine" },
-    modulationEnvelope: { attack: 0.8, decay: 0.5, sustain: 0.8, release: 3 },
-    volume: -7,
-  }).connect(masterGain);
-
-  // ── REVERT: Dark gong / Kuro's corruption ────────────────────────────────────
-  const kuroSynth = new Tone.FMSynth({
-    harmonicity: 0.8,
-    modulationIndex: 25,
     oscillator: { type: "sine" },
-    envelope: { attack: 0.02, decay: 2.5, sustain: 0.1, release: 6 },
-    modulation: { type: "square" },
-    modulationEnvelope: { attack: 0.01, decay: 1.2, sustain: 0, release: 2 },
+    envelope: { attack: 0.5, decay: 1.0, sustain: 0.5, release: 4 },
+    modulation: { type: "triangle" },
+    modulationEnvelope: { attack: 0.5, decay: 0.5, sustain: 0.8, release: 2 },
     volume: -8,
   }).connect(masterGain);
 
-  // ── BOT: Mechanical crystal ping ─────────────────────────────────────────────
-  const botSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 8,
-    modulationIndex: 20,
-    oscillator: { type: "sine" },
-    envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.8 },
-    modulation: { type: "triangle" },
-    modulationEnvelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.3 },
-    volume: -20,
+  // Sparkly bell synth for standard edits
+  const editSynth = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 3.5,
+    modulationIndex: 5,
+    oscillator: { type: "triangle" },
+    envelope: { attack: 0.005, decay: 0.4, sustain: 0, release: 1.5 },
+    volume: -4,
   }).connect(masterGain);
 
-  droneSynth.maxPolyphony = 24;
-  shimmerSynth.maxPolyphony = 24;
-  harpSynth.maxPolyphony = 64;
-  celestaSynth.maxPolyphony = 64;
-  choirSynth.maxPolyphony = 48;
-  orchestraSynth.maxPolyphony = 48;
-  botSynth.maxPolyphony = 32;
+  // Percussive synth for bot edits
+  const botSynth = new Tone.MembraneSynth({
+    pitchDecay: 0.02,
+    octaves: 4,
+    oscillator: { type: "sine" },
+    envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.8 },
+    volume: -4,
+  }).connect(masterGain);
 
-  // ── Note pools — Ori uses A minor pentatonic / modal scales ──────────────────
-  // A minor pentatonic: A C D E G — ethereal, ancient, forest-like
-  const harpNotes    = ["A5", "C6", "D6", "E6", "G6", "A6", "C7"];
-  const celestaNotes = ["A5", "C6", "E6", "G6", "A6", "C7", "E7"];
+  // Dark gong/bell for reverts
+  const revertSynth = new Tone.MetalSynth({
+    envelope: { attack: 0.001, decay: 1.4, release: 0.2 },
+    harmonicity: 4.1,
+    modulationIndex: 32,
+    resonance: 4000,
+    octaves: 1.5,
+    volume: -2,
+  }).connect(masterGain);
 
-  // Modal chords — Dorian/Aeolian for that Ori emotional quality
-  const choirChords = [
-    ["A3", "C4", "E4", "G4"],      // Am7
-    ["D3", "F3", "A3", "C4"],      // Dm7
-    ["E3", "G3", "B3", "D4"],      // Em7
-    ["G3", "B3", "D4", "F4"],      // G7 (tension)
-    ["C3", "E3", "G3", "B3"],      // Cmaj7
-    ["F3", "A3", "C4", "E4"],      // Fmaj7
+  // ── Musical Data ─────────────────────────────────────────────────────────────
+  // A minor 9 scale / pentatonic blend for a modern atmospheric feel
+  const scale = ["A3", "B3", "C4", "E4", "G4", "A4", "B4", "C5", "E5", "G5", "A5", "C6", "E6"];
+  const bassNotes = ["A1", "F1", "D1", "G1"];
+  const chords = [
+    ["A3", "C4", "E4", "G4"], // Am7
+    ["F3", "A3", "C4", "E4"], // Fmaj7
+    ["D3", "F3", "A3", "C4"], // Dm7
+    ["G3", "B3", "D4", "F4"]  // G7
   ];
-  const orchestraChords = [
-    ["A2", "E3", "A3", "C4", "E4", "G4"],   // Am9
-    ["D2", "A2", "D3", "F3", "A3", "C4"],   // Dm9
-    ["G2", "D3", "G3", "B3", "D4", "F4"],   // G9
-    ["C2", "G2", "C3", "E3", "G3", "B3"],   // Cmaj9
-    ["F2", "C3", "F3", "A3", "C4", "E4"],   // Fmaj9
-  ];
-  const kuroNotes = ["A1", "E1", "D1", "G1"];
-  const botNotes  = ["A7", "E7", "C7", "G7"];
+  
+  let eventQueue: WikiEditEvent[] = [];
+  let density = 0;
+  let tickCount = 0;
+  let chordIndex = 0;
+  
+  let lastSmallEditTime = 0;
+  
+  // ── Generative Transport Loop ────────────────────────────────────────────────
+  const rhythmLoop = new Tone.Loop((time) => {
+    // Density decays over time
+    density = Math.max(0, density * 0.95);
+    
+    // Auto-adjust BPM based on density (80 to 130)
+    // Directly setting the value prevents overlapping rampTo schedule errors
+    const targetBpm = 80 + Math.min(density * 1.5, 50);
+    Tone.Transport.bpm.value = targetBpm;
 
-  let noteIdx = 0;
-  let nextTrigger = 0;
-  let lastTriggerAt = 0;
-  let droneStarted = false;
-  let droneInterval: ReturnType<typeof setInterval> | null = null;
-  let variationTick = 0;
-
-  function hashEvent(event: WikiEditEvent): number {
-    const raw = `${event.id}-${event.title}-${event.timestamp}-${event.sizeDelta}`;
-    let hash = 2166136261;
-    for (let i = 0; i < raw.length; i++) {
-      hash ^= raw.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
+    tickCount++;
+    
+    // Change underlying harmony every 32 ticks
+    if (tickCount % 32 === 0) {
+      chordIndex = (chordIndex + 1) % chords.length;
     }
-    return hash >>> 0;
-  }
+    
+    // Bass pulse on the 1 (every 16 ticks if 16n loop)
+    if (tickCount % 16 === 0 || (density > 20 && tickCount % 8 === 0 && Math.random() > 0.5)) {
+      if (density > 5) {
+        const bassNote = bassNotes[chordIndex];
+        bassSynth.triggerAttackRelease(bassNote, "8n", time + 0.01);
+      }
+    }
 
-  function rand(seed: number, salt: number): number {
-    return ((seed ^ Math.imul(salt, 1103515245)) >>> 0) / 4294967295;
-  }
+    // Process queued edits synchronously to the beat
+    if (eventQueue.length > 0) {
+      // Process up to 3 events per 16th note to prevent overwhelming
+      const toProcess = Math.min(eventQueue.length, 3);
+      for (let i = 0; i < toProcess; i++) {
+        const event = eventQueue.shift()!;
+        
+        // Debounce TINY and SMALL edits to reduce noise
+        if (event.magnitude === "TINY" || event.magnitude === "SMALL") {
+           // only allow 1 small edit per 0.15 seconds of Transport time
+           if (time - lastSmallEditTime < 0.15) {
+             continue; // Skip this small edit
+           }
+           lastSmallEditTime = time;
+        }
 
-  function getNextTriggerTime(): number {
-    const now = Tone.now();
-    nextTrigger = Math.max(now + 0.005, nextTrigger + 0.002);
-    return nextTrigger;
-  }
-
-  function startDrone() {
-    if (droneStarted) return;
-    droneStarted = true;
-
-    // Start the deep forest drone
-    droneSynth.triggerAttack(["A1", "E2", "A2"], Tone.now() + 0.5, 0.08);
-    // High shimmer layer
-    shimmerSynth.triggerAttack(["A4", "E5"], Tone.now() + 2, 0.04);
-
-    // Slowly evolve the drone — Ori's world breathes
-    const droneChords = [
-      { bass: ["A1", "E2", "A2"],    shimmer: ["A4", "E5"] },
-      { bass: ["D2", "A2", "D3"],    shimmer: ["D5", "A5"] },
-      { bass: ["G1", "D2", "G2"],    shimmer: ["G4", "D5"] },
-      { bass: ["E2", "B2", "E3"],    shimmer: ["E5", "B5"] },
-    ];
-    let droneIdx = 0;
-
-    droneInterval = setInterval(() => {
-      if (!initialized) return;
-      droneIdx = (droneIdx + 1) % droneChords.length;
-      const next = droneChords[droneIdx];
-      const t = Tone.now() + 3;
-      droneSynth.releaseAll(t - 0.05);
-      shimmerSynth.releaseAll(t + 0.95);
-      droneSynth.triggerAttack(next.bass, t, 0.06);
-      shimmerSynth.triggerAttack(next.shimmer, t + 1, 0.03);
-    }, 16000);
-  }
+        const energy = Math.min(1, Math.log10(Math.abs(event.sizeDelta) + 10) / 4);
+        
+        // Add a small offset to prevent multiple triggers at the exact same time
+        const t = time + (i * 0.04);
+        
+        if (event.isRevert) {
+          revertSynth.triggerAttackRelease("1n", t, 0.6 + energy * 0.4);
+        } else if (event.isBot) {
+          botSynth.triggerAttackRelease(scale[Math.floor(Math.random() * 5)], "8n", t, 0.4 + energy * 0.4);
+        } else {
+          // Play chords for large edits
+          if (event.magnitude === "LARGE") {
+            const chord = chords[chordIndex];
+            chordSynth.triggerAttackRelease(chord, "2n", t, 0.5 + energy * 0.3);
+          } else {
+            // Pick a note from the scale biased by the current chord
+            const noteOffset = Math.floor(Math.random() * 4);
+            const baseNote = chords[chordIndex][noteOffset] || scale[0];
+            // Transpose up one octave
+            const playNote = baseNote.replace(/(\d)/, (match) => String(parseInt(match) + 1));
+            editSynth.triggerAttackRelease(playNote, "16n", t, 0.3 + energy * 0.4);
+          }
+        }
+      }
+    } else {
+      // If idle but high density, generative arpeggiator kicks in
+      if (density > 10 && Math.random() > 0.4) {
+        const arpNote = chords[chordIndex][Math.floor(Math.random() * 4)];
+        arpSynth.triggerAttackRelease(arpNote, "16n", time + 0.02, 0.15 + (density / 100));
+      }
+    }
+  }, "16n");
 
   function triggerEdit(event: WikiEditEvent) {
     if (!initialized) return;
-    variationTick += 1;
-    const magnitude = event.magnitude;
-    const isBot = event.isBot;
-    const isRevert = event.isRevert;
-    const seed = hashEvent(event) ^ variationTick;
-    const energy = Math.min(1, Math.log10(Math.abs(event.sizeDelta) + 10) / 4);
-
-    const now = Tone.now();
-    const minGap = isRevert || magnitude === "LARGE"
-      ? 0.12
-      : magnitude === "MEDIUM"
-        ? 0.09
-        : 0.06;
-    if (now - lastTriggerAt < minGap) return;
-    lastTriggerAt = now;
-    const jitteredTime = getNextTriggerTime() + (rand(seed, 3) - 0.5) * 0.02;
-
-    chorus.frequency.rampTo(0.16 + rand(seed, 5) * 0.45, 0.2);
-    delay.delayTime.rampTo(0.15 + rand(seed, 7) * 0.35, 0.12);
-    reverb.wet.rampTo(0.4 + energy * 0.4 + rand(seed, 11) * 0.12, 0.3);
-
-    if (isBot) {
-      botSynth.triggerAttackRelease(botNotes[(noteIdx + Math.floor(rand(seed, 13) * botNotes.length)) % botNotes.length], "32n", jitteredTime, 0.4 + rand(seed, 17) * 0.45);
-      noteIdx++;
-      return;
+    density += 1;
+    eventQueue.push(event);
+    
+    // Keep queue manageable
+    if (eventQueue.length > 50) {
+      eventQueue.shift();
     }
-
-    if (isRevert) {
-      // Kuro's dark gong + dissonant chord
-      kuroSynth.modulationIndex.value = 18 + rand(seed, 19) * 26;
-      kuroSynth.triggerAttackRelease(kuroNotes[(noteIdx + Math.floor(rand(seed, 23) * kuroNotes.length)) % kuroNotes.length], "1n", jitteredTime, 0.8 + energy * 0.2);
-      noteIdx++;
-      return;
-    }
-
-    switch (magnitude) {
-      case "TINY": {
-        const noteOffset = Math.floor(rand(seed, 29) * harpNotes.length);
-        harpSynth.triggerAttackRelease(
-          harpNotes[(noteIdx + noteOffset) % harpNotes.length],
-          rand(seed, 31) > 0.5 ? "16n" : "32n",
-          jitteredTime,
-          0.45 + rand(seed, 37) * 0.45
-        );
-        break;
-      }
-      case "SMALL": {
-        const n1 = celestaNotes[(noteIdx + Math.floor(rand(seed, 41) * celestaNotes.length)) % celestaNotes.length];
-        const n2 = celestaNotes[(noteIdx + 2 + Math.floor(rand(seed, 43) * 3)) % celestaNotes.length];
-        const lag = 0.03 + rand(seed, 47) * 0.07;
-        celestaSynth.triggerAttackRelease(n1, "16n", jitteredTime, 0.42 + rand(seed, 53) * 0.4);
-        celestaSynth.triggerAttackRelease(n2, rand(seed, 59) > 0.5 ? "16n" : "8n", jitteredTime + lag, 0.38 + rand(seed, 61) * 0.4);
-        break;
-      }
-      case "MEDIUM": {
-        const chord = choirChords[(noteIdx + Math.floor(rand(seed, 67) * choirChords.length)) % choirChords.length];
-        choirSynth.triggerAttackRelease(chord, rand(seed, 71) > 0.5 ? "2n" : "1n", jitteredTime, 0.52 + energy * 0.35);
-        chord.forEach((note, i) => {
-          harpSynth.triggerAttackRelease(
-            note.replace(/\d/, (d) => String(parseInt(d, 10) + 1)),
-            "16n",
-            jitteredTime + i * (0.035 + rand(seed, 73 + i) * 0.03),
-            0.28 + rand(seed, 79 + i) * 0.3
-          );
-        });
-        break;
-      }
-      case "LARGE": {
-        const chord = orchestraChords[(noteIdx + Math.floor(rand(seed, 89) * orchestraChords.length)) % orchestraChords.length];
-        orchestraSynth.triggerAttackRelease(chord, rand(seed, 97) > 0.45 ? "1n" : "2n", jitteredTime, 0.7 + energy * 0.28);
-        chord.forEach((note, i) => {
-          const step = 0.05 + rand(seed, 101 + i) * 0.06;
-          harpSynth.triggerAttackRelease(note, "8n", jitteredTime + i * step, 0.42 + rand(seed, 109 + i) * 0.3);
-          celestaSynth.triggerAttackRelease(
-            note.replace(/\d/, (d) => String(parseInt(d, 10) + 1)),
-            "16n",
-            jitteredTime + i * step + 0.03 + rand(seed, 127 + i) * 0.03,
-            0.3 + rand(seed, 131 + i) * 0.26
-          );
-        });
-        break;
-      }
-    }
-    noteIdx++;
   }
 
+  // Analyzers
   function getAmplitude(): number {
     const buf = masterAnalyser.getValue() as Float32Array;
     let sum = 0;
@@ -326,15 +216,16 @@ export function getAudioEngine(): AudioEngine {
   }
 
   function dispose() {
-    if (droneInterval) clearInterval(droneInterval);
-    droneSynth.releaseAll();    droneSynth.dispose();
-    shimmerSynth.releaseAll();  shimmerSynth.dispose();
-    harpSynth.dispose();
-    celestaSynth.dispose();
-    choirSynth.dispose();
-    orchestraSynth.dispose();
-    kuroSynth.dispose();
+    rhythmLoop.dispose();
+    Tone.Transport.stop();
+    
+    arpSynth.dispose();
+    bassSynth.dispose();
+    chordSynth.dispose();
+    editSynth.dispose();
     botSynth.dispose();
+    revertSynth.dispose();
+    
     masterGain.dispose();
     eq.dispose();
     chorus.dispose();
@@ -343,6 +234,7 @@ export function getAudioEngine(): AudioEngine {
     limiter.dispose();
     masterAnalyser.dispose();
     fftAnalyser.dispose();
+    
     initialized = false;
     engine = null;
   }
@@ -351,8 +243,10 @@ export function getAudioEngine(): AudioEngine {
     init: async () => {
       if (initialized) return;
       await Tone.start();
+      Tone.Transport.bpm.value = 80;
+      Tone.Transport.start();
+      rhythmLoop.start(0);
       initialized = true;
-      startDrone();
     },
     triggerEdit,
     getAmplitude,
