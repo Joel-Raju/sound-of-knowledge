@@ -59,7 +59,9 @@ export function getAudioEngine(): AudioEngine {
     },
     envelope: { attack: 1.5, decay: 0.8, sustain: 0.6, release: 8 },
     volume: 3,
-  }).connect(masterGain);
+  });
+  organSynth.maxPolyphony = 8;
+  organSynth.connect(masterGain);
   
   // Gentle lowpass for warmth without mud
   const organFilter = new Tone.Filter({
@@ -95,7 +97,9 @@ export function getAudioEngine(): AudioEngine {
     },
     envelope: { attack: 2.0, decay: 1.0, sustain: 0.5, release: 8 },
     volume: 0,
-  }).connect(masterGain);
+  });
+  padSynth.maxPolyphony = 6;
+  padSynth.connect(masterGain);
 
   // Sparkly high bell for small edits
   const editSynth = new Tone.PolySynth(Tone.FMSynth, {
@@ -104,7 +108,9 @@ export function getAudioEngine(): AudioEngine {
     oscillator: { type: "sine" },
     envelope: { attack: 0.005, decay: 0.5, sustain: 0, release: 2 },
     volume: 2,
-  }).connect(masterGain);
+  });
+  editSynth.maxPolyphony = 12;
+  editSynth.connect(masterGain);
 
   // Percussive synth for bot edits
   const botSynth = new Tone.MembraneSynth({

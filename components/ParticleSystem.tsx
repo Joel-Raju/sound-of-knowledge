@@ -163,7 +163,7 @@ type Props = {
 
 const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
   function ParticleSystem({ highFreq, lowFreq, isLowTier, onHoverChange, onParticleClick }, ref) {
-    const maxParticles = isLowTier ? 1200 : 4800;
+    const maxParticles = isLowTier ? 1000 : 2400;
     const [bufferVersion, setBufferVersion] = useState(0);
 
     const geoRef = useRef<THREE.BufferGeometry>(null);
@@ -302,6 +302,8 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
 
       const t = state.clock.elapsedTime;
       const audioBoost = 1 + highFreq * 0.4 + lowFreq * 0.3;
+      const turbulenceTime = t * 0.2;
+      let needsUpdate = false;
 
       for (let i = 0; i < maxParticles; i++) {
         const p = particles[i];
@@ -332,8 +334,8 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
           continue;
         }
 
-        // Add turbulence / flow field
-        const turbulence = curlNoise(p.position, t * 0.2 + p.seed * 0.1);
+        // Simplified turbulence - reduce calculations
+        const turbulence = curlNoise(p.position, turbulenceTime + p.seed * 0.1);
         p.velocity.addScaledVector(turbulence, delta * (0.4 + lowFreq * 1.5));
 
         // Central gravity/swirl to keep them from flying completely away
@@ -342,7 +344,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
 
         p.velocity.addScaledVector(swirl, swirlStrength * delta * (1 + lowFreq * 0.8));
         p.velocity.addScaledVector(p.acceleration, delta);
-        p.velocity.multiplyScalar(0.975 + seedNorm(p.seed, 79) * 0.015); // more varied drag
+        p.velocity.multiplyScalar(0.975 + seedNorm(p.seed, 79) * 0.015);
         p.position.addScaledVector(p.velocity, delta * audioBoost * 0.5);
 
         const lifeRatio = p.life / p.maxLife;
@@ -350,6 +352,7 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
         const flicker = 0.75 + Math.sin(t * (2.1 + seedNorm(p.seed, 83) * 3.1) + p.phase) * 0.45;
 
         p.size = p.baseSize * Math.max(0.2, fadeCurve) * flicker * (1 + highFreq * 0.6);
+        needsUpdate = true;
 
         positions[i3] = p.position.x;
         positions[i3 + 1] = p.position.y;
@@ -363,9 +366,11 @@ const ParticleSystem = forwardRef<ParticleSystemHandle, Props>(
         aColors[i3 + 2] = p.color.b * flicker * colorPulse;
       }
 
-      geo.attributes.position.needsUpdate = true;
-      (geo.attributes as Record<string, THREE.BufferAttribute>).aColor.needsUpdate = true;
-      (geo.attributes as Record<string, THREE.BufferAttribute>).aSize.needsUpdate = true;
+      if (needsUpdate) {
+        geo.attributes.position.needsUpdate = true;
+        (geo.attributes as Record<string, THREE.BufferAttribute>).aColor.needsUpdate = true;
+        (geo.attributes as Record<string, THREE.BufferAttribute>).aSize.needsUpdate = true;
+      }
     });
 
     const uniforms = useMemo(() => ({ uTime: { value: 0 } }), []);

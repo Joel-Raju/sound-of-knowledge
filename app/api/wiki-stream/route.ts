@@ -37,6 +37,8 @@ export async function GET(request: Request) {
       const reader = upstreamRes.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let lastSentTime = 0;
+      const MIN_INTERVAL_MS = 50; // Max 20 events/second
 
       try {
         while (true) {
@@ -61,9 +63,14 @@ export async function GET(request: Request) {
               const event = normalizeEvent(raw);
               if (!event) continue;
 
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
-              );
+              // Throttle events to prevent overwhelming clients
+              const now = Date.now();
+              if (now - lastSentTime >= MIN_INTERVAL_MS) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+                );
+                lastSentTime = now;
+              }
             } catch {
               // skip malformed lines
             }

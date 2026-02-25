@@ -93,12 +93,12 @@ export const orbVolumetricFragmentShader = /* glsl */ `
     float tNear = max(hit.x, 0.0);
     float tFar = max(hit.y, tNear + 0.001);
     float span = tFar - tNear;
-    float stepSize = span / 24.0;
+    float stepSize = span / 18.0;
     float t = tNear;
 
     float density = 0.0;
     float glowAccum = 0.0;
-    for (int i = 0; i < 24; i++) {
+    for (int i = 0; i < 18; i++) {
       vec3 pos = ro + rd * t;
       vec3 local = (pos - center) / uRadius;
       float radial = 1.0 - clamp(length(local), 0.0, 1.0);

@@ -70,7 +70,7 @@ export default function KnowledgeOrb({
 
   return (
     <mesh ref={meshRef}>
-      <sphereGeometry args={[1.8, isLowTier ? 64 : 128, isLowTier ? 64 : 128]} />
+      <sphereGeometry args={[1.8, isLowTier ? 48 : 64, isLowTier ? 48 : 64]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={orbVertexShader}

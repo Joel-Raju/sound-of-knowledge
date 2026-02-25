@@ -138,6 +138,12 @@ function InnerScene({
 
   const displaceRef = useRef(0);
   const isRevertRef = useRef(0);
+  const lastVisualUpdateRef = useRef({
+    amplitude: 0,
+    lowFreq: 0,
+    highFreq: 0,
+    displace: 0,
+  });
 
   const setAudio = useStore((s) => s.setAudio);
   const dequeue = useStore((s) => s.dequeue);
@@ -172,15 +178,31 @@ function InnerScene({
         isRevertRef.current = event.isRevert ? 1 : 0.2;
       }
 
-      setVisualState({
-        amplitude: amp,
-        lowFreq: low,
-        highFreq: high,
-        displace: displaceRef.current,
-        baseColor: getBaseColor(event),
-        emissiveColor: getEmissiveColor(event),
-        isRevert: isRevertRef.current,
-      });
+      // Only update visual state if changes are significant (threshold-based)
+      const last = lastVisualUpdateRef.current;
+      const shouldUpdate = 
+        Math.abs(amp - last.amplitude) > 0.02 ||
+        Math.abs(low - last.lowFreq) > 0.02 ||
+        Math.abs(high - last.highFreq) > 0.02 ||
+        Math.abs(displaceRef.current - last.displace) > 0.05;
+
+      if (shouldUpdate) {
+        lastVisualUpdateRef.current = {
+          amplitude: amp,
+          lowFreq: low,
+          highFreq: high,
+          displace: displaceRef.current,
+        };
+        setVisualState({
+          amplitude: amp,
+          lowFreq: low,
+          highFreq: high,
+          displace: displaceRef.current,
+          baseColor: getBaseColor(event),
+          emissiveColor: getEmissiveColor(event),
+          isRevert: isRevertRef.current,
+        });
+      }
     }
   });
 

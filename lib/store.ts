@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { WikiEditEvent } from "./types";
 
 const MAX_QUEUE = 200;
-const MAX_HISTORY = 500;
+const MAX_HISTORY = 200;
 
 type AudioState = {
   amplitude: number;

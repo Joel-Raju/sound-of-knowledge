@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useStore } from "@/lib/store";
 
 function useFPS() {
@@ -44,7 +44,7 @@ export default function Overlay() {
   const fps = useFPS();
 
   const intensityPct = Math.round(audio.amplitude * 100);
-  const recentEdits = history.slice(-35).reverse();
+  const recentEdits = useMemo(() => history.slice(-35).reverse(), [history]);
 
   return (
     <>
