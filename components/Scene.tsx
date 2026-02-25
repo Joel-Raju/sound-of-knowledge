@@ -111,16 +111,63 @@ function SpiritGlow({ amplitude, lowFreq }: { amplitude: number; lowFreq: number
   );
 }
 
+// ── Text overlay sprite ──────────────────────────────────────────────────────
+function TextOverlay({ isMobile }: { isMobile: boolean }) {
+  const spriteRef = useRef<THREE.Sprite>(null);
+  
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    
+    const fontSize = isMobile ? 80 : 112;
+    canvas.width = 4096;
+    canvas.height = 512;
+    
+    context.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    context.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.letterSpacing = '0.15em';
+    
+    const text = 'SOUND OF KNOWLEDGE';
+    const x = canvas.width / 2;
+    const y = canvas.height / 2;
+    
+    context.shadowColor = 'rgba(255, 255, 255, 0.6)';
+    context.shadowBlur = 40;
+    context.fillText(text, x, y);
+    context.shadowBlur = 80;
+    context.shadowColor = 'rgba(100, 200, 255, 0.5)';
+    context.fillText(text, x, y);
+    context.shadowBlur = 0;
+    context.fillText(text, x, y);
+    
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }, [isMobile]);
+
+  return (
+    <sprite ref={spriteRef} position={[0, 0, 0]} scale={[isMobile ? 1.5 : 2, isMobile ? 0.375 : 0.5, 1]}>
+      <spriteMaterial map={texture} transparent depthTest={false} depthWrite={false} />
+    </sprite>
+  );
+}
+
 // ─── Inner scene (needs R3F context) ─────────────────────────────────────────
 
 function InnerScene({
   isLowTier,
   onHoverChange,
   onParticleClick,
+  introFinished,
 }: {
   isLowTier: boolean;
   onHoverChange: (info: ParticlePointerInfo | null) => void;
   onParticleClick: (info: ParticlePointerInfo) => void;
+  introFinished: boolean;
 }) {
   const particleRef = useRef<ParticleSystemHandle>(null);
   const driftRef = useRef(0);
@@ -248,6 +295,9 @@ function InnerScene({
         onParticleClick={onParticleClick}
       />
 
+      {/* Text overlay in 3D space - only show after intro */}
+      {introFinished && <TextOverlay isMobile={isMobileDevice()} />}
+
       {/* Deep forest fog — starts close, very dark blue */}
       <fog attach="fog" args={[0x010510, 5, 22]} />
     </>
@@ -363,22 +413,9 @@ export default function Scene() {
           isLowTier={isLowTier}
           onHoverChange={handleParticleHover}
           onParticleClick={handleParticleClick}
+          introFinished={introFinished}
         />
       </Canvas>
-
-      {/* Centered "Sound of Knowledge" text overlay - only show after intro */}
-      {introFinished && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <h1 
-            className="text-white/80 text-base sm:text-xl md:text-2xl lg:text-3xl font-light tracking-widest uppercase select-none"
-            style={{
-              textShadow: '0 0 30px rgba(255,255,255,0.4), 0 0 60px rgba(100,200,255,0.3), 0 0 90px rgba(100,200,255,0.2)',
-            }}
-          >
-            Sound of Knowledge
-          </h1>
-        </div>
-      )}
 
       {popoverInfo && (
         <div
