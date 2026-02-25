@@ -123,7 +123,7 @@ function TextOverlay({ isMobile }: { isMobile: boolean }) {
     canvas.width = 4096;
     canvas.height = 512;
     
-    context.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    context.fillStyle = 'rgba(255, 255, 255, 1.0)';
     context.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -133,11 +133,11 @@ function TextOverlay({ isMobile }: { isMobile: boolean }) {
     const x = canvas.width / 2;
     const y = canvas.height / 2;
     
-    context.shadowColor = 'rgba(255, 255, 255, 0.6)';
+    context.shadowColor = 'rgba(255, 255, 255, 0.8)';
     context.shadowBlur = 40;
     context.fillText(text, x, y);
     context.shadowBlur = 80;
-    context.shadowColor = 'rgba(100, 200, 255, 0.5)';
+    context.shadowColor = 'rgba(100, 200, 255, 0.7)';
     context.fillText(text, x, y);
     context.shadowBlur = 0;
     context.fillText(text, x, y);
@@ -150,7 +150,7 @@ function TextOverlay({ isMobile }: { isMobile: boolean }) {
   }, [isMobile]);
 
   return (
-    <sprite ref={spriteRef} position={[0, 0, 0]} scale={[isMobile ? 1.5 : 2, isMobile ? 0.375 : 0.5, 1]}>
+    <sprite ref={spriteRef} position={[0, 0, 0]} scale={[isMobile ? 2.5 : 2.5, isMobile ? 0.625 : 0.625, 1]}>
       <spriteMaterial map={texture} transparent depthTest={false} depthWrite={false} />
     </sprite>
   );
