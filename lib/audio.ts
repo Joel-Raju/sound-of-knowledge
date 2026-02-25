@@ -22,9 +22,9 @@ export function getAudioEngine(): AudioEngine {
   const fftAnalyser    = new Tone.Analyser("fft", 64);
 
   // ── Master FX chain ──────────────────────────────────────────────────────────
-  const limiter = new Tone.Limiter(-2.0).toDestination();
-  const reverb = new Tone.Reverb({ decay: 12, wet: 0.5, preDelay: 0.25 }).connect(limiter);
-  const delay = new Tone.PingPongDelay({ delayTime: "4n", feedback: 0.35, wet: 0.25 }).connect(reverb);
+  const limiter = new Tone.Limiter(-0.5).toDestination();
+  const reverb = new Tone.Reverb({ decay: 12, wet: 0.35, preDelay: 0.25 }).connect(limiter);
+  const delay = new Tone.PingPongDelay({ delayTime: "4n", feedback: 0.35, wet: 0.18 }).connect(reverb);
   
   // Stereo widening
   const stereoWidener = new Tone.StereoWidener(0.5).connect(delay);
@@ -33,8 +33,8 @@ export function getAudioEngine(): AudioEngine {
   const highPass = new Tone.Filter(80, "highpass").connect(stereoWidener);
   
   const sidechainComp = new Tone.Compressor({
-    threshold: -18,
-    ratio: 3,
+    threshold: -12,
+    ratio: 2.5,
     attack: 0.02,
     release: 0.3,
     knee: 6
@@ -43,9 +43,9 @@ export function getAudioEngine(): AudioEngine {
   const chorus = new Tone.Chorus({ frequency: 0.3, delayTime: 3, depth: 0.4, wet: 0.2 }).connect(sidechainComp);
   
   // Cut the mud (300Hz), boost clarity (3kHz), gentle low shelf
-  const eq = new Tone.EQ3({ low: 2, mid: -4, high: 3 }).connect(chorus);
+  const eq = new Tone.EQ3({ low: 2, mid: -2, high: 3 }).connect(chorus);
   
-  const masterGain = new Tone.Gain(2.5).connect(eq);
+  const masterGain = new Tone.Gain(4.5).connect(eq);
   masterGain.connect(masterAnalyser);
   masterGain.connect(fftAnalyser);
 
@@ -58,7 +58,7 @@ export function getAudioEngine(): AudioEngine {
       spread: 18
     },
     envelope: { attack: 1.5, decay: 0.8, sustain: 0.6, release: 8 },
-    volume: 3,
+    volume: 6,
   });
   organSynth.maxPolyphony = 8;
   organSynth.connect(masterGain);
@@ -107,7 +107,7 @@ export function getAudioEngine(): AudioEngine {
     modulationIndex: 2,
     oscillator: { type: "sine" },
     envelope: { attack: 0.005, decay: 0.5, sustain: 0, release: 2 },
-    volume: 2,
+    volume: 5,
   });
   editSynth.maxPolyphony = 12;
   editSynth.connect(masterGain);
@@ -118,7 +118,7 @@ export function getAudioEngine(): AudioEngine {
     octaves: 2,
     oscillator: { type: "sine" },
     envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.4 },
-    volume: 3,
+    volume: 6,
   }).connect(masterGain);
 
   // Low gong for reverts
@@ -128,7 +128,7 @@ export function getAudioEngine(): AudioEngine {
     modulationIndex: 10,
     resonance: 800,
     octaves: 1.0,
-    volume: 4,
+    volume: 7,
   }).connect(masterGain);
 
   // ── Musical Data ─────────────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ export function getAudioEngine(): AudioEngine {
       chordIndex = (chordIndex + 1) % modalCenters.length;
       // Trigger organ pad on harmonic shift
       const chord = modalCenters[chordIndex];
-      organSynth.triggerAttackRelease(chord, "1m", time, 0.4);
+      organSynth.triggerAttackRelease(chord, "1m", time, 0.7);
     }
     
     // Heartbeat bass on every beat (quarter notes at 60bpm = 1Hz)
@@ -178,7 +178,7 @@ export function getAudioEngine(): AudioEngine {
     const beatInterval = density > 15 ? 2 : 4;
     if (tickCount % beatInterval === 0) {
       const bassNote = bassRoots[chordIndex];
-      bassSynth.triggerAttackRelease(bassNote, "2n", time, 0.6 + Math.min(density / 30, 0.4));
+      bassSynth.triggerAttackRelease(bassNote, "2n", time, 0.8 + Math.min(density / 20, 0.2));
       
       // Sub-bass layer for weight
       const subNote = bassNote.replace(/(\d)/, (match) => String(parseInt(match) - 1));
@@ -203,9 +203,9 @@ export function getAudioEngine(): AudioEngine {
         const t = time + (i * 0.08);
         
         if (event.isRevert) {
-          revertSynth.triggerAttackRelease("1n", t, 0.5 + energy * 0.3);
+          revertSynth.triggerAttackRelease("1n", t, 0.7 + energy * 0.3);
         } else if (event.isBot) {
-          botSynth.triggerAttackRelease(bassRoots[0], "8n", t, 0.3 + energy * 0.3);
+          botSynth.triggerAttackRelease(bassRoots[0], "8n", t, 0.6 + energy * 0.3);
         } else {
           if (event.magnitude === "LARGE") {
             // Shepard tone effect: trigger multiple octaves
@@ -223,17 +223,17 @@ export function getAudioEngine(): AudioEngine {
             
             // Trigger with staggered envelopes for "infinite rising" illusion
    
-            padSynth.triggerAttackRelease(shepardChord, "2n", t, 0.3 + energy * 0.3);
+            padSynth.triggerAttackRelease(shepardChord, "2n", t, 0.7 + energy * 0.2);
             
             // Add high sparkle
-            editSynth.triggerAttackRelease(rootClass + "5", "8n", t + 0.1, 0.2);
+            editSynth.triggerAttackRelease(rootClass + "5", "8n", t + 0.1, 0.6);
           } else {
             // Small edits: single notes from the modal center
             const modalChord = modalCenters[chordIndex];
             const note = modalChord[Math.floor(Math.random() * modalChord.length)];
             // Transpose up an octave for airiness
             const highNote = note.replace(/(\d)/, (match) => String(parseInt(match) + 1));
-            editSynth.triggerAttackRelease(highNote, "4n", t, 0.2 + energy * 0.3);
+            editSynth.triggerAttackRelease(highNote, "4n", t, 0.6 + energy * 0.2);
           }
         }
       }
@@ -243,7 +243,7 @@ export function getAudioEngine(): AudioEngine {
         const modalChord = modalCenters[chordIndex];
         const note = modalChord[Math.floor(Math.random() * modalChord.length)];
         const highNote = note.replace(/(\d)/, (match) => String(parseInt(match) + 2));
-        editSynth.triggerAttackRelease(highNote, "4n", time + 0.05, 0.1);
+        editSynth.triggerAttackRelease(highNote, "4n", time + 0.05, 0.4);
       }
     }
   }, "4n");
