@@ -22,82 +22,124 @@ export function getAudioEngine(): AudioEngine {
   const fftAnalyser    = new Tone.Analyser("fft", 64);
 
   // ── Master FX chain ──────────────────────────────────────────────────────────
-  const limiter = new Tone.Limiter(-0.5).toDestination();
-  const reverb = new Tone.Reverb({ decay: 8, wet: 0.45, preDelay: 0.1 }).connect(limiter);
-  const delay = new Tone.PingPongDelay({ delayTime: "8n", feedback: 0.35, wet: 0.25 }).connect(reverb);
-  const chorus = new Tone.Chorus({ frequency: 0.5, delayTime: 2.5, depth: 0.4, wet: 0.2 }).connect(delay);
-  const eq = new Tone.EQ3({ low: 2, mid: -1, high: 3 }).connect(chorus);
+  const limiter = new Tone.Limiter(-2.0).toDestination();
+  const reverb = new Tone.Reverb({ decay: 12, wet: 0.5, preDelay: 0.25 }).connect(limiter);
+  const delay = new Tone.PingPongDelay({ delayTime: "4n", feedback: 0.35, wet: 0.25 }).connect(reverb);
   
-  const masterGain = new Tone.Gain(2.25).connect(eq);
+  // Stereo widening
+  const stereoWidener = new Tone.StereoWidener(0.5).connect(delay);
+  
+  // Multiband-style processing: high-pass to remove mud, then gentle compression
+  const highPass = new Tone.Filter(80, "highpass").connect(stereoWidener);
+  
+  const sidechainComp = new Tone.Compressor({
+    threshold: -18,
+    ratio: 3,
+    attack: 0.02,
+    release: 0.3,
+    knee: 6
+  }).connect(highPass);
+  
+  const chorus = new Tone.Chorus({ frequency: 0.3, delayTime: 3, depth: 0.4, wet: 0.2 }).connect(sidechainComp);
+  
+  // Cut the mud (300Hz), boost clarity (3kHz), gentle low shelf
+  const eq = new Tone.EQ3({ low: 2, mid: -4, high: 3 }).connect(chorus);
+  
+  const masterGain = new Tone.Gain(2.5).connect(eq);
   masterGain.connect(masterAnalyser);
   masterGain.connect(fftAnalyser);
 
   // ── Synths ───────────────────────────────────────────────────────────────────
-  // A dynamic arpeggiator synth
-  const arpSynth = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: "amtriangle", harmonicity: 2.5, modulationType: "sine" },
-    envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1 },
-    volume: -6,
+  // Sweet organ pad
+  const organSynth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { 
+      type: "fatsine",
+      count: 4,
+      spread: 18
+    },
+    envelope: { attack: 1.5, decay: 0.8, sustain: 0.6, release: 8 },
+    volume: 3,
+  }).connect(masterGain);
+  
+  // Gentle lowpass for warmth without mud
+  const organFilter = new Tone.Filter({
+    frequency: 1800,
+    type: "lowpass",
+    rolloff: -12,
+    Q: 0.5
+  });
+  organSynth.disconnect();
+  organSynth.connect(organFilter);
+  organFilter.connect(masterGain);
+
+  // Deep bass - clean sine
+  const bassSynth = new Tone.MonoSynth({
+    oscillator: { type: "sine" },
+    envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 4 },
+    volume: 6,
   }).connect(masterGain);
 
-  // Deep pulsing bass
-  const bassSynth = new Tone.MonoSynth({
-    oscillator: { type: "square" },
-    filter: { Q: 2, type: "lowpass", rolloff: -24 },
-    envelope: { attack: 0.05, decay: 0.3, sustain: 0.1, release: 1.5 },
-    filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 1, baseFrequency: 60, octaves: 4 },
-    volume: -3,
+  // Sub-bass layer
+  const subBassSynth = new Tone.MonoSynth({
+    oscillator: { type: "sine" },
+    envelope: { attack: 0.05, decay: 0.4, sustain: 0.5, release: 5 },
+    volume: 4,
   }).connect(masterGain);
 
   // Lush pad for large edits
-  const chordSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 2.0,
-    modulationIndex: 3,
-    oscillator: { type: "sine" },
-    envelope: { attack: 0.5, decay: 1.0, sustain: 0.5, release: 4 },
-    modulation: { type: "triangle" },
-    modulationEnvelope: { attack: 0.5, decay: 0.5, sustain: 0.8, release: 2 },
-    volume: -5,
+  const padSynth = new Tone.PolySynth(Tone.Synth, {
+    oscillator: { 
+      type: "fatsine",
+      count: 2,
+      spread: 8
+    },
+    envelope: { attack: 2.0, decay: 1.0, sustain: 0.5, release: 8 },
+    volume: 0,
   }).connect(masterGain);
 
-  // Sparkly bell synth for standard edits
+  // Sparkly high bell for small edits
   const editSynth = new Tone.PolySynth(Tone.FMSynth, {
-    harmonicity: 3.5,
-    modulationIndex: 5,
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.005, decay: 0.4, sustain: 0, release: 1.5 },
-    volume: -1,
+    harmonicity: 2.0,
+    modulationIndex: 2,
+    oscillator: { type: "sine" },
+    envelope: { attack: 0.005, decay: 0.5, sustain: 0, release: 2 },
+    volume: 2,
   }).connect(masterGain);
 
   // Percussive synth for bot edits
   const botSynth = new Tone.MembraneSynth({
     pitchDecay: 0.02,
-    octaves: 4,
+    octaves: 2,
     oscillator: { type: "sine" },
-    envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.8 },
-    volume: 2,
+    envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.4 },
+    volume: 3,
   }).connect(masterGain);
 
-  // Dark gong/bell for reverts
+  // Low gong for reverts
   const revertSynth = new Tone.MetalSynth({
-    envelope: { attack: 0.001, decay: 1.4, release: 0.2 },
-    harmonicity: 4.1,
-    modulationIndex: 32,
-    resonance: 4000,
-    octaves: 1.5,
-    volume: 2,
+    envelope: { attack: 0.001, decay: 2.0, release: 0.5 },
+    harmonicity: 2.0,
+    modulationIndex: 10,
+    resonance: 800,
+    octaves: 1.0,
+    volume: 4,
   }).connect(masterGain);
 
   // ── Musical Data ─────────────────────────────────────────────────────────────
-  // A minor 9 scale / pentatonic blend for a modern atmospheric feel
-  const scale = ["A3", "B3", "C4", "E4", "G4", "A4", "B4", "C5", "E5", "G5", "A5", "C6", "E6"];
-  const bassNotes = ["A1", "F1", "D1", "G1"];
-  const chords = [
-    ["A3", "C4", "E4", "G4"], // Am7
-    ["F3", "A3", "C4", "E4"], // Fmaj7
-    ["D3", "F3", "A3", "C4"], // Dm7
-    ["G3", "B3", "D4", "F4"]  // G7
+  // Modal harmony: Open 5ths and clusters for that Interstellar organ sound
+  // No 3rds - just roots, 5ths, and color tones (2nds/9ths)
+  const modalCenters = [
+    ["A2", "E3", "B3", "D4"],      // Lydian-ish: A-E-B-D (root, 5th, 9th, 4th)
+    ["F2", "C3", "G3", "A3"],      // Lydian: F-C-G-A (root, 5th, 9th, 3rd)
+    ["D2", "A2", "E3", "F#3"],     // Lydian: D-A-E-F# (root, 5th, 9th, #4)
+    ["G2", "D3", "A3", "B3"],      // Mixolydian-ish: G-D-A-B (root, 5th, 9th, 3rd)
   ];
+  
+  // Shepard tone layers - same note class across octaves
+  const shepardLayers = ["A1", "A2", "A3", "A4", "A5"];
+  
+  // Bass roots for heartbeat
+  const bassRoots = ["A1", "F1", "D1", "G1"];
   
   let eventQueue: WikiEditEvent[] = [];
   let density = 0;
@@ -108,77 +150,97 @@ export function getAudioEngine(): AudioEngine {
   
   // ── Generative Transport Loop ────────────────────────────────────────────────
   const rhythmLoop = new Tone.Loop((time) => {
-    // Density decays over time
-    density = Math.max(0, density * 0.95);
+    // Density decays slowly for sustained atmosphere
+    density = Math.max(0, density * 0.92);
     
-    // Auto-adjust BPM based on density (80 to 130)
-    // Directly setting the value prevents overlapping rampTo schedule errors
-    const targetBpm = 80 + Math.min(density * 1.5, 50);
+    // Slow tempo: 60 BPM constant, no ramping
+    const targetBpm = 60;
     Tone.Transport.bpm.value = targetBpm;
 
     tickCount++;
     
-    // Change underlying harmony every 32 ticks
-    if (tickCount % 32 === 0) {
-      chordIndex = (chordIndex + 1) % chords.length;
+    // Change modal center every 16 bars (64 quarter notes = 256 16ths at 60bpm)
+    if (tickCount % 256 === 0) {
+      chordIndex = (chordIndex + 1) % modalCenters.length;
+      // Trigger organ pad on harmonic shift
+      const chord = modalCenters[chordIndex];
+      organSynth.triggerAttackRelease(chord, "1m", time, 0.4);
     }
     
-    // Bass pulse on the 1 (every 16 ticks if 16n loop)
-    if (tickCount % 16 === 0 || (density > 20 && tickCount % 8 === 0 && Math.random() > 0.5)) {
-      if (density > 5) {
-        const bassNote = bassNotes[chordIndex];
-        bassSynth.triggerAttackRelease(bassNote, "8n", time + 0.01);
-      }
+    // Heartbeat bass on every beat (quarter notes at 60bpm = 1Hz)
+    // Double time when density is high
+    const beatInterval = density > 15 ? 2 : 4;
+    if (tickCount % beatInterval === 0) {
+      const bassNote = bassRoots[chordIndex];
+      bassSynth.triggerAttackRelease(bassNote, "2n", time, 0.6 + Math.min(density / 30, 0.4));
+      
+      // Sub-bass layer for weight
+      const subNote = bassNote.replace(/(\d)/, (match) => String(parseInt(match) - 1));
+      subBassSynth.triggerAttackRelease(subNote, "1n", time, 0.5);
+      
+      // Filter opens with density
+      organFilter.frequency.rampTo(600 + density * 100, 0.5, time);
     }
 
-    // Process queued edits synchronously to the beat
+    // Process queued edits
     if (eventQueue.length > 0) {
-      // Process up to 3 events per 16th note to prevent overwhelming
-      const toProcess = Math.min(eventQueue.length, 3);
+      const toProcess = Math.min(eventQueue.length, 2); // Limit for spaciousness
       for (let i = 0; i < toProcess; i++) {
         const event = eventQueue.shift()!;
         
-        // Debounce TINY and SMALL edits to reduce noise
         if (event.magnitude === "TINY" || event.magnitude === "SMALL") {
-           // only allow 1 small edit per 0.15 seconds of Transport time
-           if (time - lastSmallEditTime < 0.15) {
-             continue; // Skip this small edit
-           }
+           if (time - lastSmallEditTime < 0.25) continue;
            lastSmallEditTime = time;
         }
 
-        const energy = Math.min(1, Math.log10(Math.abs(event.sizeDelta) + 10) / 4);
-        
-        // Add a small offset to prevent multiple triggers at the exact same time
-        const t = time + (i * 0.04);
+        const energy = Math.min(1, Math.log10(Math.abs(event.sizeDelta) + 10) / 5);
+        const t = time + (i * 0.08);
         
         if (event.isRevert) {
-          revertSynth.triggerAttackRelease("1n", t, 0.6 + energy * 0.4);
+          revertSynth.triggerAttackRelease("1n", t, 0.5 + energy * 0.3);
         } else if (event.isBot) {
-          botSynth.triggerAttackRelease(scale[Math.floor(Math.random() * 5)], "8n", t, 0.4 + energy * 0.4);
+          botSynth.triggerAttackRelease(bassRoots[0], "8n", t, 0.3 + energy * 0.3);
         } else {
-          // Play chords for large edits
           if (event.magnitude === "LARGE") {
-            const chord = chords[chordIndex];
-            chordSynth.triggerAttackRelease(chord, "2n", t, 0.5 + energy * 0.3);
+            // Shepard tone effect: trigger multiple octaves
+            const baseChord = modalCenters[chordIndex];
+            const rootNote = baseChord[0];
+            const rootClass = rootNote.replace(/\d/, '');
+            
+            // Build shepard layers
+            const shepardChord = [
+              rootClass + "1",
+              rootClass + "2", 
+              rootClass + "3",
+              rootClass + "4"
+            ];
+            
+            // Trigger with staggered envelopes for "infinite rising" illusion
+   
+            padSynth.triggerAttackRelease(shepardChord, "2n", t, 0.3 + energy * 0.3);
+            
+            // Add high sparkle
+            editSynth.triggerAttackRelease(rootClass + "5", "8n", t + 0.1, 0.2);
           } else {
-            // Pick a note from the scale biased by the current chord
-            const noteOffset = Math.floor(Math.random() * 4);
-            const baseNote = chords[chordIndex][noteOffset] || scale[0];
-            // Transpose up one octave
-            const playNote = baseNote.replace(/(\d)/, (match) => String(parseInt(match) + 1));
-            editSynth.triggerAttackRelease(playNote, "16n", t, 0.3 + energy * 0.4);
+            // Small edits: single notes from the modal center
+            const modalChord = modalCenters[chordIndex];
+            const note = modalChord[Math.floor(Math.random() * modalChord.length)];
+            // Transpose up an octave for airiness
+            const highNote = note.replace(/(\d)/, (match) => String(parseInt(match) + 1));
+            editSynth.triggerAttackRelease(highNote, "4n", t, 0.2 + energy * 0.3);
           }
         }
       }
     } else {
-      // If idle but high density, generative arpeggiator kicks in
-      if (density > 10 && Math.random() > 0.4) {
-        const arpNote = chords[chordIndex][Math.floor(Math.random() * 4)];
-        arpSynth.triggerAttackRelease(arpNote, "16n", time + 0.02, 0.15 + (density / 100));
+      // Idle generative: occasional high bell
+      if (density > 5 && Math.random() > 0.85) {
+        const modalChord = modalCenters[chordIndex];
+        const note = modalChord[Math.floor(Math.random() * modalChord.length)];
+        const highNote = note.replace(/(\d)/, (match) => String(parseInt(match) + 2));
+        editSynth.triggerAttackRelease(highNote, "4n", time + 0.05, 0.1);
       }
     }
-  }, "16n");
+  }, "4n");
 
   function triggerEdit(event: WikiEditEvent) {
     if (!initialized) return;
@@ -219,9 +281,11 @@ export function getAudioEngine(): AudioEngine {
     rhythmLoop.dispose();
     Tone.Transport.stop();
     
-    arpSynth.dispose();
+    organSynth.dispose();
+    organFilter.dispose();
     bassSynth.dispose();
-    chordSynth.dispose();
+    subBassSynth.dispose();
+    padSynth.dispose();
     editSynth.dispose();
     botSynth.dispose();
     revertSynth.dispose();
@@ -229,6 +293,9 @@ export function getAudioEngine(): AudioEngine {
     masterGain.dispose();
     eq.dispose();
     chorus.dispose();
+    sidechainComp.dispose();
+    highPass.dispose();
+    stereoWidener.dispose();
     delay.dispose();
     reverb.dispose();
     limiter.dispose();
@@ -243,7 +310,7 @@ export function getAudioEngine(): AudioEngine {
     init: async () => {
       if (initialized) return;
       await Tone.start();
-      Tone.Transport.bpm.value = 80;
+      Tone.Transport.bpm.value = 60;
       Tone.Transport.start();
       rhythmLoop.start(0);
       initialized = true;
