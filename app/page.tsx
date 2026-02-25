@@ -16,12 +16,12 @@ export default function Home() {
       <AboutModal />
 
       {/* Footer */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+      <div className="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-20">
         <a
           href="https://joelraju.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="text-white/30 hover:text-white/60 transition-colors text-xs tracking-widest"
+          className="text-white/30 hover:text-white/60 active:text-white/80 transition-colors text-[10px] sm:text-xs tracking-widest touch-manipulation inline-block py-1"
         >
           created by: joelraju.com
         </a>

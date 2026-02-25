@@ -154,8 +154,9 @@ function InnerScene({
     displaceRef.current = Math.max(0, displaceRef.current - delta * 0.8);
     isRevertRef.current = Math.max(0, isRevertRef.current - delta * 1.0);
 
-    // Process up to 2 events per frame for gentler flow
-    for (let i = 0; i < 2; i++) {
+    // Process fewer events on low-tier devices for better performance
+    const maxEvents = isLowTier ? 1 : 2;
+    for (let i = 0; i < maxEvents; i++) {
       const event = dequeue();
       if (!event) break;
 
@@ -235,7 +236,14 @@ function detectLowTierDevice() {
   const ua = navigator.userAgent.toLowerCase();
   const isMobile = /iphone|ipad|ipod|android|mobile/.test(ua);
   const lowCpu = (navigator.hardwareConcurrency ?? 8) <= 6;
-  return isMobile || lowCpu;
+  const lowMemory = (navigator as any).deviceMemory ? (navigator as any).deviceMemory < 4 : false;
+  return isMobile || lowCpu || lowMemory;
+}
+
+function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent.toLowerCase();
+  return /iphone|ipad|ipod|android|mobile/.test(ua);
 }
 
 // ─── Public Scene component ───────────────────────────────────────────────────
@@ -315,16 +323,18 @@ export default function Scene() {
         </div>
       )}
       <Canvas
-        camera={{ position: [0, 0, 5.5], fov: 42 }}
-        gl={{ antialias: false, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.7 }}
+        camera={{ position: [0, 0, 5.5], fov: isMobileDevice() ? 50 : 42 }}
+        gl={{ antialias: !isLowTier, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.7, powerPreference: "high-performance" }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = isLowTier ? 1.5 : 1.8;
-          gl.setPixelRatio(Math.min(window.devicePixelRatio, isLowTier ? 1.5 : 2));
+          gl.setPixelRatio(Math.min(window.devicePixelRatio, isLowTier ? 1 : 2));
         }}
-        dpr={[1, 2]}
+        dpr={isLowTier ? [1, 1] : [1, 2]}
         style={{ background: "#010510" }}
+        frameloop="always"
+        performance={{ min: 0.5 }}
       >
         <InnerScene
           isLowTier={isLowTier}
@@ -335,18 +345,18 @@ export default function Scene() {
 
       {popoverInfo && (
         <div
-          className="absolute z-30 max-w-xs rounded-lg border border-cyan-300/35 bg-slate-950/90 px-3 py-2 text-xs text-cyan-100 shadow-[0_0_30px_rgba(34,211,238,0.25)] pointer-events-none"
+          className="absolute z-30 max-w-70 sm:max-w-xs rounded-md sm:rounded-lg border border-cyan-300/35 bg-slate-950/95 px-2.5 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs text-cyan-100 shadow-[0_0_30px_rgba(34,211,238,0.25)] pointer-events-none"
           style={{
-            left: Math.min(window.innerWidth - 280, popoverInfo.screenX + 14),
-            top: Math.max(10, popoverInfo.screenY - 24),
+            left: Math.min(window.innerWidth - (isMobileDevice() ? 290 : 280), popoverInfo.screenX + (isMobileDevice() ? 10 : 14)),
+            top: Math.max(10, popoverInfo.screenY - (isMobileDevice() ? 30 : 24)),
           }}
         >
-          <p className="font-semibold text-cyan-50 truncate">{popoverInfo.event.title || "Untitled page"}</p>
-          <p className="mt-1 text-cyan-200/80">
+          <p className="font-semibold text-cyan-50 truncate text-xs sm:text-sm">{popoverInfo.event.title || "Untitled page"}</p>
+          <p className="mt-0.5 sm:mt-1 text-cyan-200/80">
             delta: {popoverInfo.event.sizeDelta > 0 ? "+" : ""}
             {popoverInfo.event.sizeDelta.toLocaleString()} bytes
           </p>
-          <p className="text-cyan-300/75">click particle to open this exact edit</p>
+          <p className="text-cyan-300/75 hidden sm:block">click particle to open this exact edit</p>
         </div>
       )}
     </div>
