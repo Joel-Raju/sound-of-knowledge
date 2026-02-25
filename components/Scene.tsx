@@ -40,9 +40,10 @@ function getDisplace(magnitude: WikiEditEvent["magnitude"]): number {
 
 // ─── Camera drift ─────────────────────────────────────────────────────────────
 
-function CameraDrift({ driftRef }: { driftRef: React.MutableRefObject<number> }) {
+function CameraDrift({ driftRef, isMobile }: { driftRef: React.MutableRefObject<number>; isMobile: boolean }) {
   const { camera } = useThree();
-  const originRef   = useRef(new THREE.Vector3(0, 0, 5.5));
+  const baseZ = isMobile ? 7.5 : 5.5;
+  const originRef   = useRef(new THREE.Vector3(0, 0, baseZ));
   const orbitAngle  = useRef(0);
   const lookTarget  = useRef(new THREE.Vector3());
   const shakeTarget = useRef(new THREE.Vector3());
@@ -54,7 +55,7 @@ function CameraDrift({ driftRef }: { driftRef: React.MutableRefObject<number> })
 
     const ox = Math.sin(orbitAngle.current) * 0.7 + Math.cos(t * 0.07) * 0.25;
     const oy = Math.cos(orbitAngle.current * 0.5) * 0.4 + Math.sin(t * 0.05) * 0.2;
-    const oz = 5.5 + Math.sin(t * 0.04) * 0.4;
+    const oz = baseZ + Math.sin(t * 0.04) * 0.4;
     originRef.current.set(ox, oy, oz);
 
     const drift = driftRef.current;
@@ -185,7 +186,7 @@ function InnerScene({
 
   return (
     <>
-      <CameraDrift driftRef={driftRef} />
+      <CameraDrift driftRef={driftRef} isMobile={isMobileDevice()} />
 
       {/* Deep forest darkness — very low ambient */}
       <ambientLight intensity={0.04} color={0x0a1a2e} />
@@ -323,7 +324,7 @@ export default function Scene() {
         </div>
       )}
       <Canvas
-        camera={{ position: [0, 0, 5.5], fov: isMobileDevice() ? 50 : 42 }}
+        camera={{ position: [0, 0, isMobileDevice() ? 7.5 : 5.5], fov: isMobileDevice() ? 55 : 42 }}
         gl={{ antialias: !isLowTier, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.7, powerPreference: "high-performance" }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
