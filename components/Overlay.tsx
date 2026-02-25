@@ -1,7 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
+
+function useFPS() {
+  const [fps, setFps] = useState(0);
+  const framesRef = useRef(0);
+  const lastTimeRef = useRef(performance.now());
+
+  useEffect(() => {
+    let rafId: number;
+    
+    const tick = () => {
+      framesRef.current++;
+      const now = performance.now();
+      const delta = now - lastTimeRef.current;
+      
+      if (delta >= 1000) {
+        setFps(Math.round((framesRef.current * 1000) / delta));
+        framesRef.current = 0;
+        lastTimeRef.current = now;
+      }
+      
+      rafId = requestAnimationFrame(tick);
+    };
+    
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  return fps;
+}
 
 export default function Overlay() {
   const totalCount = useStore((s) => s.totalCount);
@@ -10,13 +39,24 @@ export default function Overlay() {
   const overlayVisible = useStore((s) => s.overlayVisible);
   const toggleOverlay = useStore((s) => s.toggleOverlay);
   const connected = useStore((s) => s.connected);
+  const toggleAbout = useStore((s) => s.toggleAbout);
   const [streamVisible, setStreamVisible] = useState(true);
+  const fps = useFPS();
 
   const intensityPct = Math.round(audio.amplitude * 100);
   const recentEdits = history.slice(-35).reverse();
 
   return (
     <>
+      {/* About button */}
+      <button
+        onClick={toggleAbout}
+        className="absolute top-4 left-4 z-20 text-white/30 hover:text-white/70 transition-colors text-xs tracking-widest uppercase"
+        aria-label="About"
+      >
+        about
+      </button>
+
       {/* Toggle button */}
       <button
         onClick={toggleOverlay}
@@ -66,6 +106,12 @@ export default function Overlay() {
               />
             </div>
             <span className="text-white/30 text-xs font-mono w-6">{intensityPct}</span>
+          </div>
+
+          {/* FPS counter */}
+          <div className="text-white/40 text-xs font-mono">
+            <span className="text-white/20 uppercase mr-2">fps</span>
+            {fps}
           </div>
         </div>
       )}

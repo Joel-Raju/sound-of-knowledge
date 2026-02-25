@@ -243,6 +243,7 @@ function detectLowTierDevice() {
 export default function Scene() {
   const setConnected = useStore((s) => s.setConnected);
   const enqueue = useStore((s) => s.enqueue);
+  const introFinished = useStore((s) => s.introFinished);
   const [audioReady, setAudioReady] = useState(false);
   const [popoverInfo, setPopoverInfo] = useState<ParticlePointerInfo | null>(null);
   const isLowTier = useMemo(() => detectLowTierDevice(), []);
@@ -306,7 +307,7 @@ export default function Scene() {
       onClick={initAudio}
       onTouchStart={initAudio}
     >
-      {!audioReady && (
+      {introFinished && !audioReady && (
         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
           <p className="text-white/40 text-sm tracking-widest uppercase animate-pulse">
             tap to activate sound

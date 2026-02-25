@@ -17,12 +17,17 @@ type Store = {
   audio: AudioState;
   overlayVisible: boolean;
   connected: boolean;
+  introFinished: boolean;
+  aboutVisible: boolean;
 
   enqueue: (event: WikiEditEvent) => void;
   dequeue: () => WikiEditEvent | undefined;
   setAudio: (audio: Partial<AudioState>) => void;
   toggleOverlay: () => void;
   setConnected: (v: boolean) => void;
+  setIntroFinished: (v: boolean) => void;
+  toggleAbout: () => void;
+  setAboutVisible: (v: boolean) => void;
 };
 
 export const useStore = create<Store>((set, get) => ({
@@ -32,6 +37,8 @@ export const useStore = create<Store>((set, get) => ({
   audio: { amplitude: 0, lowFreq: 0, highFreq: 0 },
   overlayVisible: true,
   connected: false,
+  introFinished: false,
+  aboutVisible: false,
 
   enqueue: (event) =>
     set((s) => ({
@@ -60,4 +67,10 @@ export const useStore = create<Store>((set, get) => ({
   toggleOverlay: () => set((s) => ({ overlayVisible: !s.overlayVisible })),
 
   setConnected: (v) => set({ connected: v }),
+
+  setIntroFinished: (v) => set({ introFinished: v }),
+
+  toggleAbout: () => set((s) => ({ aboutVisible: !s.aboutVisible })),
+
+  setAboutVisible: (v) => set({ aboutVisible: v }),
 }));
