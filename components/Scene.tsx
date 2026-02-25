@@ -366,6 +366,20 @@ export default function Scene() {
         />
       </Canvas>
 
+      {/* Centered "Sound of Knowledge" text overlay - only show after intro */}
+      {introFinished && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <h1 
+            className="text-white/80 text-base sm:text-xl md:text-2xl lg:text-3xl font-light tracking-widest uppercase select-none"
+            style={{
+              textShadow: '0 0 30px rgba(255,255,255,0.4), 0 0 60px rgba(100,200,255,0.3), 0 0 90px rgba(100,200,255,0.2)',
+            }}
+          >
+            Sound of Knowledge
+          </h1>
+        </div>
+      )}
+
       {popoverInfo && (
         <div
           className="absolute z-30 max-w-70 sm:max-w-xs rounded-md sm:rounded-lg border border-cyan-300/35 bg-slate-950/95 px-2.5 sm:px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs text-cyan-100 shadow-[0_0_30px_rgba(34,211,238,0.25)] pointer-events-none"

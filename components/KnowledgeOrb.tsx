@@ -44,8 +44,9 @@ export default function KnowledgeOrb({
       uEmissiveColor: { value: new THREE.Color(0x4488ff) },
       uIsRevert: { value: 0 },
       uRadius: { value: 1.8 },
+      uIsLowTier: { value: isLowTier ? 1.0 : 0.0 },
     }),
-    []
+    [isLowTier]
   );
 
   useFrame((state) => {
@@ -70,7 +71,7 @@ export default function KnowledgeOrb({
 
   return (
     <mesh ref={meshRef}>
-      <sphereGeometry args={[1.8, isLowTier ? 48 : 64, isLowTier ? 48 : 64]} />
+      <sphereGeometry args={[1.8, isLowTier ? 32 : 64, isLowTier ? 32 : 64]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={orbVertexShader}

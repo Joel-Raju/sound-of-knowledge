@@ -22,7 +22,7 @@ export function getAudioEngine(): AudioEngine {
   const fftAnalyser    = new Tone.Analyser("fft", 64);
 
   // ── Master FX chain ──────────────────────────────────────────────────────────
-  const limiter = new Tone.Limiter(-0.5).toDestination();
+  const limiter = new Tone.Limiter(0).toDestination();
   const reverb = new Tone.Reverb({ decay: 12, wet: 0.35, preDelay: 0.25 }).connect(limiter);
   const delay = new Tone.PingPongDelay({ delayTime: "4n", feedback: 0.35, wet: 0.18 }).connect(reverb);
   
@@ -40,12 +40,15 @@ export function getAudioEngine(): AudioEngine {
     knee: 6
   }).connect(highPass);
   
-  const chorus = new Tone.Chorus({ frequency: 0.3, delayTime: 3, depth: 0.4, wet: 0.2 }).connect(sidechainComp);
+  // Makeup gain to compensate for compression
+  const makeupGain = new Tone.Gain(1.8).connect(sidechainComp);
+  
+  const chorus = new Tone.Chorus({ frequency: 0.3, delayTime: 3, depth: 0.4, wet: 0.2 }).connect(makeupGain);
   
   // Cut the mud (300Hz), boost clarity (3kHz), gentle low shelf
   const eq = new Tone.EQ3({ low: 2, mid: -2, high: 3 }).connect(chorus);
   
-  const masterGain = new Tone.Gain(4.5).connect(eq);
+  const masterGain = new Tone.Gain(6.0).connect(eq);
   masterGain.connect(masterAnalyser);
   masterGain.connect(fftAnalyser);
 
@@ -299,6 +302,7 @@ export function getAudioEngine(): AudioEngine {
     masterGain.dispose();
     eq.dispose();
     chorus.dispose();
+    makeupGain.dispose();
     sidechainComp.dispose();
     highPass.dispose();
     stereoWidener.dispose();
