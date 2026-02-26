@@ -41,7 +41,7 @@ Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stre
 |----------|------------|
 | Framework | [Next.js](https://nextjs.org) 16 (App Router) |
 | UI | [React](https://react.dev) 19, [TailwindCSS](https://tailwindcss.com) 4 |
-| 3D | [Three.js](https://threejs.org), [React Three Fiber](https://docs.pmnd.rs/react-three-fiber), [Drei](https://github.com/pmndrs/drei), [Postprocessing](https://github.com/pmndrs/react-postprocessing) |
+| 3D | [Three.js](https://threejs.org), [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) |
 | Audio | [Tone.js](https://tonejs.github.io) (Web Audio API) |
 | State | [Zustand](https://github.com/pmndrs/zustand) |
 | Deployment | [Vercel](https://vercel.com) |
