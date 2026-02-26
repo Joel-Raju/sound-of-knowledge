@@ -111,47 +111,28 @@ function SpiritGlow({ amplitude, lowFreq }: { amplitude: number; lowFreq: number
   );
 }
 
-// ── Text overlay sprite ──────────────────────────────────────────────────────
+// ── Simple text overlay (Three.js sprite, no effects) ────────────────────────
 function TextOverlay({ isMobile }: { isMobile: boolean }) {
-  const spriteRef = useRef<THREE.Sprite>(null);
-  
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d')!;
-    
-    const fontSize = isMobile ? 80 : 112;
-    canvas.width = 4096;
-    canvas.height = 512;
-    
-    context.fillStyle = 'rgba(255, 255, 255, 1.0)';
-    context.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.letterSpacing = '0.15em';
-    
-    const text = 'SOUND OF KNOWLEDGE';
-    const x = canvas.width / 2;
-    const y = canvas.height / 2;
-    
-    context.shadowColor = 'rgba(255, 255, 255, 0.8)';
-    context.shadowBlur = 40;
-    context.fillText(text, x, y);
-    context.shadowBlur = 80;
-    context.shadowColor = 'rgba(100, 200, 255, 0.7)';
-    context.fillText(text, x, y);
-    context.shadowBlur = 0;
-    context.fillText(text, x, y);
-    
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.minFilter = THREE.LinearFilter;
-    tex.magFilter = THREE.LinearFilter;
-    tex.needsUpdate = true;
-    return tex;
+    const ctx = canvas.getContext('2d')!;
+
+    const fontSize = isMobile ? 90 : 80;
+    canvas.width = 1600;
+    canvas.height = 128;
+
+    ctx.fillStyle = 'white';
+    ctx.font = `500 ${fontSize}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('SOUND OF KNOWLEDGE', canvas.width / 2, canvas.height / 2);
+
+    return new THREE.CanvasTexture(canvas);
   }, [isMobile]);
 
   return (
-    <sprite ref={spriteRef} position={[0, 0, 0]} scale={[isMobile ? 2.5 : 2.5, isMobile ? 0.625 : 0.625, 1]}>
-      <spriteMaterial map={texture} transparent depthTest={false} depthWrite={false} />
+    <sprite position={[0, 0, 0]} scale={isMobile ? [2.4, 0.3, 1] : [1.875, 0.25, 1]}>
+      <spriteMaterial map={texture} transparent opacity={0.9} />
     </sprite>
   );
 }
