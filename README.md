@@ -148,7 +148,7 @@ The `vercel.json` config enables streaming support for the SSE endpoint.
 
 ## Resources
 
-- [Blog Post](./sound-of-knowledge-blog.md) — Deep dive into the technical implementation
+- [Blog Post](https://www.joelraju.com/blog/sound-of-knowledge/) — Deep dive into the technical implementation
 - [Wikimedia Event Streams](https://stream.wikimedia.org/v2/stream/recentchange) — Data source documentation
 - [React Three Fiber Docs](https://docs.pmnd.rs/react-three-fiber) — 3D rendering in React
 - [Tone.js Docs](https://tonejs.github.io/docs/) — Web Audio API abstraction
