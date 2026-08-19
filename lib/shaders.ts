@@ -185,29 +185,31 @@ export const orbVolumetricFragmentShader = /* glsl */ `
       t += stepSize;
     }
 
-    density *= 2.2 + uAmplitude * 1.8 + uLowFreq * 0.9;
-    glowAccum *= 0.2 + uHighFreq * 0.25;
+    density *= 1.6 + uAmplitude * 1.4 + uLowFreq * 0.7;
+    glowAccum *= 0.18 + uHighFreq * 0.22;
 
     vec3 viewDir = normalize(cameraPosition - vWorldPos);
     float ndv = clamp(dot(normalize(vWorldNormal), viewDir), 0.0, 1.0);
     float fresnel = pow(1.0 - ndv, 4.0);
 
     vec3 iri = iridescence(ndv);
-    vec3 base = mix(uBaseColor, uEmissiveColor, 0.45 + uAmplitude * 0.25);
-    vec3 innerMist = mix(base, vec3(0.82, 0.95, 1.0), density * 0.22);
+    vec3 base = mix(uBaseColor, uEmissiveColor, 0.5 + uAmplitude * 0.3);
+    // Lift the inner mist toward luminous white-cyan so the orb reads as energy
+    vec3 innerMist = mix(base, vec3(0.82, 0.95, 1.0), density * 0.3);
     vec3 edgeGlow = mix(vec3(0.0, 0.9, 1.0), vec3(1.0), fresnel);
     vec3 chroma = mix(vec3(1.0), iri, 0.18 + fresnel * 0.55);
 
-    vec3 color = innerMist * (0.6 + density * 0.6);
-    color += edgeGlow * (fresnel * (2.4 + uAmplitude * 1.2));
-    color += uEmissiveColor * glowAccum * 0.8;
+    vec3 color = innerMist * (0.55 + density * 0.55);
+    color += edgeGlow * (fresnel * (2.6 + uAmplitude * 1.3));
+    color += uEmissiveColor * glowAccum * 0.9;
 
     vec3 revertTint = vec3(0.72, 0.2, 0.95);
     color = mix(color, color + revertTint * (0.45 + fresnel), uIsRevert);
     color *= chroma;
 
     float depthFade = smoothstep(0.02, 0.20, span);
-    float alpha = clamp(density * 0.32 + fresnel * 0.68, 0.0, 1.0) * depthFade;
+    // Lift base alpha so the orb body is present (bloom adds glow on top)
+    float alpha = clamp(density * 0.4 + fresnel * 0.7, 0.0, 1.0) * depthFade;
 
     gl_FragColor = vec4(color, alpha);
   }
@@ -231,17 +233,84 @@ export const orbFallbackFragmentShader = /* glsl */ `
     float fresnel = pow(1.0 - ndv, 4.0);
     float wideRim = pow(1.0 - ndv, 1.25);
 
-    vec3 core = mix(uBaseColor, vec3(0.85, 0.95, 1.0), ndv * 0.75);
-    vec3 rim = mix(vec3(0.0, 0.75, 0.92), vec3(1.0), fresnel);
+    // Luminous core (lifted from dark) + sharp spirit rim
+    vec3 core = mix(uBaseColor, vec3(0.7, 0.88, 1.0), ndv * 0.8);
+    vec3 rim = mix(vec3(0.0, 0.8, 0.95), vec3(1.0), fresnel);
 
     vec3 iridescence = 0.5 + 0.5 * cos(vec3(0.0, 1.7, 3.1) + (1.0 - ndv) * 7.0 + uTime * 0.04);
-    vec3 color = core + rim * (0.75 + uLowFreq * 0.35) * wideRim;
-    color += uEmissiveColor * (0.22 + uAmplitude * 0.55 + uHighFreq * 0.25);
+    vec3 color = core + rim * (0.8 + uLowFreq * 0.4) * wideRim;
+    color += uEmissiveColor * (0.25 + uAmplitude * 0.6 + uHighFreq * 0.3);
     color *= mix(vec3(1.0), iridescence, 0.15 + fresnel * 0.35);
 
     color = mix(color, color + vec3(0.6, 0.1, 0.85) * (0.3 + fresnel), uIsRevert);
 
-    float alpha = clamp(0.45 + wideRim * 0.4 + fresnel * 0.35, 0.0, 1.0);
+    float alpha = clamp(0.5 + wideRim * 0.4 + fresnel * 0.35, 0.0, 1.0);
     gl_FragColor = vec4(color, alpha);
   }
 `;
+
+// ── Particle shaders (velocity-stretched glowing sprite) ──────────────────────
+// Stretches the point sprite along screen-space velocity to fake motion-blur
+// streaks, and uses a two-layer radial glow (bright core + wide halo).
+
+export const particleVertexShader = /* glsl */`
+  attribute float aSize;
+  attribute vec3  aColor;
+  attribute vec3  aVelocity;
+  varying   vec3  vColor;
+  varying   float vAlpha;
+  varying   vec2  vScreenVel;   // normalized screen-space velocity dir
+  varying   float vStretch;     // stretch factor along velocity
+  uniform   float uTime;
+
+  void main() {
+    vColor = aColor;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float z = max(0.1, -mv.z);
+    gl_Position = projectionMatrix * mv;
+
+    // Project velocity (view space) to screen space to get stretch direction
+    vec3 velView = normalize(mat3(modelViewMatrix) * aVelocity);
+    vec4 velProj = projectionMatrix * vec4(velView * 0.5, 0.0);
+    vec2 screenDir = normalize(velProj.xy + vec2(0.0001));
+    vScreenVel = screenDir;
+
+    // Subtle stretch — keep motes as small glowing streaks, not smears
+    float speed = length(aVelocity);
+    vStretch = 1.0 + clamp(speed * 1.1, 0.0, 1.6);
+
+    // Visible motes — sized to be clearly hoverable/clickable
+    gl_PointSize = clamp(aSize * (380.0 / z), 0.0, 130.0);
+    vAlpha = 1.0;
+  }
+`;
+
+export const particleFragmentShader = /* glsl */`
+  varying vec3  vColor;
+  varying float vAlpha;
+  varying vec2  vScreenVel;
+  varying float vStretch;
+
+  void main() {
+    // Centered UV in [-1, 1]
+    vec2 uv = gl_PointCoord * 2.0 - 1.0;
+
+    // Rotate UV so the "long" axis aligns with screen-space velocity,
+    // then compress the long axis by 1/vStretch (sprite becomes a streak).
+    float c = vScreenVel.x;
+    float s = vScreenVel.y;
+    vec2 rotated = vec2(uv.x * c + uv.y * s, -uv.x * s + uv.y * c);
+    rotated.x /= vStretch;
+
+    float dist = length(rotated);
+    if (dist > 1.0) discard;
+
+    // Tighter bright core + soft halo → reads as a small point of light
+    float core = exp(-dist * dist * 9.0);
+    float halo = exp(-dist * dist * 2.2) * 0.35;
+    float alpha = (core + halo) * vAlpha;
+
+    gl_FragColor = vec4(vColor * (1.0 + core * 1.5), alpha);
+  }
+`;
+

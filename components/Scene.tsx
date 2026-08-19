@@ -8,17 +8,20 @@ import ParticleSystem, {
   type ParticlePointerInfo,
   type ParticleSystemHandle,
 } from "./ParticleSystem";
+import PostFX from "./PostFX";
 import { useStore } from "@/lib/store";
 import { getAudioEngine } from "@/lib/audio";
 import type { WikiEditEvent } from "@/lib/types";
 
 // ─── Color palette helpers ────────────────────────────────────────────────────
+// Luminous (not near-black) base palette so the orb reads as contained energy.
+// Bloom carries the blowout; the shader interior stays rich.
 
 function getBaseColor(event: WikiEditEvent): THREE.Color {
-  if (event.isRevert) return new THREE.Color(0x1a0520);
-  if (event.isBot)    return new THREE.Color(0x041520);
-  if (event.sizeDelta > 0) return new THREE.Color(0x020d1a);
-  return new THREE.Color(0x060a1e);
+  if (event.isRevert) return new THREE.Color(0x1a0830);
+  if (event.isBot)    return new THREE.Color(0x04222a);
+  if (event.sizeDelta > 0) return new THREE.Color(0x0a1f3d);
+  return new THREE.Color(0x0a1430);
 }
 
 function getEmissiveColor(event: WikiEditEvent): THREE.Color {
@@ -111,44 +114,16 @@ function SpiritGlow({ amplitude, lowFreq }: { amplitude: number; lowFreq: number
   );
 }
 
-// ── Simple text overlay (Three.js sprite, no effects) ────────────────────────
-function TextOverlay({ isMobile }: { isMobile: boolean }) {
-  const texture = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
-
-    const fontSize = isMobile ? 90 : 80;
-    canvas.width = 1600;
-    canvas.height = 128;
-
-    ctx.fillStyle = 'white';
-    ctx.font = `500 ${fontSize}px system-ui, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('SOUND OF KNOWLEDGE', canvas.width / 2, canvas.height / 2);
-
-    return new THREE.CanvasTexture(canvas);
-  }, [isMobile]);
-
-  return (
-    <sprite position={[0, 0, 0]} scale={isMobile ? [2.4, 0.3, 1] : [1.875, 0.25, 1]}>
-      <spriteMaterial map={texture} transparent opacity={0.9} />
-    </sprite>
-  );
-}
-
 // ─── Inner scene (needs R3F context) ─────────────────────────────────────────
 
 function InnerScene({
   isLowTier,
   onHoverChange,
   onParticleClick,
-  introFinished,
 }: {
   isLowTier: boolean;
   onHoverChange: (info: ParticlePointerInfo | null) => void;
   onParticleClick: (info: ParticlePointerInfo) => void;
-  introFinished: boolean;
 }) {
   const particleRef = useRef<ParticleSystemHandle>(null);
   const driftRef = useRef(0);
@@ -276,11 +251,11 @@ function InnerScene({
         onParticleClick={onParticleClick}
       />
 
-      {/* Text overlay in 3D space - only show after intro */}
-      {introFinished && <TextOverlay isMobile={isMobileDevice()} />}
+      {/* Deep atmospheric fog — lifted from near-black so depth reads */}
+      <fog attach="fog" args={[0x0a1428, 6, 24]} />
 
-      {/* Deep forest fog — starts close, very dark blue */}
-      <fog attach="fog" args={[0x010510, 5, 22]} />
+      {/* Post-processing: bloom (the signature glow), SMAA, vignette, chroma */}
+      <PostFX isLowTier={isLowTier} />
     </>
   );
 }
@@ -378,15 +353,18 @@ export default function Scene() {
       )}
       <Canvas
         camera={{ position: [0, 0, isMobileDevice() ? 7.5 : 5.5], fov: isMobileDevice() ? 55 : 42 }}
-        gl={{ antialias: !isLowTier, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.7, powerPreference: "high-performance" }}
-        onCreated={({ gl }) => {
+        gl={{ antialias: !isLowTier, alpha: false, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2, powerPreference: "high-performance" }}
+        onCreated={({ gl, raycaster }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
           gl.toneMapping = THREE.ACESFilmicToneMapping;
-          gl.toneMappingExposure = isLowTier ? 1.5 : 1.8;
+          // Lower exposure now that bloom provides the blowout
+          gl.toneMappingExposure = isLowTier ? 1.1 : 1.2;
           gl.setPixelRatio(Math.min(window.devicePixelRatio, isLowTier ? 1 : 2));
+          // Generous hover/click radius for point particles
+          raycaster.params.Points.threshold = 0.35;
         }}
         dpr={isLowTier ? [1, 1] : [1, 2]}
-        style={{ background: "#010510" }}
+        style={{ background: "#05070f" }}
         frameloop="always"
         performance={{ min: 0.5 }}
       >
@@ -394,7 +372,6 @@ export default function Scene() {
           isLowTier={isLowTier}
           onHoverChange={handleParticleHover}
           onParticleClick={handleParticleClick}
-          introFinished={introFinished}
         />
       </Canvas>
 

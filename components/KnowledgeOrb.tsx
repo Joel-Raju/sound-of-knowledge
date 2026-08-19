@@ -71,7 +71,7 @@ export default function KnowledgeOrb({
 
   return (
     <mesh ref={meshRef}>
-      <sphereGeometry args={[1.8, isLowTier ? 32 : 64, isLowTier ? 32 : 64]} />
+      <sphereGeometry args={[1.8, isLowTier ? 32 : 128, isLowTier ? 32 : 128]} />
       <shaderMaterial
         ref={materialRef}
         vertexShader={orbVertexShader}
@@ -80,7 +80,9 @@ export default function KnowledgeOrb({
         side={THREE.FrontSide}
         transparent
         depthWrite={false}
-        blending={THREE.AdditiveBlending}
+        // NormalBlending keeps the orb body readable; bloom adds the glow.
+        // AdditiveBlending was washing the orb flat against the background.
+        blending={THREE.NormalBlending}
       />
     </mesh>
   );
