@@ -392,3 +392,56 @@ spelled out), but `Math.imul` states the intent — multiply by the FNV prime �
 and is a single operation. The constant `FNV_PRIME` was previously declared and
 unused, which the lint gate flagged; using it removed the dead code rather than
 deleting the constant and leaving a reader to wonder why the prime is missing.
+
+---
+
+## 2026-10-10 · T1.3 · Replay sample is a real capture, not synthetic
+
+**Spec said:** §6.7 — "`scripts/record-stream.ts` records ~3 minutes of live
+Wikipedias-only data (needs network) into that format. If recording is
+impossible, generate the sample with the synthetic generator."
+
+**Did:** Recorded **180 s of live traffic** → `public/replay/sample.ndjson`
+(777 events, 219 KB, 0 parse errors).
+
+**Why:** The network turned out to be available (see the retraction at the top of
+this file), so the spec's preferred source is usable. A real capture exercises the
+real classifier — the synthetic model only _approximates_ it, and specifically gets
+the revert heuristic wrong.
+
+Measured against the spec's synthetic model:
+
+| Metric         | Live                    | Spec model | Verdict                             |
+| -------------- | ----------------------- | ---------- | ----------------------------------- |
+| Bot ratio      | **19.8 %**              | 20 %       | excellent match                     |
+| New-page ratio | 4.4 %                   | 3 %        | fine                                |
+| Revert ratio   | **0.8 %**               | 3 %        | **under-fires ~4×** — see below     |
+| Pass rate      | 777 / 6649 raw (11.7 %) | —          | matches the 54 % `categorize` share |
+
+**The revert heuristic is the one real finding.** 0.8 % live vs a 3 % model. The
+likely cause is that `REVERT_PATTERNS` anchors most patterns to the _start_ of the
+comment, but real summaries are frequently prefixed — `/* Foo */ Reverted …` —
+and English Wikipedia's rollback tool emits `Rv` rather than a word. Fixing this
+is a tuning task, not a structural one, and it needs to wait until the gong
+routing exists to be evaluated by ear. Tracked as `HUMAN-CHECK` **E3**.
+
+---
+
+## 2026-10-10 · T1.3 · `gen-synthetic.ts` auto-shortens instead of failing on the 300 KB budget
+
+**Spec said:** §6.7 — the bundled replay must be "small, ≤ 300 KB", ~3 minutes.
+
+**Did:** The script now measures its output and scales the duration down until it
+fits, logging the reduction. At the §6.7 synthetic rate (14 events/s) three
+minutes is ~2 500 lines × ~265 B ≈ **660 KB**, nearly double the budget — so the
+synthetic fallback could never satisfy the spec's own constraints as written.
+
+**Why:** The replay loops forever (§6.7), so a shorter file is functionally
+identical — the only cost is less variety before the first loop. Real traffic at
+~6 events/s post-normalize fits in 180 s with room to spare, which is why the
+bundled file is a real capture. Failing hard would have left the offline harness
+with no fallback source at all.
+
+Worth flagging for whoever tunes the spec's numbers: **`REPLAY_TARGET_SEC = 180`
+and `REPLAY_MAX_BYTES = 300 KB` are mutually inconsistent with a 14 events/s
+synthetic rate.** They are only compatible at the real post-normalize rate.

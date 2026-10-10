@@ -46,8 +46,21 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
   - Fixtures: 16 redacted samples covering every case in §T1.1, hand-written from
     the §6.1 shape and labelled as such. Revert heuristic under-fires in the wild
     (0.2 % vs 3 % model) — tracked as HUMAN-CHECK E3.
-- [ ] **T1.2** Normalizer, filters, dedupe, encoding
-- [ ] **T1.3** Synthetic and replay sources
+- [x] **T1.2** Normalizer, filters, dedupe, encoding
+  - `normalize.ts` (pure, never throws), `filters.ts`, `encode.ts` with the §6.5
+    `Float64Array` stride protocol. 52 tests from the redacted fixtures; **98.6 % lines**
+    overall, ingest well above the 90 % target. Privacy asserted directly: no username or
+    IP survives into `NormalizedEdit`, the wire batch, or the DOM-facing fields.
+- [x] **T1.3** Synthetic and replay sources
+  - `synthetic.ts` (seeded mulberry32, §6.7 model: diurnal rate, bursts, Zipf languages,
+    log-normal deltas) and `replay.ts` (NDJSON, loops forever, re-issues ids per lap so
+    the dedupe ring cannot silence it). Ratios verified over 20 000 events.
+  - `public/replay/sample.ndjson` is a **real 180 s capture**, not synthetic — network is
+    available, so `record-stream.ts` is the right source. Bot ratio came out **19.8 %**
+    against the spec model's 20 %.
+  - `gen-synthetic.ts` auto-shortens to fit the 300 KB budget rather than failing:
+    the §6.7 synthetic rate (14/s) is ~2× too dense for 3 minutes. Verified idempotent
+    (identical SHA-256 across runs).
 - [ ] **T1.4** Sampler and SSE client
 - [ ] **T1.5** Ingest core, worker, client wrapper
 
