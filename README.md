@@ -13,6 +13,7 @@ Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stre
 ## Features
 
 ### Visual Experience
+
 - **Procedural Shader Orb** — A custom vertex shader with multi-scale noise displacement that reacts to edit magnitudes in real-time
 - **High-Performance Particle System** — Instanced `BufferGeometry` with object pooling; particles spawn dynamically from live SSE events
 - **Volumetric Glow** — Raymarched inner glow using Fractional Brownian Motion (fBm) for organic, ethereal effects
@@ -20,6 +21,7 @@ Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stre
 - **Audio-Reactive Visuals** — Real-time FFT analysis drives particle turbulence and glow intensity
 
 ### Audio Experience
+
 - **100% Generative** — No pre-recorded samples; all audio synthesized in real-time using Tone.js
 - **Modal Harmony** — Shifts between Lydian/Mixolydian centers every 16 bars to maintain consonance
 - **Edit-to-Sound Mapping:**
@@ -30,6 +32,7 @@ Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stre
 - **Zero-Latency Feedback Loop** — Tone.js analyzers feed amplitude/frequency data back into shader uniforms
 
 ### Performance
+
 - Dynamic quality scaling based on device capability
 - Automatic fallback to simplified shaders on low-tier devices
 - Object pooling to minimize garbage collection in the hot path
@@ -37,14 +40,14 @@ Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stre
 
 ## Tech Stack
 
-| Category | Technology |
-|----------|------------|
-| Framework | [Next.js](https://nextjs.org) 16 (App Router) |
-| UI | [React](https://react.dev) 19, [TailwindCSS](https://tailwindcss.com) 4 |
-| 3D | [Three.js](https://threejs.org), [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) |
-| Audio | [Tone.js](https://tonejs.github.io) (Web Audio API) |
-| State | [Zustand](https://github.com/pmndrs/zustand) |
-| Deployment | [Vercel](https://vercel.com) |
+| Category   | Technology                                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| Framework  | [Next.js](https://nextjs.org) 16 (App Router)                                                |
+| UI         | [React](https://react.dev) 19, [TailwindCSS](https://tailwindcss.com) 4                      |
+| 3D         | [Three.js](https://threejs.org), [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) |
+| Audio      | [Tone.js](https://tonejs.github.io) (Web Audio API)                                          |
+| State      | [Zustand](https://github.com/pmndrs/zustand)                                                 |
+| Deployment | [Vercel](https://vercel.com)                                                                 |
 
 ## Project Structure
 
@@ -130,8 +133,8 @@ Modify modal centers in `components/audio-engine.tsx`:
 
 ```typescript
 const modalCenters = [
-  ["C3", "G3", "E4", "B4"],  // Lydian-ish
-  ["F3", "C4", "A4", "E5"],  // Mixolydian-ish
+  ["C3", "G3", "E4", "B4"], // Lydian-ish
+  ["F3", "C4", "A4", "E5"], // Mixolydian-ish
   // Add your own...
 ];
 ```
@@ -159,5 +162,4 @@ Open source. Feel free to explore, fork, and build upon this project.
 
 ---
 
-*Every byte added to Wikipedia becomes a note in an ever-evolving ambient composition.*
-
+_Every byte added to Wikipedia becomes a note in an ever-evolving ambient composition._

@@ -1,0 +1,23 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+artifacts/
+test-results/
+playwright-report/
+public/engine/
+*.tsbuildinfo
+next-env.d.ts
+.env
+.env.local
+.DS_Store
+*.log
+
+# Scratch / working notes at repo root — not product files, must not be reflowed.
+# (prettier already normalised these once by accident; do not let it recur.)
+sound-of-knowledge-v2-rewrite-spec.md
+sound-of-knowledge-blog.md
+twitter.md
+twitter_basic.md

@@ -1,7 +1,6 @@
 # Dependencies
 node_modules/
 .pnpm-store/
-/artifact
 
 # Next.js
 .next/
@@ -11,25 +10,37 @@ out/
 build/
 dist/
 
-# Environment variables
+# Env
 .env
 .env.local
 .env.*.local
+
+# Spec §5.4 — built worker/worklet bundles are artefacts, not source
+public/engine/
+
+# Spec §13 — verification output
+artifacts/
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
 
 # Debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# IDEs and editors
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS files
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -42,12 +53,7 @@ Thumbs.db
 # Vercel
 .vercel
 
-# TypeScript
-*.tsbuildinfo
-next-env.d.ts
-
 # Misc
-*.log
 .cache/
 temp/
 tmp/

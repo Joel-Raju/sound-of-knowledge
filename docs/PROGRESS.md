@@ -15,6 +15,13 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
     `lib/*`, `app/api/wiki-stream/`; page replaced with placeholder. Removed
     `tone`, `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`, `zustand`.
 - [ ] **T0.2** Tooling
+  - Pinned all deps exactly (§4.1). `vitest@4.1.11` and `npm-run-all2@8.0.4` chosen over
+    latest because 5.x/9.x declare Node engines this environment (24.13.1) does not satisfy.
+  - Strict TS (`noUncheckedIndexedAccess`, `noImplicitOverride`), ESLint flat config with
+    no-`any` error + hot-path allocation bans, vitest 4, Playwright with the §13.4 Chromium
+    args, Prettier, esbuild worker/worklet pipeline (`--watch` reports gzip vs the 40 KB
+    budget), CI workflow with a bundle-budget gate. Stubs make `prebuild` green before the
+    engine modules exist.
 - [ ] **T0.3** Foundation modules
 
 ## Phase 1 — Data layer
