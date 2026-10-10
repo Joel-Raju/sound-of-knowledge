@@ -61,8 +61,20 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
   - `gen-synthetic.ts` auto-shortens to fit the 300 KB budget rather than failing:
     the §6.7 synthetic rate (14/s) is ~2× too dense for 3 minutes. Verified idempotent
     (identical SHA-256 across runs).
-- [ ] **T1.4** Sampler and SSE client
-- [ ] **T1.5** Ingest core, worker, client wrapper
+- [x] **T1.4** Sampler and SSE client
+  - Token-bucket sampler with the 25 % uniform-random reserve that keeps small-edit
+    texture alive under pressure, and an SSE client whose watchdog / 1-2-4-8-15-30 s
+    backoff / replay fallback are all driven by injected clocks and EventSource.
+- [x] **T1.5** Ingest core, worker, client wrapper
+  - `IngestCore` holds all logic with **no worker globals**, so the whole pipeline is
+    tested in Node against a virtual clock (213 tests total). Worker is a thin shell;
+    `IngestClient` handles restart-once-on-crash (§14.1).
+  - Acceptance numbers verified: emitted ≤ maxPerSec × seconds, `accepted` ≈ 1000 at
+    100 eps (stats stay honest while playback is capped), heartbeat ≈ 400 per 10 s.
+  - **Worker bundle 7.9 KB gzip** (20 % of the 40 KB budget). Found and fixed a real bug
+    here: one-shot builds keyed production off ambient `NODE_ENV`, so an unset
+    `NODE_ENV` shipped a 65 KB sourcemap-inlined bundle.
+  - CORS allowed → the §6.6 proxy stays deleted.
 
 ## Phase 2 — Music engine
 
@@ -126,4 +138,5 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phase 0 complete.** T0.1 ✓ T0.2 ✓ T0.3 ✓. Next: T1.1 (stream reconnaissance).
+**Phases 0 and 1 complete** (T0.1–T0.3, T1.1–T1.5). 213 unit tests, all gates green.
+Next: **T2.1** modes, harmony, pitch.
