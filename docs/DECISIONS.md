@@ -467,3 +467,28 @@ build artefact off an ambient env var is the wrong contract: `npm run build`
 would produce a different worker bundle depending on how the operator's shell
 happened to be configured, with no error. `--watch` is the dev workflow, so it is
 now the only thing that produces dev output.
+
+---
+
+## 2026-10-10 · T2.2 · Bjorklund must use the a/b-list formulation
+
+**Spec said:** §7.8 "Euclid: standard Bjorklund"; §13.2 asserts exact patterns
+`(3,8) = x..x..x.`, `(5,8) = x.xx.xx.`, `(4,16) = x...x...x...x...`, and that
+`euclid(7,16)` has "gaps differ by ≤ 1".
+
+**Did:** Implemented Toussaint's a/b-list formulation — `a` starts as the k
+onsets, `b` as the n−k rests, each round merges `a[i]` with `b[i]` and moves
+the longer list's tail into `b`.
+
+**Why:** This is worth recording because the _obvious_ implementation is wrong
+and silently so. Collapsing `a` and `b` into one list and pairing front-to-back
+produces patterns that are rotations of the correct rhythm at best, and
+**unevenly distributed** at worst. Concretely, the front-to-back version yields
+gaps of `{4,2,2,2,2,2,2}` for `euclid(7,16)` where the a/b version yields
+`{3,2,2,2,3,2,2}`. The first violates the spec's own "gaps differ by ≤ 1"
+requirement, and audibly it makes the bot groove lurch instead of roll — the
+single thing §7.8 asks of it.
+
+The unit tests caught this: the naive version produced `xxx.....` for
+`euclid(3,8)` and failed three of the four spec references. All four references
+are now asserted and pass exactly as written, so no spec deviation was needed.
