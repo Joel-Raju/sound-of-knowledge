@@ -26,7 +26,18 @@ const OUT_DIR = resolve(ROOT, "public/engine");
 const MAX_GZIP_BYTES = 40 * 1024;
 
 const watch = process.argv.includes("--watch");
-const dev = watch || process.env.NODE_ENV !== "production";
+/**
+ * `--watch` is the dev mode (minify off, inline sourcemaps). A **one-shot**
+ * build is always production regardless of ambient NODE_ENV.
+ *
+ * This matters: running `npm run build:workers` without NODE_ENV previously
+ * produced an inlined-sourcemap bundle of 65 KB gzip — 163 % of the §12.1
+ * 40 KB budget — purely because NODE_ENV happened to be unset. The budget
+ * check at the bottom of this file reported it, which is how it was caught, but
+ * keying production output off an ambient env var is the wrong contract for a
+ * build artefact that CI also runs.
+ */
+const dev = watch;
 
 /** @type {esbuild.BuildOptions} */
 const common = {

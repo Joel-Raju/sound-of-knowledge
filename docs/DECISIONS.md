@@ -445,3 +445,25 @@ with no fallback source at all.
 Worth flagging for whoever tunes the spec's numbers: **`REPLAY_TARGET_SEC = 180`
 and `REPLAY_MAX_BYTES = 300 KB` are mutually inconsistent with a 14 events/s
 synthetic rate.** They are only compatible at the real post-normalize rate.
+
+---
+
+## 2026-10-10 · T1.5 · One-shot worker builds are always production (bundle budget bug)
+
+**Spec said:** §5.4 — "minified in production, sourcemaps in dev"; §12.1 — the
+worker bundle must stay under 40 KB gzip.
+
+**Did:** `scripts/build-workers.mjs` now derives `dev` from `--watch` alone,
+instead of `watch || NODE_ENV !== "production"`.
+
+**Why:** Running `npm run build:workers` with `NODE_ENV` unset produced an
+**inlined-sourcemap** bundle of **65 KB gzip — 163 % of budget** — purely because
+of an ambient variable. Production output is **7.9 KB (20 % of budget)**; the
+other 57 KB was the sourcemap.
+
+The budget reporter in the build script is what caught it, which is the argument
+for having that check in the first place rather than only in CI. But keying a
+build artefact off an ambient env var is the wrong contract: `npm run build`
+would produce a different worker bundle depending on how the operator's shell
+happened to be configured, with no error. `--watch` is the dev workflow, so it is
+now the only thing that produces dev output.
