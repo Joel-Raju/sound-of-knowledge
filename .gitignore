@@ -57,3 +57,5 @@ Thumbs.db
 .cache/
 temp/
 tmp/
+# v1 scratch dir (was gitignored before the rewrite; do not commit)
+/artifact/
