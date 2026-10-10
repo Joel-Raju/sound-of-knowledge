@@ -14,7 +14,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
     into `docs/LEGACY-NOTES.md` (11 hard-won bug fixes captured). Deleted `components/*`,
     `lib/*`, `app/api/wiki-stream/`; page replaced with placeholder. Removed
     `tone`, `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`, `zustand`.
-- [ ] **T0.2** Tooling
+- [x] **T0.2** Tooling
   - Pinned all deps exactly (§4.1). `vitest@4.1.11` and `npm-run-all2@8.0.4` chosen over
     latest because 5.x/9.x declare Node engines this environment (24.13.1) does not satisfy.
   - Strict TS (`noUncheckedIndexedAccess`, `noImplicitOverride`), ESLint flat config with
