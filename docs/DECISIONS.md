@@ -608,3 +608,80 @@ default `midi` and then spread `over` on top, so `render(voice, sr, {midi: 64})`
 changed the MIDI note without changing the frequency — every "different pitch"
 render was in fact the same note. Resolving `midi` before deriving `freq` fixed a
 whole class of phantom failures.
+
+## 2026-10-10 · T3.3 · A bug no test could see: `mixBus` was a dangling node
+
+**Spec said:** §8.3 — the mix chain `voiceBus → (dry + reverb + delay) → mixBus →
+compressor → softclip → master`, with the pad, drone and air also feeding
+`mixBus`.
+
+**Did:** Fixed the construction order in `AudioEngine.init`, and added
+`tests/helpers/fake-audio-context.ts` plus `tests/unit/audio-graph.test.ts` so
+this class of failure is caught automatically.
+
+**The bug:** T3.2 wired the master chain first, creating its own `voiceBus` and
+`mixBus`. T3.3 then called `buildFxChain()` and _reassigned_ `this.mixBus` to the
+FX chain's bus — but the compressor had already been connected to the old one.
+Every bus the continuous layers use (pad, drone, air, reverb return, both delay
+taps) terminated at a node with no outgoing edges. **The pad, drone and air were
+completely inaudible.**
+
+**Why it survived:** the failure is silent in the worst way — the worklet booted,
+the e2e smoke tests passed, `AudioEngine.init()` resolved, and the console was
+clean. The existing e2e test built its _own_ graph by hand rather than using
+`AudioEngine`, so it exercised a correct topology that the product never ran.
+Nothing in the suite was capable of expressing "every bus reaches the speakers".
+
+**The fix:** build the FX chain _before_ the master chain, so `mixBus` exists
+once and everything connects to the same node. The comment in `init()` now says
+why the order matters.
+
+**The guard:** `fake-audio-context.ts` records `connect` edges (no DSP, no
+browser) and the graph test walks reachability. Verified by re-introducing the
+original ordering: 3 tests fail, including `connects the FX mix bus to the
+compressor (the T3.3 regression)`.
+
+Worth flagging as a general lesson for the remaining tasks: **in this codebase an
+e2e test that builds its own graph by hand is a test of a different program than
+the one that ships.** From T3.5 on, browser tests should drive the real
+`AudioEngine` via `window.__sok`, not a hand-rolled approximation.
+
+## 2026-10-10 · T3.4 · Flux decay state is per-`Analyzer`, not module-global
+
+**Spec said:** §8.10 — spectral flux with τ = 0.12 s decay.
+
+**Did:** `flux`/`decay` take an explicit `{ v: number }` state object; `Analyzer`
+holds its own. The exported default is a shared singleton only for pure-function
+tests.
+
+**Why:** the first implementation used a module-level `fluxState`. That is correct
+only while exactly one `Analyzer` exists — which is true in the browser but not
+once T3.5 adds an `OfflineAudioContext` render. Two analysers in one process
+would have bled decay state into each other, and because the effect is a subtle
+smoothing difference rather than a crash, it would have been very hard to trace
+back to its cause. This is the same failure shape as the T3.3 bug: silent,
+plausible-looking numbers, wrong system.
+
+## 2026-10-10 · T3.4 · `bandLevels` measures the band _mean_, so test fixtures must be flat
+
+**Spec said:** §8.10 — `level = clamp((meanDb(band) + 80) / 60, 0, 1)`.
+
+**Did:** documented on the helper that synthetic tone fixtures must fill the
+band **flat**, not with a raised cosine.
+
+**Why:** two tests failed on first run and both were the fixture's fault, not
+the implementation's:
+
+1. A raised-cosine peak made the band mean sit well below the peak (measured
+   0.73 for a 0 dB tone), so "a full-scale tone approaches 1" was asserting the
+   wrong quantity. `bandLevels` is specified as a mean; a cosine measures the
+   peak instead.
+2. A "quiet" frame filled with −80 dB sat _above_ `toneIn`'s −100 dB floor, so
+   the floor itself became a rising edge and the "ignores falling edges" test
+   measured the floor rather than the band.
+
+Worth keeping in mind for T4.x: a band _mean_ in dB is dominated by the quietest
+bins, so a band with one loud partial and many silent ones reads much lower than
+its peak suggests. That is the spec's intent (it tracks perceived band energy),
+but it is not a peak meter, and visual coupling tuned against peaks will look
+wrong.

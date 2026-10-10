@@ -152,6 +152,13 @@ test("the full mix chain builds and the pad starts without errors", async ({ pag
       clip.connect(ctx.destination);
       node.connect(voiceBus);
 
+      // §8.3: the analyser taps the post-clip bus. This is what the visuals
+      // read, so a topology mistake upstream shows up here as silence.
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
+      clip.connect(analyser);
+
       // A chord pad: three notes, two detuned oscillators each.
       let started = 0;
       for (const [f, detune] of [
@@ -176,8 +183,32 @@ test("the full mix chain builds and the pad starts without errors", async ({ pag
 
       await ctx.resume();
       await new Promise((r) => setTimeout(r, 400));
+
+      // Measure the tap. A pad routed into a bus that goes nowhere (the bug
+      // this test exists for) reads as exact silence.
+      const buf = new Float32Array(analyser.fftSize);
+      let peak = 0;
+      for (let frame = 0; frame < 20; frame++) {
+        await new Promise((r) => setTimeout(r, 16));
+        analyser.getFloatTimeDomainData(buf);
+        for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i]!));
+      }
+
+      // And the spectrum, so the band machinery has real bins to read.
+      const db = new Float32Array(analyser.frequencyBinCount);
+      analyser.getFloatFrequencyData(db);
+      let loudest = -Infinity;
+      for (const v of db) if (v > loudest) loudest = v;
+
       const state = ctx.state as string;
-      return { ok: true, state, oscillators: started, sampleRate: ctx.sampleRate };
+      return {
+        ok: true,
+        state,
+        oscillators: started,
+        sampleRate: ctx.sampleRate,
+        peak,
+        loudestDb: loudest,
+      };
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }
@@ -189,6 +220,10 @@ test("the full mix chain builds and the pad starts without errors", async ({ pag
   expect(result.sampleRate).toBeGreaterThan(8000);
   // The §8.8 budget is 22 continuous oscillators; a 3-note/2-osc bank is 6.
   expect(result.oscillators).toBeLessThanOrEqual(22);
+
+  // The pad must actually reach the analyser tap.
+  expect(result.peak).toBeGreaterThan(1e-4);
+  expect(result.loudestDb).toBeGreaterThan(-100);
 
   errors.assertClean("mix chain");
 });

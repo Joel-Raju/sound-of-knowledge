@@ -106,10 +106,34 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 
 ## Phase 3 — Audio engine
 
-- [ ] **T3.1** DSP voices
-- [ ] **T3.2** Worklet, allocator, audio engine core
-- [ ] **T3.3** FX chain, pad, drone, air
-- [ ] **T3.4** Analyzer
+- [x] **T3.1** DSP voices (`engine/audio/dsp/*.ts`)
+  - Six pure voices: sine/bell/pluck/sub/gong/noise, Toussaint a/b-list Djorklund,
+    per-kind `VOICE_GAIN`, additive normalisation by amplitude sum, incremental
+    exponential decay. No `AudioNode` in the DSP — that is what makes it testable.
+  - Three §13.2 assertions are **unsatisfiable as written** and were documented
+    rather than silently loosened (see `DECISIONS.md`, T3.1 batch).
+- [x] **T3.2** Worklet, allocator, audio engine core
+  - `voice-pool.worklet.ts` preallocates 6 voice classes × N slots with an
+    8-deep pending queue per slot; `process()` allocates nothing.
+  - `AudioEngine` takes a `BaseAudioContext` so the identical graph can run in
+    an `OfflineAudioContext` — the only "ears" an agent has (§13.3).
+- [x] **T3.3** FX chain, pad, drone, air
+  - `reverb-ir.ts` renders a **seeded** stereo IR (pre-delay, closing low-pass,
+    6 early reflections/ch) so the offline render is reproducible.
+  - `pad-layer.ts` cross-fades two banks; budget asserted in tests at exactly
+    the §8.8 cap of 22 continuous oscillators (2 banks × 5 notes × 2 + 2 drone).
+  - **Bug found and fixed**: `buildFxChain` ran _after_ the master chain was
+    wired, so the FX `mixBus` — which the pad, drone, air, reverb return and
+    delay all feed — was connected to nothing. Silent: every smoke test passed
+    and the continuous layers were inaudible. Guarded by the new graph tests.
+- [x] **T3.4** Analyzer
+  - `bandLevels` / `smooth` / `flux` / `rmsToUnit` are pure and unit-tested with
+    synthetic dB arrays; `Analyzer` owns the node and the preallocated buffers.
+  - Flux decay state is **per-instance**, not module-global — two analysers
+    (live + offline render) must not corrupt each other.
+  - New `tests/helpers/fake-audio-context.ts` records graph topology so silent
+    dead-end wiring fails the fast unit suite rather than only e2e. Verified by
+    reintroducing the T3.3 bug: 3 tests fail.
 - [ ] **T3.5** Scheduler↔audio wiring, offline render harness, mix tuning
 
 ## Phase 4 — Visual engine
@@ -160,5 +184,6 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–2 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3). 308 unit tests, all gates
-green, 97.4 % line coverage. Next: **T3.1** DSP voices.
+**Phases 0–3 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.4). 454 unit
+tests, all gates green. Next: **T3.5** scheduler↔audio wiring, offline render
+harness, mix tuning — which also settles the deferred `EPS_REF` question.

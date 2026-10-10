@@ -31,10 +31,19 @@ import {
 import { VoiceAllocator } from "./allocator";
 import { buildFxChain, padDuckAutomation, type FxChain } from "./fx-chain";
 import { PadLayer } from "./pad-layer";
+import { Analyzer } from "./analyzer";
 import type { HarmonyEvent, HarmonyState } from "../music/harmony";
 import { buildVoiceParams, type VoiceKind } from "./voice-params";
 import { dbToGain } from "../util/math";
+import { createAudioFeatures, type AudioFeatures } from "../types";
 import type { Tier, Vec3, NoteEvent } from "../types";
+
+/**
+ * Fixed IR seed. The reverb is deterministic on purpose (§8.7 notes) so the
+ * offline render in §13.3 and the unit tests are reproducible; there is no
+ * reason to vary it per session.
+ */
+const IR_SEED = 0x5eed;
 
 export interface AudioEngineOptions {
   tier: Tier;
@@ -59,11 +68,11 @@ export class AudioEngine {
   private allocator: VoiceAllocator | null = null;
 
   private panners: PannerNode[] = [];
-  // (see the interface below)
   private voiceBus: GainNode | null = null;
   private mixBus: GainNode | null = null;
   private masterGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
+  private features: Analyzer | null = null;
   private comp: DynamicsCompressorNode | null = null;
   private clip: WaveShaperNode | null = null;
   private padDuck: GainNode | null = null;
@@ -130,12 +139,17 @@ export class AudioEngine {
 
     this.allocator = new VoiceAllocator(params.voices);
 
-    // --- Master chain (§8.3) ---------------------------------------------
-    this.voiceBus = ctx.createGain();
-    this.voiceBus.gain.value = 1;
-    this.mixBus = ctx.createGain();
-    this.mixBus.gain.value = 1;
+    // --- FX chain (§8.3) ---------------------------------------------------
+    // Built *before* the master chain, because it owns the buses everything
+    // else connects to. Wiring the master chain first and rebinding the buses
+    // afterwards leaves `fx.mixBus` dangling: the pad, drone, air, reverb
+    // return and delay all terminate there.
+    this.fx = buildFxChain(ctx, { tier: this.tier, seed: IR_SEED });
+    this.voiceBus = this.fx.voiceBus;
+    this.mixBus = this.fx.mixBus;
+    this.padDuck = this.fx.padDuck;
 
+    // --- Master chain (§8.3) ---------------------------------------------
     this.comp = ctx.createDynamicsCompressor();
     this.comp.threshold.value = COMP_THRESHOLD_DB;
     this.comp.knee.value = COMP_KNEE;
@@ -155,18 +169,16 @@ export class AudioEngine {
     this.masterGain.gain.value = 0;
 
     this.analyser = ctx.createAnalyser();
+    this.features = new Analyzer(this.analyser, ctx.sampleRate);
 
+    // §8.3 order: mixBus → compressor → soft clip → {analyser, masterGain}.
+    // The analyser taps *before* masterGain so muting the output does not
+    // blank the visuals (`LEGACY-NOTES.md` §3.8).
     this.mixBus.connect(this.comp);
     this.comp.connect(this.clip);
     this.clip.connect(this.analyser);
     this.clip.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
-
-    // --- FX chain (§8.3): reverb, ping-pong delay, pad ducking (§8.7) -----
-    this.fx = buildFxChain(ctx, { tier: this.tier, seed: this.opts.debug ? 0x5eed : 0x5eed });
-    this.voiceBus = this.fx.voiceBus;
-    this.mixBus = this.fx.mixBus;
-    this.padDuck = this.fx.padDuck;
 
     // --- Per-slot spatial panners (§8.9) ----------------------------------
     // OfflineAudioContext supports PannerNode; if a host ever lacks it the
@@ -247,8 +259,25 @@ export class AudioEngine {
     return this.analyser;
   }
 
+  /**
+   * Spec §8.10 — read the tap and update the shared feature set. Called once
+   * per frame by the app loop; the visuals consume `AudioFeatures` directly and
+   * never touch the `AnalyserNode` themselves.
+   *
+   * Returns a stable object (no per-frame allocation) — the renderer must be
+   * able to hand it straight to three.js without churning the GC.
+   */
+  readFeatures(dtSec: number): AudioFeatures {
+    return this.features ? this.features.update(dtSec) : createAudioFeatures();
+  }
+
   getMixBus(): GainNode | null {
     return this.mixBus;
+  }
+
+  /** Post-softclip, pre-destination master gain — for tests and the debug HUD. */
+  getMasterGainNode(): GainNode | null {
+    return this.masterGain;
   }
 
   getPadDuck(): GainNode | null {
