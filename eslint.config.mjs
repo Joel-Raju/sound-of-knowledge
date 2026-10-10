@@ -56,6 +56,13 @@ const eslintConfig = defineConfig([
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
       "no-console": ["warn", { allow: ["error", "warn"] }],
+      // A leading underscore marks a deliberately-unused parameter or binding.
+      // Needed because several DSP `next(t, dt)` overrides stopped using `t`
+      // once exponential decay became incremental, but must keep the signature.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" },
+      ],
     },
   },
 

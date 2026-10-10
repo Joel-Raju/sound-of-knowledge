@@ -68,7 +68,7 @@ export class Pluck extends Voice {
     this.active = true;
   }
 
-  protected override next(t: number, _dt: number): number {
+  protected override next(_t: number, _dt: number): number {
     let y = 0;
     for (let k = 0; k < N; k++) {
       let p = this.ph[k]! + this.inc[k]!;

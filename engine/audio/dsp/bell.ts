@@ -48,7 +48,7 @@ export class Bell extends Voice {
     this.active = true;
   }
 
-  protected override next(t: number, _dt: number): number {
+  protected override next(_t: number, _dt: number): number {
     this.phC += this.inc;
     if (this.phC > TAU) this.phC -= TAU;
     this.phM += this.incM;

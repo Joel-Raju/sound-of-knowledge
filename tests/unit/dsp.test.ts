@@ -11,16 +11,6 @@ import { VOICE_GAIN } from "@/engine/config";
 import type { NoteEvent, Vec3 } from "@/engine/types";
 
 const SR = 48000;
-/**
- * Spec 13.2 asks for no click in the first/last 1 ms with abs < 0.05. The
- * specified 3 ms linear fade-in is only one third open at 1 ms, so a fully
- * in-range carrier legitimately reaches about 0.05 there. The threshold is
- * widened to 0.06 to reflect the fade still being in progress; the anti-click
- * property being tested is that the envelope starts and ends at zero slope,
- * which this still catches.
- */
-const CLICK_TOL = 0.06;
-
 type VoiceCtor = new () => Voice;
 
 const CTR: { voice: NoteEvent["voice"]; Ctor: VoiceCtor; pitched: boolean }[] = [
@@ -276,7 +266,6 @@ describe("every voice — shared guarantees", () => {
 
 describe("pitched voices — fundamental frequency within 2 %", () => {
   it("bell is at the requested frequency", () => {
-    const note = mkNote("bell", { midi: 84 });
     const buf = render("bell", SR, { midi: 84 });
     const want = 440 * Math.pow(2, (84 - 69) / 12);
     const got = dominantFreq(buf, SR, 200, 6000);
@@ -532,84 +521,3 @@ describe("voice mix sanity", () => {
 // Keep the Vec3 import meaningful for type-checking the fixtures above.
 const _v: Vec3 = { x: 0, y: 0, z: 0 };
 void _v;
-/**
- * Energy at `f` relative to the strongest component in [f/2, 2f].
- *
- * Used for the bell. Spec section 8.6 gives it an FM ratio of 3.99, which is
- * deliberately NOT 4.0 and is exactly what makes the voice metallic. The
- * consequence is a quasi-periodic waveform whose sidebands around ratio*f
- * outweigh the carrier (whose amplitude is the Bessel term, small at index
- * about 3.2). Peak picking therefore lands on a sideband: that is correct
- * audio and the wrong assertion. What is both true and worth protecting is
- * that the carrier sits at the requested pitch, so measure the carrier rather
- * than the loudest partial.
- */
-function carrierRatio(buf: Float64Array, sampleRate: number, f: number): number {
-  const start = Math.floor(buf.length * 0.15);
-  const n = Math.min(8192, buf.length - start);
-  if (n < 64) return 0;
-  const x = buf.subarray(start, start + n);
-  const w = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    w[i] = x[i]! * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
-  }
-  const mag = (freq: number): number => {
-    const wq = (2 * Math.PI * freq) / sampleRate;
-    const coeff = 2 * Math.cos(wq);
-    let s1 = 0;
-    let s2 = 0;
-    for (let i = 0; i < n; i++) {
-      const s0 = w[i]! + coeff * s1 - s2;
-      s2 = s1;
-      s1 = s0;
-    }
-    return Math.sqrt(Math.abs(s1 * s1 + s2 * s2 - coeff * s1 * s2)) / n;
-  };
-  let peak = 0;
-  for (let s = 0; s <= 300; s++) {
-    const ff = f * 0.5 + (f * 1.5 * s) / 300;
-    const m = mag(ff);
-    if (m > peak) peak = m;
-  }
-  return peak > 0 ? mag(f) / peak : 0;
-}
-
-/**
- * Spectral centroid: the power-weighted mean frequency.
- *
- * Unlike peak-picking this is independent of *which* partial happens to be
- * loudest, and it scales linearly with pitch for any signal whose spectrum is
- * merely scaled. That makes it the right tool for the bell, whose strongest
- * component is an FM sideband whose balance shifts with pitch, and it is a
- * stronger pitch-tracking check than a single peak because it integrates the
- * whole spectrum.
- */
-function spectralCentroid(buf: Float64Array, sampleRate: number): number {
-  const start = Math.floor(buf.length * 0.15);
-  const n = Math.min(8192, buf.length - start);
-  if (n < 256) return 0;
-  const x = buf.subarray(start, start + n);
-  const w = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    w[i] = x[i]! * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
-  }
-  const bins = 512;
-  let num = 0;
-  let den = 0;
-  for (let b = 1; b <= bins; b++) {
-    const f = (b * sampleRate) / (2 * n);
-    const wq = (2 * Math.PI * f) / sampleRate;
-    const coeff = 2 * Math.cos(wq);
-    let s1 = 0;
-    let s2 = 0;
-    for (let i = 0; i < n; i++) {
-      const s0 = w[i]! + coeff * s1 - s2;
-      s2 = s1;
-      s1 = s0;
-    }
-    const p = (s1 * s1 + s2 * s2 - coeff * s1 * s2) / (n * n);
-    num += f * p;
-    den += p;
-  }
-  return den > 0 ? num / den : 0;
-}

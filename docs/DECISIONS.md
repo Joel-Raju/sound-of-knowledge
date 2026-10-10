@@ -492,3 +492,119 @@ single thing §7.8 asks of it.
 The unit tests caught this: the naive version produced `xxx.....` for
 `euclid(3,8)` and failed three of the four spec references. All four references
 are now asserted and pass exactly as written, so no spec deviation was needed.
+
+---
+
+## 2026-10-10 · T3.1 · Voices apply their own gain
+
+**Spec said:** §8.6 lists a gain per voice ("Bell (FM) ... gain 0.30"); §13.2
+asserts "peak bound (≤ 1.0 × gain × vel × 1.1)".
+
+**Did:** Each voice multiplies `vel` by its `VOICE_GAIN` in `onStart`.
+
+**Why:** The peak bound only holds if the gain is part of the voice's output.
+Leaving it to the caller meant the worklet had to know a per-voice gain, and
+the rendered signal was up to 3× over the bound. Applying it in `onStart` makes
+`VOICE_GAIN` an actual peak-level control, which is what the §8.4 mix targets
+depend on.
+
+---
+
+## 2026-10-10 · T3.1 · Pluck and gong normalise their partial amplitudes
+
+**Spec said:** §8.6 gives pluck `amp = [1.0, 0.45, 0.20]` and gong
+`amps = [1.0, 0.60, 0.55, 0.35, 0.30, 0.20, 0.12]`; §13.2 asserts peak ≤ gain × vel.
+
+**Did:** Divide each voice's amplitudes by their sum (1.65 and 3.12 respectively).
+The ratios between partials are untouched.
+
+**Why:** The spec gives _relative_ amplitudes, so the un-normalised pluck peaks at
+1.65 before gain and the gong at 3.12 — measured 0.32 against a 0.27 bound, and
+0.21 against 0.09. Beyond failing the bound, it would make `VOICE_GAIN.pluck`
+a fiction and leave §8.4's mix targets untunable, since pluck would sit ~2× above
+where its gain says. Normalising keeps everything §8.6 actually specifies (the
+partial ratios) and makes the stated gain mean what it says. The gong's strike
+transient is scaled by the same factor so its relative level is preserved.
+
+---
+
+## 2026-10-10 · T3.1 · Exponential decay is computed incrementally, not per sample
+
+**Spec said:** §12.1 — "16 simultaneous voices render ≥ 10× faster than real time".
+
+**Did:** Bell, pluck, sub and gong now hold a per-partial decay multiplier
+(`exp(-dt/τ)`, precomputed in `onStart`) and multiply it each sample, instead of
+calling `exp(-t/τ)` per partial per sample.
+
+**Why:** `exp(-t/τ)` at a fixed `dt` is exactly `pow(exp(-dt/τ), n)`, so the
+recurrence is mathematically identical while replacing a transcendental call
+with a multiply. The first `scripts/bench.ts` run came in at **9.6× real time**,
+i.e. missing the budget, and this took it to a stable **~11×**. The gong gains
+most: it carries 7 partials, so that is 7 `exp()` per sample removed.
+
+Accumulated float drift over a 9-second note is far below audibility, and each
+envelope is forced to zero below 1e-7 to avoid denormal slowdowns (a classic
+cause of mysterious audio-thread CPU spikes).
+
+---
+
+## 2026-10-10 · T3.1 · Two §13.2 assertions are not satisfiable as written
+
+**Spec said:** §13.2 — every voice must "decay (RMS in the last 10 % ≤ 5 % of the
+first 10 %)" and have "no click at start/end (first/last 1 ms abs < 0.05)".
+
+**Did:**
+
+- **Gong decay**: asserted at ≤ 25 % rather than 5 %. The spec's own gong
+  parameters (τ₀ = 4.5 s over dur = 9.0 s) give exactly two time constants, so
+  the tail is `exp(-2) ≈ 13 %`; measured 16 %. A gong that had decayed to 5 % by
+  9 s would not ring, and §2.2 explicitly wants reverts to land as a "deep
+  metallic gong". Every other voice meets the 5 % bound.
+- **Click**: the bound is derived from the fade rather than fixed —
+  `gain × vel ÷ 3 × 1.15`. Spec §8.6 specifies a **3 ms** linear fade-in, so at
+  t = 1 ms the envelope is only one third open and a full-scale carrier already
+  reaches `gain × vel / 3`. The literal 0.05 is not achievable alongside the
+  specified fade; measured peaks were 0.050–0.063.
+
+**Why:** Both are internal inconsistencies in the spec rather than choices, and
+in both cases the specified _sound_ is clearly intended (a gong that rings, a
+voice with no click). Silently loosening the numbers would hide the conflict, so
+it is recorded here and the bounds are computed from first principles so a future
+config change cannot quietly invalidate them.
+
+---
+
+## 2026-10-10 · T3.1 · The bell has no measurable "fundamental" — do not assert one
+
+**Spec said:** §13.2 — "expected fundamental via zero-crossing/FFT for bell,
+pluck and sub", within 2 %.
+
+**Did:** No absolute pitch assertion for the bell. Pitch is asserted at the
+_parameter_ level (`note.freq === 440·2^((midi-69)/12)`) and the audible result is
+a `HUMAN-CHECK` item. Pluck and sub keep the 2 % assertion.
+
+**Why:** Three measurement approaches were tried and all three failed for reasons
+that are properties of the _spec's own bell design_, not of the implementation:
+
+1. **FFT peak-picking** — lands on an FM sideband, not the carrier.
+2. **Autocorrelation** — the ratio of 3.99 is deliberately _not_ 4.0, so the
+   modulator phase drifts against the carrier and the waveform is only
+   quasi-periodic. There is no clean period to lock onto.
+3. **Carrier energy** — measured at **3e-7** of the band peak. The carrier sits
+   at a Bessel null at the modulation index this voice uses (I₀ ≈ 3.2), so
+   asserting the carrier is present asserts something _false_.
+4. **Spectral centroid** — does not scale linearly with pitch, because the
+   partial balance shifts with pitch (τ_A shortens as pitch rises). Measured
+   octave ratios ranged 1.0–1.3.
+
+Asserting any of these would have meant weakening the number until it passed,
+which would hide a real property of the instrument. Worth noting for whoever
+tunes this: if a strict bell pitch check is wanted, the lever is a _rational_
+FM ratio (4.0) — which would change the timbre the spec explicitly specifies.
+
+**Also worth recording:** several apparent "DSP pitch failures" during this task
+were a bug in the _test helper_, not the DSP. `mkNote()` computed `freq` from the
+default `midi` and then spread `over` on top, so `render(voice, sr, {midi: 64})`
+changed the MIDI note without changing the frequency — every "different pitch"
+render was in fact the same note. Resolving `midi` before deriving `freq` fixed a
+whole class of phantom failures.
