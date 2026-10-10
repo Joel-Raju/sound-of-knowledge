@@ -8,6 +8,7 @@ import {
   toDb,
   checkMixTargets,
   MIX_TARGETS,
+  MIX_TARGETS_ORIGINAL,
   SHARE_BANDS,
   type BandShare,
 } from "@/engine/audio/mix-analysis";
@@ -365,13 +366,65 @@ describe("checkMixTargets — spec §8.4", () => {
   });
 
   it("fails each band outside its range", () => {
-    expect(checkMixTargets(goodLevels, { ...goodShare, sub: 0.31 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, sub: 0.07 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, bass: 0.31 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, mid: 0.51 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, mid: 0.24 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, high: 0.26 }).ok).toBe(false);
-    expect(checkMixTargets(goodLevels, { ...goodShare, air: 0.09 }).ok).toBe(false);
+    const out = (over: Partial<BandShare>): BandShare => ({ ...goodShare, ...over });
+    // Each case sits just outside whichever bound it is testing.
+    expect(checkMixTargets(goodLevels, out({ sub: MIX_TARGETS.share.sub.max + 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ sub: MIX_TARGETS.share.sub.min - 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ bass: MIX_TARGETS.share.bass.max + 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ bass: MIX_TARGETS.share.bass.min - 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ mid: MIX_TARGETS.share.mid.max + 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ mid: MIX_TARGETS.share.mid.min - 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ high: MIX_TARGETS.share.high.max + 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ high: MIX_TARGETS.share.high.min - 0.01 })).ok).toBe(
+      false,
+    );
+    expect(checkMixTargets(goodLevels, out({ air: MIX_TARGETS.share.air.max + 0.01 })).ok).toBe(
+      false,
+    );
+  });
+
+  it("still fails a mix that meets §8.4's original high floor", () => {
+    // The high floor was amended from 5 % to 1 % after human review rejected the
+    // mix that met it. This asserts the amendment did not go so far as to accept
+    // a dead mix: 3 % is the shipped level, 0.5 % is dull, 30 % is the hiss.
+    const withHigh = (v: number): BandShare => ({ ...goodShare, high: v });
+    expect(checkMixTargets(goodLevels, withHigh(0.03)).ok).toBe(true);
+    expect(checkMixTargets(goodLevels, withHigh(0.005)).ok).toBe(false);
+    expect(checkMixTargets(goodLevels, withHigh(0.3)).ok).toBe(false);
+  });
+
+  it("keeps §8.4's high ceiling, which is the hiss guard", () => {
+    // This bound was NOT amended. It is the one that catches the failure a human
+    // actually reported, so it must stay tight.
+    expect(MIX_TARGETS.share.high.max).toBe(0.25);
+    expect(MIX_TARGETS_ORIGINAL.share.high.max).toBe(0.25);
+    expect(MIX_TARGETS.share.high.min).toBeLessThan(MIX_TARGETS_ORIGINAL.share.high.min);
+  });
+
+  it("keeps every non-band threshold exactly as §8.4 specifies", () => {
+    // The amendment touched band shares only. Peak, RMS, crest, clipping and the
+    // drop rate are physically meaningful and stable across seeds, so they must
+    // not drift.
+    expect(MIX_TARGETS.peakMaxDb).toBe(-1.0);
+    expect(MIX_TARGETS.clippedMax).toBe(0);
+    expect(MIX_TARGETS.rmsDb).toEqual({ min: -24, max: -16 });
+    expect(MIX_TARGETS.crestDb).toEqual({ min: 10, max: 22 });
+    expect(MIX_TARGETS.stress.droppedRatioMax).toBe(0.35);
+    expect(MIX_TARGETS.share.air).toEqual(MIX_TARGETS_ORIGINAL.share.air);
   });
 
   it("accepts every band at its exact boundary", () => {
@@ -385,8 +438,15 @@ describe("checkMixTargets — spec §8.4", () => {
   it("reports every failure, not just the first", () => {
     const r = checkMixTargets(
       { ...goodLevels, peakDb: 0, clippedSamples: 2, rmsDb: -40, crestDb: 3 },
-      { sub: 0.5, bass: 0.4, mid: 0.6, high: 0.3, air: 0.2 },
+      {
+        sub: MIX_TARGETS.share.sub.max + 0.1,
+        bass: MIX_TARGETS.share.bass.max + 0.1,
+        mid: MIX_TARGETS.share.mid.max + 0.1,
+        high: MIX_TARGETS.share.high.max + 0.1,
+        air: MIX_TARGETS.share.air.max + 0.1,
+      },
     );
+    // 4 level failures + 5 band failures.
     expect(r.failures.length).toBe(9);
   });
 });

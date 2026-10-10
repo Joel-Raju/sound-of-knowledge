@@ -253,13 +253,14 @@ describe("pad cutoff and air gain — spec §8.8", () => {
 
     // §8.8's starting values are 0.004…0.020 with the band at 2.5 kHz. T3.5
     // first raised the gain ~20x to reach §8.4's 5–25 % high band, and a human
-    // reported the result as "strong hiss" (checklist D5). The fix was to move
-    // the band to 5 kHz — where noise reads as air rather than sibilance — and
-    // bring the gain back down. See `DECISIONS.md` (T3.5, hiss fix).
+    // reported the result as "strong hiss" (checklist D5). The band was then
+    // moved to 5 kHz — where noise reads as air rather than sibilance — and the
+    // gain dropped again; human review of five A/B presets selected the quietest
+    // one (`preview-air-b-subtle.wav`). See `DECISIONS.md` (T3.5, hiss fix).
     expect(AIR_BANDPASS_HZ).toBe(5000);
     expect(AIR_HIGHPASS_HZ).toBe(2500);
-    expect(AIR_GAIN_MIN).toBe(0.075);
-    expect(AIR_GAIN_MAX).toBe(0.15);
+    expect(AIR_GAIN_MIN).toBe(0.04);
+    expect(AIR_GAIN_MAX).toBe(0.08);
 
     // The energy curve is deliberately flatter than §8.8's 5x ratio: at the
     // spec-shaped curve the E 0.9 render put 30 % of the mix above 2 kHz.
@@ -272,6 +273,9 @@ describe("pad cutoff and air gain — spec §8.8", () => {
     // is worth asserting rather than leaving as a comment.
     expect(AIR_BANDPASS_HZ).toBeGreaterThanOrEqual(4500);
     expect(AIR_HIGHPASS_HZ).toBeGreaterThan(2000);
+    // Narrower than the §8.8 band so it reads as a band of air, not as broadband
+    // noise spread across the whole upper spectrum.
+    expect(AIR_BANDPASS_Q).toBeGreaterThanOrEqual(1);
   });
 });
 

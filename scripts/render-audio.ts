@@ -18,6 +18,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   MIX_TARGETS,
+  MIX_TARGETS_ORIGINAL,
   checkMixTargets,
   type BandShare,
   type Levels,
@@ -222,6 +223,8 @@ async function main(): Promise<void> {
           seconds,
           epsRef: EPS_REF,
           targets: MIX_TARGETS,
+          // §8.4 as originally written, kept so the amendment is auditable.
+          targetsOriginalSpec: MIX_TARGETS_ORIGINAL,
           cases: outcomes.map((o) => ({
             label: o.label,
             energy: o.e,

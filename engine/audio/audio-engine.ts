@@ -105,7 +105,7 @@ export class AudioEngine {
     this.ctx = ctx;
     this.tier = opts.tier;
     this.opts = opts;
-    this.volume = opts.volume ?? 0.7;
+    this.volume = opts.volume ?? 0.8;
     this.muted = opts.muted ?? false;
     this.spatial = opts.spatial;
     this.now = opts.now ?? (() => this.ctx.currentTime);

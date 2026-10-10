@@ -21,6 +21,7 @@ const OUT = resolve(ROOT, "artifacts/audio");
 const PORT = Number(process.env.SOK_PORT ?? 4321);
 const seconds = Number(process.argv[2] ?? 25);
 const rateMul = Number(process.argv[3] ?? 0.306);
+const seed = Number(process.argv[4] ?? 20261010);
 
 /**
  * Levels to compare, chosen around the configured `AIR_GAIN_MAX`.
@@ -29,7 +30,8 @@ const rateMul = Number(process.argv[3] ?? 0.306);
 const LEVELS: [string, number][] = [
   ["a-none", 0.0],
   ["b-subtle", 0.06],
-  ["c-shipped", 0.15],
+  ["c-shipped", 0.064],
+  ["c-prev", 0.15],
   ["d-warmer", 0.3],
   ["e-hiss", 0.55],
 ];
@@ -87,7 +89,7 @@ async function main(): Promise<void> {
         ).__sok;
         return (await sok.renderOffline(o)) as unknown;
       },
-      { seconds, rateMul, seed: 20261010, airGainMax: gain },
+      { seconds, rateMul, seed, airGainMax: gain },
     )) as { report: R; wav: string };
 
     writeFileSync(resolve(OUT, `preview-air-${label}.wav`), Buffer.from(payload.wav, "base64"));

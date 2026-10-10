@@ -401,8 +401,8 @@ export const AIR_LOOP_SEC = 4;
 export const AIR_HIGHPASS_HZ = 2500;
 export const AIR_BANDPASS_HZ = 5000;
 export const AIR_BANDPASS_Q = 1.4;
-export const AIR_GAIN_MIN = 0.075;
-export const AIR_GAIN_MAX = 0.15;
+export const AIR_GAIN_MIN = 0.04;
+export const AIR_GAIN_MAX = 0.08;
 
 /** spec §8.9 — spatialisation. */
 export const PANNER_REF_DISTANCE = 5;

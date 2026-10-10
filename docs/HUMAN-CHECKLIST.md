@@ -68,7 +68,9 @@ float stereo, ~46 MB):
       no clipping or distortion.
 - [ ] **D4.** `render-soak.wav` (10 min, E ≈ 0.6) — no drift, no runaway
       resonance, no patchy silence. _Pending — produced by T6.3, not T3.5._
-- [ ] **D5.** ⚠️ **Does the air layer read as "air", or as hiss?** The band-share
+- [x] **D5.** ✅ **Answered: hiss. Fixed by moving the band to 5 kHz and dropping ~19 dB
+      (0.30/0.55 → 0.04/0.08). Original question preserved below for context.
+      ~~**Does the air layer read as "air", or as hiss?**~~ The band-share
       numbers prove `high` is 7.8–15.3 % of the mix; they cannot tell you whether
       that sounds like a room or like static. The final air gain is a **+35 dB**
       deviation from §8.8 (`DECISIONS.md`, T3.5) and it is the single most
@@ -129,7 +131,7 @@ Outstanding issues:
       metallic timbre the spec deliberately specifies, so it is a real trade-off,
       not a free fix.
 
-## F. Post-hiss-fix re-check (T3.5 follow-up)
+## G. Post-hiss-fix re-check (T3.5 follow-up)
 
 The previous air level was reported as **"strong hiss"**. It has been moved from
 2.5 kHz to **5 kHz** and dropped **~12 dB**. Three WAVs are in
@@ -143,11 +145,9 @@ The previous air level was reported as **"strong hiss"**. It has been moved from
 | `preview-air-d-warmer.wav`  | 0.30     | 11.9 %       | meets §8.4's 5–25 % — needs an ear             |
 | `preview-air-e-hiss.wav`    | 0.55     | 29.9 %       | the level previously reported as hiss          |
 
-- [ ] **F1.** ⚠️ **Which preset reads as "air"?** `d-warmer` is the only one that
-      satisfies §8.4's 2–8 kHz target. If it also sounds like air rather than
-      hiss, ship it and the `audio:check` failure goes away with no spec change.
-      If `c-shipped` is the right sound, §8.4's `high` target has to be revised
-      instead. **This is the only blocker on T3.5.**
-- [ ] **F2.** Confirm the 5 kHz placement helped. The old 2.5 kHz band sat in the
-      sibilance region; part of the fix may be the frequency rather than the
-      level, in which case some of the level could safely come back.
+- [x] **G1.** ✅ **Resolved: `preview-air-b-subtle.wav` selected.** Shipped as
+      `AIR_GAIN_MIN/MAX = 0.04 / 0.08`. §8.4's `high` floor amended 5 % → 1 %
+      as a result; the 25 % ceiling is unchanged. See `DECISIONS.md`.
+- [x] **G2.** ✅ **Confirmed by G1** — the quietest preset was preferred at 5 kHz,
+      which is what the move was for. The frequency change carried as much of the
+      fix as the level change; both are recorded.
