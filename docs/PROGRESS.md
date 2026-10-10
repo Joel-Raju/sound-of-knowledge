@@ -78,9 +78,31 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 
 ## Phase 2 — Music engine
 
-- [ ] **T2.1** Modes, harmony, pitch
-- [ ] **T2.2** Spatial mapper, router, density, Euclid
-- [ ] **T2.3** Scheduler and offline music simulation
+- [x] **T2.1** Modes, harmony, pitch
+  - Mode tables transcribed verbatim; a test asserts every chord's pitch classes lie
+    inside its mode's scale, so a later edit to the tables cannot silently break the
+    "always one piece" guarantee.
+  - **Spec-reading trap found**: `modeForEnergy` boundaries. `below: 0.45` on _dorian_ is
+    the point at which **mixolydian** takes over — the dorian/mixolydian edge is 0.45, not
+    0.70. Hysteresis is anchored to the `below` of the _candidate_ mode.
+  - Renamed `nextChordIdx`/`nextRootPc` → `chooseNextChordIdx`/`chooseNextRootPc`: they are
+    pure selectors and `onBar` applies the result; the old names implied mutation.
+- [x] **T2.2** Spatial mapper, router, energy tracker, euclid
+  - **Bjorklund must use the a/b-list formulation** — the obvious front-to-back pairing
+    yields gaps of {4,2,2,2,2,2,2} for `euclid(7,16)`, violating the spec's own
+    "gaps differ by ≤ 1" and making the bot groove lurch. Caught by tests; all four spec
+    reference patterns now pass verbatim.
+  - Spatial mapper perturbs along a proper tangent basis so edits stay _on_ the shell;
+    nudging components directly would change the radius and read as uneven density.
+- [x] **T2.3** Scheduler and offline music simulation
+  - `Scheduler` with fully injected clock/visibility/RNG/sinks — no Web Audio, so the
+    whole performance layer is testable in Node (308 tests total).
+  - `scripts/sim-music.ts` runs 5 simulated minutes and **exits non-zero** on violation.
+    At 6 eps: 2052 notes, 0 dropped, melodic 4.37/s vs target 4.57 (96 %), peak 2 melodic
+    notes/step, worst quantisation error 6.00 ms (= the ±6 ms humanise bound), chords every
+    4 bars, modes only on phrase boundaries. All checks pass.
+  - Cross-check: the sim reports **E = 0.702 at 6 eps**, independently confirming the T1.1
+    calibration (`log10(7)/log10(16) = 0.703`).
 
 ## Phase 3 — Audio engine
 
@@ -138,5 +160,5 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0 and 1 complete** (T0.1–T0.3, T1.1–T1.5). 213 unit tests, all gates green.
-Next: **T2.1** modes, harmony, pitch.
+**Phases 0–2 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3). 308 unit tests, all gates
+green, 97.4 % line coverage. Next: **T3.1** DSP voices.

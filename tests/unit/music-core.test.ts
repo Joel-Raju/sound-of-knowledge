@@ -82,15 +82,15 @@ describe("SpatialMapper", () => {
   it("is deterministic", () => {
     const a: Vec3 = { x: 0, y: 0, z: 0 };
     const b: Vec3 = { x: 0, y: 0, z: 0 };
-    m.map("enwiki", "Albert Einstein", 12345, a);
-    m.map("enwiki", "Albert Einstein", 12345, b);
+    m.placeEdit("enwiki", "Albert Einstein", 12345, a);
+    m.placeEdit("enwiki", "Albert Einstein", 12345, b);
     expect(a).toEqual(b);
     expect(m.radiusOf("Albert Einstein", 12345)).toBe(m.radiusOf("Albert Einstein", 12345));
   });
 
   it("produces unit-length directions", () => {
     for (let i = 0; i < 2000; i++) {
-      m.map(`wiki${i % 40}`, `Title ${i}`, i, out);
+      m.placeEdit(`wiki${i % 40}`, `Title ${i}`, i, out);
       const len = Math.hypot(out.x, out.y, out.z);
       expect(len).toBeCloseTo(1, 6);
     }
@@ -121,7 +121,7 @@ describe("SpatialMapper", () => {
     m.homeOfWiki("enwiki", home);
     const angles: number[] = [];
     for (let i = 0; i < 500; i++) {
-      m.map("enwiki", `Article ${i}`, 1000 + i, out);
+      m.placeEdit("enwiki", `Article ${i}`, 1000 + i, out);
       const dot = Math.min(1, Math.max(-1, home.x * out.x + home.y * out.y + home.z * out.z));
       angles.push(Math.acos(dot));
     }
@@ -202,7 +202,7 @@ describe("SpatialMapper", () => {
 
   it("does not allocate — writes into the caller's object", () => {
     const target: Vec3 = { x: 9, y: 9, z: 9 };
-    m.map("enwiki", "X", 1, target);
+    m.placeEdit("enwiki", "X", 1, target);
     expect(target).toBe(out === target ? target : target);
     expect(Math.hypot(target.x, target.y, target.z)).toBeCloseTo(1, 6);
   });

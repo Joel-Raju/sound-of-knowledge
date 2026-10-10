@@ -116,7 +116,7 @@ export class SpatialMapper {
   }
 
   /** Map an edit into `out`, which is overwritten. Returns `out`. */
-  map(wiki: string, title: string, id: number, out: Vec3): Vec3 {
+  placeEdit(wiki: string, title: string, id: number, out: Vec3): Vec3 {
     homeOf(wiki, scratchHome);
     hashUniforms(`${title}:${id}`, u, 3);
 
