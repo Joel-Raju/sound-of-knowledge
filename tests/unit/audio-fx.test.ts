@@ -242,13 +242,21 @@ describe("pad cutoff and air gain — spec §8.8", () => {
     }
   });
 
-  it("air gain scales between the spec's bounds", () => {
+  it("air gain scales between its configured bounds", () => {
     expect(airGain(0)).toBeCloseTo(AIR_GAIN_MIN, 9);
     expect(airGain(1)).toBeCloseTo(AIR_GAIN_MAX, 9);
     expect(airGain(0.5)).toBeGreaterThan(airGain(0));
     expect(airGain(0.5)).toBeLessThan(airGain(1));
-    expect(AIR_GAIN_MIN).toBe(0.004);
-    expect(AIR_GAIN_MAX).toBe(0.02);
+    // §8.8's starting values are 0.004…0.020. T3.5 raised them by ~20x:
+    // air is the *only* source of 2–8 kHz energy in this synthesis (the pad is
+    // lowpassed at ~2.2 kHz and the voices carry nothing above it), so §8.4's
+    // 5–25 % high-band target is unreachable at the spec's level. See
+    // `DECISIONS.md` (T3.5).
+    expect(AIR_GAIN_MIN).toBe(0.3);
+    expect(AIR_GAIN_MAX).toBe(0.55);
+    // The energy curve is deliberately flatter than §8.8's 5x ratio: at
+    // E = 0.9 the spec-shaped curve put 30 % of the mix above 2 kHz.
+    expect(AIR_GAIN_MAX / AIR_GAIN_MIN).toBeLessThan(2.5);
   });
 });
 

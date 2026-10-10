@@ -55,6 +55,16 @@ export interface AudioEngineOptions {
   volume?: number;
   muted?: boolean;
   debug?: boolean;
+  /**
+   * Clock for *scheduling*, in seconds. Defaults to `ctx.currentTime`.
+   *
+   * The offline harness (§13.3) schedules every note up-front and only then
+   * calls `startRendering()`, so `ctx.currentTime` is still 0 for the whole
+   * scheduling pass. Anything time-dependent — the pad's 1 Hz cutoff/air
+   * update, the drone glide, the master fade — must therefore read an
+   * injected virtual clock instead, or it collapses to a single event at t=0.
+   */
+  now?: () => number;
 }
 
 /** Minimal listener shape so both `AudioContext` and `OfflineAudioContext` fit. */
@@ -63,6 +73,8 @@ export class AudioEngine {
   readonly tier: Tier;
   private readonly ctx: BaseAudioContext;
   private readonly opts: AudioEngineOptions;
+  /** Scheduling clock; the virtual one when injected (§13.3), else the context. */
+  private readonly now: () => number;
 
   private node: AudioWorkletNode | null = null;
   private allocator: VoiceAllocator | null = null;
@@ -93,9 +105,10 @@ export class AudioEngine {
     this.ctx = ctx;
     this.tier = opts.tier;
     this.opts = opts;
-    this.volume = opts.volume ?? 0.8;
+    this.volume = opts.volume ?? 0.7;
     this.muted = opts.muted ?? false;
     this.spatial = opts.spatial;
+    this.now = opts.now ?? (() => this.ctx.currentTime);
   }
 
   get ready(): boolean {
@@ -213,7 +226,7 @@ export class AudioEngine {
     }
 
     // Fade the master in over 2.5 s (§8.7 / §8.13).
-    const now = ctx.currentTime;
+    const now = this.now();
     this.masterGain.gain.setValueAtTime(0, now);
     this.masterGain.gain.linearRampToValueAtTime(this.masterTarget, now + MASTER_FADE_IN_SEC);
   }
@@ -242,7 +255,7 @@ export class AudioEngine {
 
   /** Spec §8.8 — pad cutoff and air gain follow global energy. */
   setEnergy(energy: number): void {
-    this.pad?.setEnergy(energy, this.ctx.currentTime);
+    this.pad?.setEnergy(energy, this.now());
   }
 
   getPadLayer(): PadLayer | null {
@@ -257,6 +270,15 @@ export class AudioEngine {
 
   getAnalyser(): AnalyserNode | null {
     return this.analyser;
+  }
+
+  /**
+   * The voice-pool worklet node. Exposed so the offline harness (§13.3) can
+   * run the `sync` handshake — without awaiting `synced`, `startRendering()`
+   * can race the `on` messages and silently drop the first notes.
+   */
+  getWorkletNode(): AudioWorkletNode | null {
+    return this.node;
   }
 
   /**
@@ -430,7 +452,7 @@ export class AudioEngine {
   private applyMasterGain(): void {
     if (!this.masterGain || this.disposed) return;
     const target = masterGainFor(this.volume) * (this.muted ? 0 : 1);
-    const now = this.ctx.currentTime;
+    const now = this.now();
     this.masterGain.gain.setTargetAtTime(target, now, MUTE_FADE_TC);
     this.masterTarget = target;
   }
@@ -456,7 +478,7 @@ export class AudioEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    const now = this.ctx.currentTime;
+    const now = this.now();
     try {
       this.masterGain?.gain.cancelScheduledValues(now);
       this.masterGain?.gain.setTargetAtTime(0, now, MASTER_DISPOSE_FADE_SEC / 3);

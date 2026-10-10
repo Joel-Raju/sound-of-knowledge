@@ -10,6 +10,7 @@
  * §5.3 layout), this is a sibling module rather than a listed file.
  */
 import {
+  MELODIC_DUR_TAU,
   BELL_I0_HI,
   BELL_I0_LO,
   BELL_PITCH_LO_MIDI,
@@ -76,13 +77,13 @@ export function buildVoiceParams(note: NoteEvent): VoiceParams {
       p[1] = i0;
       p[2] = tauA;
       p[3] = tauI;
-      return { kind, dur: 5 * tauA, p };
+      return { kind, dur: MELODIC_DUR_TAU * tauA, p };
     }
     case "pluck": {
       const t = clamp((note.midi - PLUCK_PITCH_LO_MIDI) / PLUCK_PITCH_SPAN_MIDI, 0, 1);
       const tau1 = lerp(PLUCK_TAU_LO, PLUCK_TAU_HI, t);
       p[0] = tau1;
-      return { kind, dur: 5 * tau1, p };
+      return { kind, dur: MELODIC_DUR_TAU * tau1, p };
     }
     case "sub": {
       return { kind, dur: SUB_DURATION, p };

@@ -44,6 +44,22 @@ Three clocks, deliberately kept separate (spec §5.2).
 Bridging: a `NoteEvent` carries its audio time `when`; the renderer fires it when
 `ctx.currentTime >= when + outputLatency` (spec §10.1).
 
+### The audio clock is injectable
+
+`AudioEngine` reads musical time from `AudioEngineOptions.now()`, which defaults
+to `ctx.currentTime`. This is not indirection for its own sake — the offline
+harness (§13.3) schedules every note up-front and only then calls
+`startRendering()`, and during that pass `ctx.currentTime` is **0**.
+
+Reading it directly was a live bug: `PadLayer.setEnergy` is rate-limited to 1 Hz,
+so it fired exactly once, at t = 0, and the pad cutoff and air gain never
+responded to energy at all. The render still produced sound and passed its band
+targets, which is why it survived several tuning iterations.
+
+**Rule:** anything the engine schedules "now" must go through `this.now()`.
+A `ctx.currentTime` read inside `engine/` outside a comment explaining why is a
+bug waiting to happen.
+
 _TODO (T4.5):_ document the implemented `VisualQueue` gating.
 
 ## 3. Data flow

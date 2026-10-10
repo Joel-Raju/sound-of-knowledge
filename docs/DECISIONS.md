@@ -685,3 +685,147 @@ bins, so a band with one loud partial and many silent ones reads much lower than
 its peak suggests. That is the spec's intent (it tracks perceived band energy),
 but it is not a peak meter, and visual coupling tuned against peaks will look
 wrong.
+
+---
+
+# T3.5 — offline render harness and mix tuning
+
+## 2026-10-10 · T3.5 · The offline harness must render the _real_ engine, not a copy
+
+**Spec said:** §13.3 — create an `OfflineAudioContext`, build `AudioEngine` on it,
+drive the scheduler with a virtual clock, sync, render.
+
+**Did:** exactly that, and deliberately did _not_ factor the graph-building into
+anything an e2e test could call separately.
+
+**Why:** the T3.3 bug was invisible precisely because the e2e test built its own
+approximation of the graph. A harness that assembles a "representative" chain
+would have reported a passing mix for a broken engine. The only version of this
+harness that is worth having renders the code that ships.
+
+## 2026-10-10 · T3.5 · `AudioEngine` takes an injected clock — `ctx.currentTime` is useless offline
+
+**Spec said:** (§13.3 implied) schedule everything up-front, then render.
+
+**Did:** added `AudioEngineOptions.now?: () => number`, defaulting to
+`ctx.currentTime`. The offline harness injects the scheduler's virtual clock.
+
+**The bug:** during the scheduling pass of an `OfflineAudioContext`,
+`ctx.currentTime` is **0 for the entire pass**. So:
+
+- `PadLayer.setEnergy` is rate-limited to 1 Hz, so it fired **exactly once**, at
+  t = 0, with the energy from the very first tick.
+- The pad's cutoff and the air gain therefore never responded to energy at all.
+- The master fade and the drone glide had the same problem.
+
+The render still _looked_ fine — it produced sound, and every band target was in
+range — which is why this survived several tuning iterations before the
+non-monotonic band results across E 0.3 / 0.6 / 0.9 gave it away. All three
+energy cases were silently rendering the **same** frozen automation.
+
+This is the same failure shape as T3.3 twice over: silent, plausible, wrong.
+The general rule it taught me: **anything the engine schedules "now" must read
+an injected clock**, because in the offline path "now" is a lie.
+
+## 2026-10-10 · T3.5 · §8.8's air level cannot satisfy §8.4's high-band target
+
+**Spec said:** §8.8 — air gain `lerp(0.004, 0.020, E)`. §8.4 — 2–8 kHz must be
+5–25 % of the mix's power.
+
+**Did:** `AIR_GAIN_MIN/MAX` → `0.30 / 0.55` (≈ +35 dB), and flattened the energy
+curve from a 5× ratio to 1.8×.
+
+**Why the spec's own numbers cannot both hold.** Measured with
+`scripts/probe-bands.ts`, which renders the mix with layers isolated:
+
+| Layer   | sub   | bass  | mid    | high  |
+| ------- | ----- | ----- | ------ | ----- |
+| notes   | 0.0 % | 0.0 % | 97.5 % | 2.0 % |
+| pad+air | 22 %  | 41 %  | 31 %   | 8.8 % |
+
+Plucks span midi 64–88 (329–1308 Hz) and bells start at midi 76 (659 Hz), so the
+melody is _entirely_ mid-band by construction. The pad is lowpassed at
+`500 + 2800·E` ≈ 2.2 kHz; raising that ceiling to 5 kHz moved the high band by
+**0.3 points**, because a sawtooth's 20th partial at that cutoff is ≈ −26 dB.
+There is simply nothing above 2 kHz to reveal.
+
+So the air layer is the _only_ source of 2–8 kHz — which is what §8.8 intends,
+but at its stated level it contributed 0.01 of the mix's power. Reaching 5 %
+required ≈ 20× its gain. In absolute terms the final air path sits ≈ 25 dB below
+the mix.
+
+The flatter curve is a second finding: at §8.8's 5× ratio the **E 0.9** render put
+**30 %** of the mix above 2 kHz, which is not an "air" layer any more.
+
+## 2026-10-10 · T3.5 · §7.7's sub limits leave the notes with zero bass
+
+**Spec said:** `SUB_MAX_PER_BAR = 2`, `SUB_MAX_CONCURRENT = 3`.
+
+**Did:** 3 and 5.
+
+**Why:** at the spec values the notes carried **0.0 %** of both the sub and bass
+bands. §8.4 then demanded 8–30 % sub and 10–30 % bass, which could then only be
+met by the accompaniment — requiring a pad roughly 3× louder in power than the
+melody. That inverts the hierarchy the entire app is built on (§2.2: edits must
+read as audible events).
+
+Letting the `sub` voice carry real low frequency is cheaper _and_ more musical:
+it is what a "large edit" should sound like. With 3 per bar, note energy gains a
+sub component that brings the full mix to 24–29 % sub without touching the pad.
+
+## 2026-10-10 · T3.5 · `dur = 5τ` holds a voice slot for an inaudible tail
+
+**Spec said:** §8.6 — bell and pluck `dur = 5τ`.
+
+**Did:** `MELODIC_DUR_TAU = 3.5`.
+
+**Why:** at `5τ` the envelope residual is `e⁻⁵` = 0.7 % (−43 dBFS), but the voice
+slot stayed reserved for the whole duration. Silent tails were blocking live
+voices, and the E 0.9 drop rate sat at 42.7 % against §8.4's 35 % ceiling.
+`3.5τ` leaves the tail at 3 % — below the continuous pad, so inaudible as a cut —
+and brought the drop rate to 31.3 %.
+
+Deliberately **not** used: growing the pool above 16. §8.5 fixes 16/12/8, and the
+DSP bench measures 16 concurrent voices at 10.8× real-time; 24 voices would put
+that at ~7× and fail the §12 budget. The pool is the constraint, not a knob.
+
+## 2026-10-10 · T3.5 · §8.4's "synthetic rate ×3" contradicts §13.3's `rateMul` formula
+
+**Spec said:** §8.4 "Stress at E ≈ 0.9 (**synthetic rate ×3**)"; §13.3 "rateMul
+chosen from `eps = (1 + EPS_REF)^E − 1`".
+
+These disagree. With `EPS_REF = 15`, §13.3's formula gives `rateMul = 0.795` for
+E = 0.9; "×3" would give `rateMul = 3.0`, which is `ε = 42` and therefore
+**E = 1.36 — off the end of the scale**.
+
+**Did:** used §13.3's formula, because it is explicit, derives from the
+calibrated `EPS_REF`, and is the one the script actually specifies.
+
+Worth noting that the literal "×3" reading makes §8.4 _harder_, not easier: at
+4× the note rate the drop ratio would be far above 42.7 %, not below it.
+
+## 2026-10-10 · T3.5 · `checkMixTargets` now applies to every energy, not just E 0.6
+
+**Spec said:** §8.4 states the loudness/crest/band targets "for a 120 s synthetic
+render at steady E ≈ 0.6", with a separate stress clause for E ≈ 0.9.
+
+**Did:** the first version exempted E 0.9 from the band checks entirely, reading
+that as the spec's intent. **That was wrong and it hid a real defect:** E 0.9 was
+running at **30 % high-band** (target ≤ 25 %) and the report said `✓ E90`.
+
+The full check now runs at all three energies. A mix whose spectrum only holds at
+one density is not a mix.
+
+## 2026-10-10 · T3.5 · FFT bin resolution limits what `share.sub` can mean
+
+Not a deviation, but a property worth knowing before tuning against it: §13.3
+fixes an 8192-point FFT, which at 48 kHz gives 5.86 Hz bins with a Hann main
+lobe ~2 bins wide. A 10 Hz tone is therefore **indistinguishable from the 20 Hz
+band edge** and is reported as `sub`. Band shares are also normalised by _in-band_
+power, so they always sum to 1 and cannot be used to measure how much energy
+fell outside the bands.
+
+The consequence for anyone re-tuning: `share.sub` is a "20 Hz–80 Hz" measure only
+for content well above 20 Hz. Tests for this are in
+`tests/unit/mix-analysis.test.ts` (`resolves the band edges no finer than the FFT
+bin width`).

@@ -134,7 +134,21 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
   - New `tests/helpers/fake-audio-context.ts` records graph topology so silent
     dead-end wiring fails the fast unit suite rather than only e2e. Verified by
     reintroducing the T3.3 bug: 3 tests fail.
-- [ ] **T3.5** Scheduler↔audio wiring, offline render harness, mix tuning
+- [x] **T3.5** Scheduler↔audio wiring, offline render harness, mix tuning
+  - `engine/debug/render-offline.ts` renders the **real** `AudioEngine` +
+    worklet + `Scheduler` through an `OfflineAudioContext`. Deliberately not a
+    hand-built approximation of the graph — that is how the T3.3 wiring bug
+    stayed invisible.
+  - **Found:** `AudioEngine` read `ctx.currentTime`, which is 0 for the whole
+    offline scheduling pass, so all energy-driven automation fired once at t=0.
+    Added an injected clock (`AudioEngineOptions.now`).
+  - `scripts/render-audio.ts` + `scripts/probe-bands.ts`; WAV writer; pure
+    `mix-analysis.ts` (FFT, band share, §8.4 thresholds) with 48 unit tests.
+  - `npm run audio:check` passes at E ≈ 0.3 / 0.6 / 0.9 over 120 s each.
+    Values and rationale in `docs/TUNING.md`; nine deviations in
+    `DECISIONS.md`. Largest: air gain ≈ +35 dB (§8.8's level cannot reach
+    §8.4's high-band target — the air layer is the _only_ source of 2–8 kHz).
+  - Bench still passes at 10.8× RTF; worker/worklet bundles 7 KB / 3 KB gzip.
 
 ## Phase 4 — Visual engine
 
@@ -184,6 +198,6 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–3 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.4). 454 unit
-tests, all gates green. Next: **T3.5** scheduler↔audio wiring, offline render
-harness, mix tuning — which also settles the deferred `EPS_REF` question.
+**Phase 3 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5). 502 unit
+tests, all gates green including `audio:check`. Next: **T4.1** renderer
+bootstrap, camera rig, palette, governor, tiers.

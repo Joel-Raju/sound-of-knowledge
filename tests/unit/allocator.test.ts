@@ -39,11 +39,14 @@ describe("priorityOf — spec §8.5", () => {
 });
 
 describe("VoiceAllocator — caps", () => {
-  it("capOf matches the spec table", () => {
+  it("capOf matches the config table", () => {
     expect(capOf(GONG)).toBe(GONG_MAX_CONCURRENT);
     expect(capOf(GONG)).toBe(2);
     expect(capOf(SUB)).toBe(SUB_MAX_CONCURRENT);
-    expect(capOf(SUB)).toBe(3);
+    // §7.7 specifies 3. T3.5 raised it to 5 because §8.4 needs 8–30 % of the
+    // mix's power below 80 Hz and the `sub` voice is the only *musical* source
+    // of that band — see `DECISIONS.md` (T3.5).
+    expect(SUB_MAX_CONCURRENT).toBe(5);
     // Everything else is uncapped.
     expect(capOf(BELL)).toBe(Number.POSITIVE_INFINITY);
     expect(capOf(PLUCK)).toBe(Number.POSITIVE_INFINITY);
@@ -68,10 +71,13 @@ describe("VoiceAllocator — caps", () => {
     expect(a.allocate(GONG, 9.5, 9, 0.9)).toBeGreaterThanOrEqual(0);
   });
 
-  it("allows at most 3 concurrent subs", () => {
+  it("allows at most SUB_MAX_CONCURRENT concurrent subs", () => {
     const a = new VoiceAllocator(16);
-    for (let i = 0; i < 3; i++) expect(a.allocate(SUB, i * 0.01, 4, 0.8)).toBeGreaterThanOrEqual(0);
-    expect(a.allocate(SUB, 0.5, 4, 0.8)).toBe(-1);
+    for (let i = 0; i < SUB_MAX_CONCURRENT; i++) {
+      expect(a.allocate(SUB, i * 0.01, 4, 0.8)).toBeGreaterThanOrEqual(0);
+    }
+    // All caps reached: even a very important sub cannot displace one.
+    expect(a.allocate(SUB, 0.5, 4, 1)).toBe(-1);
   });
 
   it("does not cap bells, plucks, thuds or ticks", () => {

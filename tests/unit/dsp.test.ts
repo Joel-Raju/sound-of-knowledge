@@ -7,7 +7,7 @@ import { Gong } from "@/engine/audio/dsp/gong";
 import { Thud } from "@/engine/audio/dsp/thud";
 import { Tick } from "@/engine/audio/dsp/tick";
 import { buildVoiceParams, kindOf } from "@/engine/audio/voice-params";
-import { VOICE_GAIN } from "@/engine/config";
+import { VOICE_GAIN, MELODIC_DUR_TAU } from "@/engine/config";
 import type { NoteEvent, Vec3 } from "@/engine/types";
 
 const SR = 48000;
@@ -376,7 +376,12 @@ describe("voice parameter derivation — spec §8.6", () => {
     const high = buildVoiceParams(mkNote("pluck", { midi: 88 }));
     expect(high.p[0]!).toBeLessThan(low.p[0]!);
     expect(high.dur).toBeLessThan(low.dur);
-    expect(low.dur).toBeCloseTo(5 * low.p[0]!, 9);
+    // §8.6 says `dur = 5τ`; T3.5 uses `MELODIC_DUR_TAU = 3.5` so an inaudible
+    // tail does not hold a voice slot. See `DECISIONS.md` (T3.5).
+    expect(MELODIC_DUR_TAU).toBe(3.5);
+    expect(low.dur).toBeCloseTo(MELODIC_DUR_TAU * low.p[0]!, 9);
+    // 3.5τ leaves the envelope at e^-3.5 ≈ 3 % — below the continuous pad.
+    expect(Math.exp(-MELODIC_DUR_TAU)).toBeLessThan(0.031);
   });
 
   it("unpitched voices have fixed durations from config", () => {
