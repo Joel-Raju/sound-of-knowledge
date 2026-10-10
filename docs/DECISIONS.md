@@ -9,7 +9,103 @@ Every deviation from the spec is recorded here. Format:
 
 ---
 
-## 2026-10-10 · T0.1 · Environment constraint: no network access to Wikimedia
+## ⚠️ RETRACTED ENTRIES
+
+The entry "T0.1 · Environment constraint: no network access to Wikimedia" below
+is **retracted**. It was wrong, and the root cause is worth recording because it
+will mislead anyone who trusts it.
+
+**What I claimed:** `curl -sI https://stream.wikimedia.org/v2/stream/recentchange`
+failed, therefore the build environment has no route to Wikimedia, therefore
+fixtures must be hand-written and `EPS_REF` cannot be calibrated.
+
+**What is true:** the network works perfectly. `npx tsx scripts/probe-stream.ts 120`
+streams live events at ~37/s with **zero parse errors**, and the endpoint returns
+`access-control-allow-origin: *`.
+
+**Root cause:** `curl -I` issues a `HEAD` request. The EventStreams endpoint is a
+long-lived SSE stream — it never finishes responding, so `curl` hangs and is
+killed by the `-m 10` timeout. A timeout is not a refusal. I read the timeout as
+a network failure and generalised it to "no network", which then propagated into
+`config.ts`, the fixtures, and the human checklist.
+
+**Lesson:** an error that is consistent with two very different causes
+(timeout ≠ refused) must be disambiguated before it is recorded as fact. The
+correct probe is a `GET` that is aborted as soon as headers arrive — which is
+now what `scripts/probe-stream.ts` does, with a comment saying why.
+
+**Consequence for the build:** none of the fixtures are wrong (they are
+hand-written from the §6.1 shape either way, and are labelled as such), but
+`EPS_REF` **is** now genuinely calibrated — see T1.1.
+
+---
+
+## 2026-10-10 · T1.1 · Stream reconnaissance — CORS allowed, `EPS_REF = 15`
+
+**Spec said:** §6.1 — verify CORS; §7.3 — `EPS_REF ≈ 1.5 × p95(eps)` measured over
+60 s of live Wikipedias-only traffic.
+
+**Measured** (`npx tsx scripts/probe-stream.ts 120`, 120 s window, 1 s buckets):
+
+|                                               | value                               |
+| --------------------------------------------- | ----------------------------------- |
+| HTTP status                                   | 200                                 |
+| `access-control-allow-origin`                 | `*` → **browser-direct ALLOWED**    |
+| Raw throughput (all projects)                 | mean 37/s, p95 62/s                 |
+| **Wikipedias + `edit\|new` (post-normalize)** | **mean 5.9/s, p95 10/s**            |
+| Wikipedias + `edit\|new` + namespace 0        | mean 4.3/s, p95 8/s                 |
+| Bot ratio                                     | 18.8 % (spec model: 20 % ✓)         |
+| Revert-heuristic hit rate                     | 0.2 % (spec model: 3 % — see below) |
+| Parse errors                                  | 0                                   |
+
+**Kind mix:** `categorize` **54.3 %**, `edit` 33.8 %, `log` 7.5 %, `new` 4.5 %.
+
+**Did:**
+
+1. **`EPS_REF = 15`** in `engine/config.ts` (`round(1.5 × 10)`), replacing the
+   provisional 60.
+2. **No proxy.** §6.6's `app/api/wiki-stream/route.ts` stays deleted, because
+   CORS is permissive. This also keeps the first-load JS smaller (§12.1) and
+   avoids a serverless hop per event.
+
+### Why the post-normalize rate is the right basis
+
+§7.3 defines `eps` from the worker's `accepted` counter, which counts events
+_after_ §6.2.1 drops everything that is not `edit`/`new`. Since `categorize` is
+**54 %** of the raw stream, calibrating on raw throughput would set
+`EPS_REF ≈ 93` and make the intended 6× overdense texture impossible. The probe
+therefore reports all four rates and the config comment records the distinction.
+
+### Resulting energy band
+
+| Traffic | eps   | E    | Mode band (§7.4)             |
+| ------- | ----- | ---- | ---------------------------- |
+| quiet   | ~2/s  | 0.40 | dorian                       |
+| typical | ~6/s  | 0.70 | mixolydian / lydian boundary |
+| peak    | ~10/s | 0.86 | lydian                       |
+
+**Known caveat, flagged rather than hidden:** Aeolian requires `E < 0.22`, i.e.
+fewer than ~0.7 edits/s. On measured traffic that occurs mainly in overnight
+troughs, not in a normal session. So §2.2's "calm → Aeolian/violet" end of the
+palette may rarely be heard. The fix, if it turns out to matter, is to _raise_
+`EPS_REF` (the provisional 60 would put typical traffic at E ≈ 0.47 and make
+Aeolian reachable). I followed the spec's stated formula because `E` is a
+_relative_ measure — "busy" should mean busy relative to normal — but this is the
+one tuning decision most worth revisiting after a listening pass. Logged as
+`HUMAN-CHECK` item **B9**.
+
+### Revert heuristic under-fires
+
+Measured 0.2 % vs the spec's synthetic model of 3 %. Plausible causes: my
+`REVERT_PATTERNS` anchor to the start of the comment, but real revert summaries
+are frequently prefixed with the editor's own tag (`/* Foo */ Reverted …`), and
+English Wikipedia's revert summaries often start with `Rv` via the rollback
+tool. Worth revisiting at T2.x when the gong routing can be tested against real
+traffic. Not blocking.
+
+---
+
+## 2026-10-10 · T0.1 · ~~Environment constraint: no network access to Wikimedia~~ (RETRACTED — see above)
 
 **Spec said:** §6.1 — the browser connects directly to
 `https://stream.wikimedia.org/v2/stream/recentchange`; task T1.1 must verify CORS

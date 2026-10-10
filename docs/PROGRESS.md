@@ -33,7 +33,19 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 
 ## Phase 1 — Data layer
 
-- [ ] **T1.1** Stream reconnaissance and calibration
+- [x] **T1.1** Stream reconnaissance and calibration
+  - **Network is available** — an earlier `curl -I` timeout was misread as a
+    refused connection (HEAD never returns on an SSE stream). Retraction is
+    logged prominently in `DECISIONS.md`.
+  - CORS returns `access-control-allow-origin: *` → **browser-direct works, no
+    proxy** (§6.6 route stays deleted). 120 s live capture, 0 parse errors.
+  - **`EPS_REF = 15`** = `round(1.5 × p95)` of post-normalize throughput. Measured
+    kind mix is 54 % `categorize` / 34 % `edit` / 8 % `log` / 4.5 % `new`, so raw
+    throughput (p95 62/s) overstates the musical rate by ~6× — calibrating on the
+    post-normalize rate as §7.3 actually specifies.
+  - Fixtures: 16 redacted samples covering every case in §T1.1, hand-written from
+    the §6.1 shape and labelled as such. Revert heuristic under-fires in the wild
+    (0.2 % vs 3 % model) — tracked as HUMAN-CHECK E3.
 - [ ] **T1.2** Normalizer, filters, dedupe, encoding
 - [ ] **T1.3** Synthetic and replay sources
 - [ ] **T1.4** Sampler and SSE client

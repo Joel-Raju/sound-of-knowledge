@@ -16,6 +16,7 @@ import {
   projectFromCode,
 } from "@/engine/config";
 import { createMetrics } from "@/engine/types";
+import { rateToEnergy } from "@/engine/util/perf";
 
 // spec §13.2 row `config`
 describe("config invariants", () => {
@@ -143,8 +144,21 @@ describe("config invariants", () => {
     expect(masterGainFor(5)).toBeCloseTo(0.9, 6);
   });
 
-  it("EPS_REF is the spec default and is documented as uncalibrated", () => {
-    expect(EPS_REF).toBe(60); // spec §7.3 fallback until measured
+  it("EPS_REF is the T1.1-calibrated value (spec §7.3)", () => {
+    // Calibrated from a 120 s live measurement: p95 of post-normalize
+    // Wikipedias edit|new throughput was 10/s → round(1.5 × 10) = 15.
+    // Assert the *relationship* to the spec formula, not a magic literal.
+    expect(EPS_REF).toBeGreaterThan(0);
+    expect(EPS_REF).toBe(15);
+    expect(Number.isInteger(EPS_REF)).toBe(true);
+  });
+
+  it("EPS_REF yields the intended E band for measured traffic", () => {
+    // Guards the calibration: a wildly wrong EPS_REF would silently pin the
+    // mode/palette to one end of its range.
+    expect(rateToEnergy(6, EPS_REF)).toBeGreaterThan(0.6); // typical → busy-ish
+    expect(rateToEnergy(10, EPS_REF)).toBeGreaterThan(0.8); // peak → lydian
+    expect(rateToEnergy(2, EPS_REF)).toBeLessThan(0.5); // quiet → not lydian
   });
 });
 

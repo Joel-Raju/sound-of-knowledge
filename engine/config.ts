@@ -25,16 +25,23 @@ export const PHRASE_BARS = 8; // spec §7.1 (mode may change at phrase boundarie
 export const KEY_CHANGE_BARS = 32; // spec §7.1 (≈ 113 s)
 
 /**
- * Reference events/second for energy normalisation: `E = log10(1+eps)/log10(1+EPS_REF)`.
- * spec §7.3.
+ * Reference events/second for energy normalisation:
+ *   `E = log10(1 + eps) / log10(1 + EPS_REF)`.  spec §7.3.
  *
- * ⚠️ UNVERIFIED. The spec says to calibrate this to `1.5 × p95(eps)` measured
- * over 60 s of live Wikipedias traffic in T1.1. The build environment has no
- * network route to stream.wikimedia.org (see docs/DECISIONS.md), so the spec's
- * interim default of 60 is used. Re-measure with `npx tsx scripts/probe-stream.ts`
- * before release.
+ * CALIBRATED at T1.1 — `round(1.5 × p95)` of measured post-normalize
+ * Wikipedias throughput. Full 120 s measurement in docs/DECISIONS.md.
+ *
+ * The measurement matters: **54 % of the raw stream is `categorize` and ~8 %
+ * is `log`**, both dropped by §6.2.1, so raw throughput (p95 ≈ 62/s) overstates
+ * the musical event rate by ~6×. Calibrating on raw would pin E near 1.0
+ * permanently.
+ *
+ * Resulting behaviour (caveat on Aeolian in the T1.1 decision log):
+ *   quiet   ~2/s → E ≈ 0.40 (dorian)
+ *   typical ~6/s → E ≈ 0.70 (mixolydian/lydian boundary)
+ *   peak    ~10/s → E ≈ 0.86 (lydian)
  */
-export const EPS_REF = 60; // spec §7.3 (default until measured)
+export const EPS_REF = 15; // spec §7.3 (calibrated at T1.1)
 
 export const BOT_REF = 8; // spec §7.1 (bot edits/s reference)
 
@@ -79,6 +86,52 @@ export const STRIDE = 11;
 
 /** spec §6.2.8 — display titles are truncated to this length. */
 export const TITLE_MAX_CHARS = 80;
+
+/**
+ * spec §6.2.6 — revert detection. The `recentchange` stream carries **no**
+ * revert flag, so this is a comment-text heuristic and therefore best-effort:
+ * a miss means a revert is scored as an ordinary edit, and a false positive
+ * means a normal edit gets a gong. Both are non-fatal (§2.3.4 "honest data"
+ * is preserved by the bot/revert ratios being surfaced in the HUD stats).
+ *
+ * Case-insensitive. Edit entries when tuning this list.
+ */
+export const REVERT_PATTERNS: readonly RegExp[] = [
+  /^Reverted\b/i,
+  /^Revert(ed)?\b/i,
+  /^Undid revision/i,
+  /^Undo\b/i,
+  /\bmw-rollback\b/i,
+  /^Rollback/i,
+  // Localized prefixes (spec §6.2.6).
+  /^Revertidos?/i, // es
+  /Rückgängig/i, // de
+  /^Révocation/i, // fr
+  /^Annulation/i, // fr
+  /^Annullata/i, // it
+  /^Ripristino/i, // it
+  /^Revertido/i, // pt
+  /^Desfeita/i, // pt
+  /^Откат/i, // ru
+  /^Отмена/i, // ru
+] as const;
+
+/** spec §6.2.7 — host patterns for the Wikipedia family projects. */
+export const WIKI_PROJECT_HOSTS = [
+  "wikipedia",
+  "wiktionary",
+  "wikisource",
+  "wikibooks",
+  "wikiquote",
+  "wikinews",
+  "wikiversity",
+  "wikivoyage",
+] as const;
+
+/** spec §6.2.4 — anonymous editor identifiers. */
+export const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+export const IPV6_RE = /^[0-9a-f:]+$/i;
+export const TEMP_ACCOUNT_RE = /^~/;
 
 /** spec §6.2.9 — magnitude divisor: log2(1+absDelta)/MAG_LOG_DIV ⇒ 16 KB ≈ 1.0. */
 export const MAG_LOG_DIV = 14;
