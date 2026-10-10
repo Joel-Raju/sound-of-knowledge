@@ -277,7 +277,7 @@ export const SPARK_TARGET_RADIUS = 1.25;
 
 /** spec §8.6 — per-voice output gains. */
 export const VOICE_GAIN: Record<VoiceType, number> = {
-  bell: 0.3,
+  bell: 0.5,
   pluck: 0.26,
   sub: 0.55,
   gong: 0.12,
@@ -300,6 +300,7 @@ export const BELL_I0_HI = 4.0;
  *  silent tail blocks a live voice. See `DECISIONS.md` (T3.5). */
 export const MELODIC_DUR_TAU = 3.5;
 
+/** spec §8.6 — pluck partials: amp = [1.0, 0.45, 0.20], tau_k = tau1 / k. */
 /** spec §8.6 — pluck partials: amp = [1.0, 0.45, 0.20], tau_k = tau1 / k. */
 export const PLUCK_PARTIAL_AMPS: readonly number[] = [1.0, 0.45, 0.2] as const;
 export const PLUCK_PARTIAL_DETUNE = 0.0004; // freq_k = f * k * sqrt(1 + 0.0004k²)
@@ -382,8 +383,8 @@ export const IR_LP_LO = 0.15;
 export const IR_LP_HI = 0.92;
 
 /** spec §8.8 — pad / drone / air. */
-export const PAD_OSC_SAW_GAIN = 0.028;
-export const PAD_OSC_TRI_GAIN = 0.038;
+export const PAD_OSC_SAW_GAIN = 0.016;
+export const PAD_OSC_TRI_GAIN = 0.022;
 export const PAD_OSC_DETUNE_CENTS = 7;
 export const PAD_LOWPASS_Q = 0.4;
 export const PAD_FADE_IN_TC = 1.4;
@@ -393,15 +394,15 @@ export const PAD_CUTOFF_BASE_HZ = 500;
 export const PAD_CUTOFF_ENERGY_HZ = 2800;
 export const PAD_CUTOFF_WOBBLE_HZ = 120;
 export const PAD_MAX_OSCILLATORS = 22;
-export const DRONE_SUB_GAIN = 0.06;
-export const DRONE_ROOT_GAIN = 0.024;
+export const DRONE_SUB_GAIN = 0.042;
+export const DRONE_ROOT_GAIN = 0.03;
 export const DRONE_GLIDE_TC = 1.0;
 export const AIR_LOOP_SEC = 4;
-export const AIR_HIGHPASS_HZ = 400;
-export const AIR_BANDPASS_HZ = 2500;
-export const AIR_BANDPASS_Q = 0.7;
-export const AIR_GAIN_MIN = 0.3;
-export const AIR_GAIN_MAX = 0.55;
+export const AIR_HIGHPASS_HZ = 2500;
+export const AIR_BANDPASS_HZ = 5000;
+export const AIR_BANDPASS_Q = 1.4;
+export const AIR_GAIN_MIN = 0.075;
+export const AIR_GAIN_MAX = 0.15;
 
 /** spec §8.9 — spatialisation. */
 export const PANNER_REF_DISTANCE = 5;

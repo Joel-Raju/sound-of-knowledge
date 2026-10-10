@@ -23,7 +23,10 @@ import {
   DELAY_STEPS_B,
   STEP_SEC,
   TIER_PARAMS,
+  AIR_BANDPASS_HZ,
+  AIR_BANDPASS_Q,
   AIR_GAIN_MIN,
+  AIR_HIGHPASS_HZ,
   AIR_GAIN_MAX,
   IR_PRE_DELAY_SEC,
   MODE_NAMES,
@@ -247,16 +250,28 @@ describe("pad cutoff and air gain — spec §8.8", () => {
     expect(airGain(1)).toBeCloseTo(AIR_GAIN_MAX, 9);
     expect(airGain(0.5)).toBeGreaterThan(airGain(0));
     expect(airGain(0.5)).toBeLessThan(airGain(1));
-    // §8.8's starting values are 0.004…0.020. T3.5 raised them by ~20x:
-    // air is the *only* source of 2–8 kHz energy in this synthesis (the pad is
-    // lowpassed at ~2.2 kHz and the voices carry nothing above it), so §8.4's
-    // 5–25 % high-band target is unreachable at the spec's level. See
-    // `DECISIONS.md` (T3.5).
-    expect(AIR_GAIN_MIN).toBe(0.3);
-    expect(AIR_GAIN_MAX).toBe(0.55);
-    // The energy curve is deliberately flatter than §8.8's 5x ratio: at
-    // E = 0.9 the spec-shaped curve put 30 % of the mix above 2 kHz.
+
+    // §8.8's starting values are 0.004…0.020 with the band at 2.5 kHz. T3.5
+    // first raised the gain ~20x to reach §8.4's 5–25 % high band, and a human
+    // reported the result as "strong hiss" (checklist D5). The fix was to move
+    // the band to 5 kHz — where noise reads as air rather than sibilance — and
+    // bring the gain back down. See `DECISIONS.md` (T3.5, hiss fix).
+    expect(AIR_BANDPASS_HZ).toBe(5000);
+    expect(AIR_HIGHPASS_HZ).toBe(2500);
+    expect(AIR_GAIN_MIN).toBe(0.075);
+    expect(AIR_GAIN_MAX).toBe(0.15);
+
+    // The energy curve is deliberately flatter than §8.8's 5x ratio: at the
+    // spec-shaped curve the E 0.9 render put 30 % of the mix above 2 kHz.
     expect(AIR_GAIN_MAX / AIR_GAIN_MIN).toBeLessThan(2.5);
+  });
+
+  it("the air band sits above the region that reads as hiss", () => {
+    // A noise band centred at 2.5 kHz reads as sibilance/hiss; the same level
+    // centred at 5 kHz reads as air. This is the whole point of the move, so it
+    // is worth asserting rather than leaving as a comment.
+    expect(AIR_BANDPASS_HZ).toBeGreaterThanOrEqual(4500);
+    expect(AIR_HIGHPASS_HZ).toBeGreaterThan(2000);
   });
 });
 

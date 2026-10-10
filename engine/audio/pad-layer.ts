@@ -127,6 +127,8 @@ export class PadLayer {
   private airFilterLp: BiquadFilterNode | null = null;
   private airFilterBp: BiquadFilterNode | null = null;
   private lastCutoffAt = -1;
+  private lastEnergy = 0;
+  private airOverride: number | null = null;
 
   private readonly tier: Tier;
   private readonly buses: { pad: AudioNode; drone: AudioNode; air: AudioNode };
@@ -261,11 +263,33 @@ export class PadLayer {
   }
 
   /**
+   * Debug-only: force the air layer's energy-1 gain, ignoring the curve.
+   *
+   * Exists so `scripts/preview-air.ts` can render several air levels from one
+   * build instead of one rebuild per level. `null` restores the configured
+   * curve. Never called by the app.
+   */
+  overrideAirGain(max: number | null, ctx: BaseAudioContext): void {
+    this.airOverride = max;
+    if (this.airGainNode) {
+      const now = ctx.currentTime;
+      const target = max === null ? airGain(this.lastEnergy) : max;
+      try {
+        this.airGainNode.gain.cancelScheduledValues(now);
+        this.airGainNode.gain.setTargetAtTime(target, now, 0.1);
+      } catch {
+        /* node gone */
+      }
+    }
+  }
+
+  /**
    * Spec §8.8 — once-per-second smoothing of the pad cutoff and the air gain.
    * Called from the frame loop; internally rate-limited to 1 Hz so the
    * AudioParam writes do not become a per-frame cost.
    */
   setEnergy(energy: number, now: number): void {
+    this.lastEnergy = energy;
     if (!this.started) return;
     if (this.lastCutoffAt >= 0 && now - this.lastCutoffAt < 1) return;
     this.lastCutoffAt = now;
@@ -280,7 +304,8 @@ export class PadLayer {
     }
     if (this.airGainNode) {
       try {
-        this.airGainNode.gain.setTargetAtTime(airGain(energy), now, 1.0);
+        const target = this.airOverride ?? airGain(energy);
+        this.airGainNode.gain.setTargetAtTime(target, now, 1.0);
       } catch {
         /* node gone */
       }

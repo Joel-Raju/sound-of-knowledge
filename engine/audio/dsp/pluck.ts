@@ -11,12 +11,17 @@
  * The slight inharmonic stretch is what stops it sounding like an organ: a
  * perfectly harmonic 2nd/3rd partial would read as a stopped pipe.
  *
+ * A 4th and 5th partial were tried at T3.5 as an alternative to a loud air
+ * layer. They changed the measured high band by < 0.1 points — their τ is 1/4
+ * and 1/5 of τ₁, so they are gone within ~0.2 s — and were reverted rather
+ * than kept as an unjustified deviation from §8.6.
+ *
  * `p = [tau1]`
  */
 import { Voice, TAU } from "./voice";
 import { PLUCK_PARTIAL_AMPS, VOICE_GAIN } from "../../config";
 
-const N = 3;
+const N = PLUCK_PARTIAL_AMPS.length;
 
 /**
  * The spec's partial amplitudes are *relative* — they sum to 1.65, not 1 — so an

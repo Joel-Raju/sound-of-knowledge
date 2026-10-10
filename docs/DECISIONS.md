@@ -829,3 +829,86 @@ The consequence for anyone re-tuning: `share.sub` is a "20 Hz–80 Hz" measure o
 for content well above 20 Hz. Tests for this are in
 `tests/unit/mix-analysis.test.ts` (`resolves the band edges no finer than the FFT
 bin width`).
+
+## 2026-10-10 · T3.5 (fix) · "Air layer plays as strong hiss" — the numbers were green, the ears were not
+
+**Human feedback:** checklist item **D5**, filed against the previous tune.
+
+**Did:** air band moved 2.5 kHz → **5 kHz** (highpass 400 → 2500 Hz, Q 0.7 →
+1.4) and the gain came down from `0.30/0.55` to `0.075/0.15` — about **12 dB
+quieter** overall. Re-tuned the rest of the mix around it.
+
+**The lesson, which is the point of recording it.** §8.4 states its band-share
+targets as things to "tune until all of these hold". That phrasing invites
+optimising the number, and I did: air was raised ~20× because it is the only
+source of 2–8 kHz energy in the synthesis, which made every threshold pass.
+**Every threshold passed and the mix was unacceptable.** The thresholds are
+necessary, not sufficient, and no amount of green ticks substitutes for one
+person listening.
+
+Two consequences:
+
+1. **`scripts/preview-air.ts` exists so the next level decision is made by ear.**
+   It renders short clips at five air levels from one build and prints the
+   resulting `high` share beside each, so the trade-off is visible before
+   committing.
+2. **The green `audio:check` result was partly a measurement artifact** — see the
+   drone-straddles-the-band-edge finding below. I spent several tuning
+   iterations chasing numbers that were partly determined by which key the
+   harmony happened to wander into.
+
+## 2026-10-10 · T3.5 (fix) · §8.4's `high ≥ 5 %` and "no hiss" are mutually exclusive here
+
+**Measured trade-off** (`preview-air.ts`, 120 s, E ≈ 0.6):
+
+| air gain           | `high` share | §8.4 verdict | perceptual             |
+| ------------------ | ------------ | ------------ | ---------------------- |
+| 0.00               | 0.7 %        | fail         | nothing                |
+| 0.06               | 1.2 %        | fail         | barely there           |
+| **0.15 (shipped)** | **3.8 %**    | fail         | quiet texture          |
+| 0.30               | 11.9 %       | **pass**     | unknown — needs an ear |
+| 0.55 (pre-fix)     | 29.9 %       | pass         | **reported as hiss**   |
+
+**Nothing between 0.7 % and 11.9 % offers a comfortable middle**, because the
+material has essentially no energy up there to amplify. This is not a tuning
+failure; it is a property of the synthesis combined with §8.4's target.
+
+**Not resolved unilaterally.** §8.4's `high` target is an acceptance criterion,
+so weakening it is a spec decision, not an engineering one. The current shipped
+value (0.15) deliberately **fails** `audio:check` rather than quietly passing a
+relaxed threshold. Options put to the user:
+
+- **(a)** ship 0.15, accept that `audio:check` reports one failing band, and
+  revise §8.4's `high` target to match the material;
+- **(b)** ship 0.30, which meets §8.4, pending confirmation that 5 kHz noise at
+  that level reads as air rather than hiss;
+- **(c)** keep iterating — rejected: every remaining lever is either
+  spec-protected (`ROOT_MIDI_BASE`, voice registers) or moves the violation to a
+  different band, which was repeatedly observed during this task.
+
+## 2026-10-10 · T3.5 (fix) · The drone straddles the 80 Hz sub/bass boundary, making band shares wander
+
+**Found while diagnosing the above.** §8.8 puts the drone at `rootMidi − 12`,
+which with `ROOT_MIDI_BASE = 48` is **midi 36–47 = 65.4–123.5 Hz**. The §8.4
+boundary between `sub` and `bass` is **80 Hz**:
+
+| root | 0   | 1   | 2   | 3   | 5        | 7        | 9        | 11       |
+| ---- | --- | --- | --- | --- | -------- | -------- | -------- | -------- |
+| band | sub | sub | sub | sub | **bass** | **bass** | **bass** | **bass** |
+
+The harmony wanders (§7.1: a key change every 32 bars ≈ 113 s), so **which side
+of the boundary the drone lands on depends on where a given render happens to
+end.** Two renders of the same configuration at 100 s and 120 s reported
+`high` shares of 8.8 % and 0.7 % — same seed, same rate, same code.
+
+**Consequences for anyone re-tuning:**
+
+- **Always measure at the spec's 120 s.** Shorter windows are dominated by the
+  continuous drone, because constant power dilutes as note energy accumulates
+  (at 25 s the same config reported `sub` at 60 %; at 120 s, 31 %).
+- Differences of a few points between runs may be the key, not the change.
+- The drone is the single largest contributor to both low bands, so it is the
+  first thing to suspect when `sub` and `bass` disagree between runs.
+
+Fixing it would mean moving the drone clear of 80 Hz, which §8.8 fixes, so it is
+recorded rather than changed.

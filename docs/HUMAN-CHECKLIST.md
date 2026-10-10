@@ -128,3 +128,26 @@ Outstanding issues:
       not, the lever is a _rational_ FM ratio (4.0) — which would change the
       metallic timbre the spec deliberately specifies, so it is a real trade-off,
       not a free fix.
+
+## F. Post-hiss-fix re-check (T3.5 follow-up)
+
+The previous air level was reported as **"strong hiss"**. It has been moved from
+2.5 kHz to **5 kHz** and dropped **~12 dB**. Three WAVs are in
+`artifacts/audio/`:
+
+| File                        | air gain | `high` share | Purpose                                        |
+| --------------------------- | -------- | ------------ | ---------------------------------------------- |
+| `preview-air-a-none.wav`    | 0.00     | 0.7 %        | reference — what the mix is with no air at all |
+| `preview-air-b-subtle.wav`  | 0.06     | 1.2 %        | "barely there"                                 |
+| `preview-air-c-shipped.wav` | 0.15     | 3.8 %        | **currently shipped**                          |
+| `preview-air-d-warmer.wav`  | 0.30     | 11.9 %       | meets §8.4's 5–25 % — needs an ear             |
+| `preview-air-e-hiss.wav`    | 0.55     | 29.9 %       | the level previously reported as hiss          |
+
+- [ ] **F1.** ⚠️ **Which preset reads as "air"?** `d-warmer` is the only one that
+      satisfies §8.4's 2–8 kHz target. If it also sounds like air rather than
+      hiss, ship it and the `audio:check` failure goes away with no spec change.
+      If `c-shipped` is the right sound, §8.4's `high` target has to be revised
+      instead. **This is the only blocker on T3.5.**
+- [ ] **F2.** Confirm the 5 kHz placement helped. The old 2.5 kHz band sat in the
+      sibilance region; part of the fix may be the frequency rather than the
+      level, in which case some of the level could safely come back.
