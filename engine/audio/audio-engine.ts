@@ -29,6 +29,9 @@ import {
   masterGainFor,
 } from "../config";
 import { VoiceAllocator } from "./allocator";
+import { buildFxChain, padDuckAutomation, type FxChain } from "./fx-chain";
+import { PadLayer } from "./pad-layer";
+import type { HarmonyEvent, HarmonyState } from "../music/harmony";
 import { buildVoiceParams, type VoiceKind } from "./voice-params";
 import { dbToGain } from "../util/math";
 import type { Tier, Vec3, NoteEvent } from "../types";
@@ -64,6 +67,8 @@ export class AudioEngine {
   private comp: DynamicsCompressorNode | null = null;
   private clip: WaveShaperNode | null = null;
   private padDuck: GainNode | null = null;
+  private fx: FxChain | null = null;
+  private pad: PadLayer | null = null;
 
   private readonly listenerPos: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly listenerFwd: Vec3 = { x: 0, y: 0, z: -1 };
@@ -157,6 +162,12 @@ export class AudioEngine {
     this.clip.connect(this.masterGain);
     this.masterGain.connect(ctx.destination);
 
+    // --- FX chain (§8.3): reverb, ping-pong delay, pad ducking (§8.7) -----
+    this.fx = buildFxChain(ctx, { tier: this.tier, seed: this.opts.debug ? 0x5eed : 0x5eed });
+    this.voiceBus = this.fx.voiceBus;
+    this.mixBus = this.fx.mixBus;
+    this.padDuck = this.fx.padDuck;
+
     // --- Per-slot spatial panners (§8.9) ----------------------------------
     // OfflineAudioContext supports PannerNode; if a host ever lacks it the
     // graph still works, just without spatialisation.
@@ -193,6 +204,37 @@ export class AudioEngine {
     const now = ctx.currentTime;
     this.masterGain.gain.setValueAtTime(0, now);
     this.masterGain.gain.linearRampToValueAtTime(this.masterTarget, now + MASTER_FADE_IN_SEC);
+  }
+
+  /**
+   * Start the continuous layers (pad, drone, air) — spec §8.13. Split from
+   * `init` so the offline harness can build the graph without a real
+   * oscillator clock, and so the React shell controls when sound begins.
+   */
+  startContinuous(state: HarmonyState): void {
+    if (!this.fx || this.disposed) return;
+    this.pad = new PadLayer({
+      tier: this.tier,
+      padBus: this.fx.padBus,
+      droneBus: this.fx.droneBus,
+      airBus: this.fx.airBus,
+    });
+    this.pad.start(state, this.ctx);
+  }
+
+  /** Spec §8.8 — react to a harmony event; cross-fades the next pad bank. */
+  onHarmony(e: HarmonyEvent): void {
+    if (!this.pad) return;
+    this.pad.onHarmony(e.state, this.ctx, e.at);
+  }
+
+  /** Spec §8.8 — pad cutoff and air gain follow global energy. */
+  setEnergy(energy: number): void {
+    this.pad?.setEnergy(energy, this.ctx.currentTime);
+  }
+
+  getPadLayer(): PadLayer | null {
+    return this.pad;
   }
 
   /** Adopt an externally-built worklet node (used by the offline harness). */
@@ -270,14 +312,15 @@ export class AudioEngine {
     return true;
   }
 
-  /** Spec §8.7 — `padDuck` automation for sub/gong. */
+  /** Spec §8.7 — `padDuck` automation for sub/gong, from the shared pure helper. */
   duckPad(at: number): void {
     const duck = this.padDuck;
     if (!duck) return;
     const g = duck.gain;
     g.cancelScheduledValues(at);
-    g.setTargetAtTime(0.65, at, 0.02);
-    g.setTargetAtTime(1, at + 0.12, 0.45);
+    for (const [time, value, tc] of padDuckAutomation(at)) {
+      g.setTargetAtTime(value, time, tc);
+    }
   }
 
   /**
@@ -405,6 +448,10 @@ export class AudioEngine {
       }
     }
     this.panners.length = 0;
+    this.pad?.dispose();
+    this.pad = null;
+    this.fx?.dispose();
+    this.fx = null;
     this.node = null;
     this.allocator = null;
     // `close()` is on AudioContext and OfflineAudioContext, not on the

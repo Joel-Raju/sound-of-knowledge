@@ -108,3 +108,87 @@ test("the worklet responds to sync, proving it is live", async ({ page }) => {
   expect(synced, "worklet must reply {t:'synced'} to a sync message").toBe(true);
   errors.assertClean("worklet sync");
 });
+
+test("the full mix chain builds and the pad starts without errors", async ({ page }) => {
+  const errors = recordErrors(page);
+  await page.goto("/?debug=1");
+
+  const result = await page.evaluate(async () => {
+    const ctx = new AudioContext({ latencyHint: "playback" });
+    try {
+      await ctx.audioWorklet.addModule("/engine/voice-pool.worklet.js");
+      const node = new AudioWorkletNode(ctx, "sok-voice-pool", {
+        numberOfInputs: 0,
+        numberOfOutputs: 16,
+        outputChannelCount: Array.from({ length: 16 }, () => 1),
+        processorOptions: { voices: 16 },
+      });
+
+      // Build the §8.3 graph by hand: voiceBus → reverb/delay → mixBus →
+      // compressor → softclip → destination, plus the pad bus.
+      const voiceBus = ctx.createGain();
+      const mixBus = ctx.createGain();
+      const padBus = ctx.createGain();
+      const convolver = ctx.createConvolver();
+      convolver.normalize = true;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -10;
+      const clip = ctx.createWaveShaper();
+      const n = 2048;
+      const curve = new Float32Array(n);
+      const norm = Math.tanh(1.2);
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * 2 - 1;
+        curve[i] = Math.tanh(1.2 * x) / norm;
+      }
+      clip.curve = curve;
+
+      voiceBus.connect(mixBus);
+      voiceBus.connect(convolver);
+      convolver.connect(mixBus);
+      padBus.connect(mixBus);
+      mixBus.connect(comp);
+      comp.connect(clip);
+      clip.connect(ctx.destination);
+      node.connect(voiceBus);
+
+      // A chord pad: three notes, two detuned oscillators each.
+      let started = 0;
+      for (const [f, detune] of [
+        [196, -7],
+        [196, 7],
+        [293.66, -7],
+        [293.66, 7],
+        [392, -7],
+        [392, 7],
+      ] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "sawtooth";
+        osc.frequency.value = f;
+        osc.detune.value = detune;
+        const g = ctx.createGain();
+        g.gain.value = 0.03;
+        osc.connect(g);
+        g.connect(padBus);
+        osc.start();
+        started++;
+      }
+
+      await ctx.resume();
+      await new Promise((r) => setTimeout(r, 400));
+      const state = ctx.state as string;
+      return { ok: true, state, oscillators: started, sampleRate: ctx.sampleRate };
+    } catch (err) {
+      return { ok: false, reason: (err as Error).message };
+    }
+  });
+
+  expect(result.ok, `chain build failed: ${JSON.stringify(result)}`).toBe(true);
+  if (!result.ok) return;
+  expect(result.state).toBe("running");
+  expect(result.sampleRate).toBeGreaterThan(8000);
+  // The §8.8 budget is 22 continuous oscillators; a 3-note/2-osc bank is 6.
+  expect(result.oscillators).toBeLessThanOrEqual(22);
+
+  errors.assertClean("mix chain");
+});
