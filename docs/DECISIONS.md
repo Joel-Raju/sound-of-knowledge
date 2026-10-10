@@ -208,3 +208,23 @@ all 17 section headings and 110 table rows, and key terms (`mulberry32`,
 **Fix:** All four are now listed in `.prettierignore` so `npm run format` will
 never touch them again. They remain **untracked** — they are the user's working
 notes, not product files, and are deliberately not committed.
+
+---
+
+## 2026-10-10 · T0.2 · `/artifact/` (singular) vs `artifacts/` — a gitignore regression
+
+**Spec said:** §5.3 uses `artifacts/` (plural) for verification output and
+§13.6 writes screenshots to `artifacts/shots/`.
+
+**Did:** My rewritten `.gitignore` covered `artifacts/` but silently dropped the
+v1 line `/artifact` (singular). That directory holds `spec.md` and
+`visual_spec.md` — v1 design documents that were deliberately never committed.
+`git add -A` therefore swept them into the T0.2 commit. Removed with a follow-up
+commit and both patterns are now present.
+
+**Why:** Worth recording because the two directories differ by one character and
+the failure mode is silent — `git add -A` looks correct. Both are now ignored.
+Note for T6.5: `artifact/visual_spec.md` contains v1 art direction (18-step
+raymarch, curl-noise intent) referenced by `ParticleSystem.tsx` comments. It is
+local-only and gitignored; if any of it should survive into the v2 docs, it must
+be _copied_ deliberately rather than relied on from the ignored directory.
