@@ -801,3 +801,9 @@ export function keyName(rootPc: number): string {
   const pc = ((rootPc % 12) + 12) % 12;
   return PITCH_CLASS_NAMES[pc] ?? "C";
 }
+
+/** Spec §5.4 — URL of the bundled worklet, loaded via `audioWorklet.addModule`. */
+export const WORKLET_URL = "/engine/voice-pool.worklet.js";
+
+/** Spec §5.4 — URL of the bundled ingest worker. */
+export const INGEST_WORKER_URL = "/engine/ingest.worker.js";
