@@ -22,7 +22,14 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
     args, Prettier, esbuild worker/worklet pipeline (`--watch` reports gzip vs the 40 KB
     budget), CI workflow with a bundle-budget gate. Stubs make `prebuild` green before the
     engine modules exist.
-- [ ] **T0.3** Foundation modules
+- [x] **T0.3** Foundation modules
+  - `engine/{config,types,bus}.ts` and `engine/util/{hash,math,random,ring-buffer,oklch,perf}.ts`.
+    Every spec numeric lives in `config.ts` with a `// spec §x.y` comment (tier tables
+    verified against §8.12/§12.3 by test).
+  - 88 unit tests, **98.8 % lines** (target 85 %). Two real bugs caught and fixed:
+    OKLCH gamut epsilon was 5× too tight (spec's own red vector failed), and
+    `expApproach(tau=0)` silently behaved as tau=1 s. The hot-path ESLint ban also
+    caught two `new Array()` allocations on first run.
 
 ## Phase 1 — Data layer
 
@@ -94,4 +101,4 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**In progress: T0.2** (tooling).
+**Phase 0 complete.** T0.1 ✓ T0.2 ✓ T0.3 ✓. Next: T1.1 (stream reconnaissance).

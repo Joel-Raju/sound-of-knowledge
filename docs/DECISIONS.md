@@ -228,3 +228,71 @@ Note for T6.5: `artifact/visual_spec.md` contains v1 art direction (18-step
 raymarch, curl-noise intent) referenced by `ParticleSystem.tsx` comments. It is
 local-only and gitignored; if any of it should survive into the v2 docs, it must
 be _copied_ deliberately rather than relied on from the ignored directory.
+
+---
+
+## 2026-10-10 · T0.3 · OKLCH gamut epsilon 1e-4 → 1e-3 (bug found by test)
+
+**Spec said:** §9.3 — "clamp to 0..1; if out of gamut reduce C by 5 % steps
+until in gamut, max 8 iterations". §13.2 — `OKLCH(0.6280, 0.2577, 29.23°) ≈
+linear sRGB (1,0,0) within 0.02`.
+
+**Did:** Raised the in-gamut tolerance from `1e-4` to `1e-3`.
+
+**Why:** The spec's own test vector failed with a tight tolerance. OKLCH(0.628,
+0.2577, 29.23) _is_ linear red and converts to `r = 1.00021` — 0.02 % over, pure
+float noise. With `1e-4` that counted as "out of gamut", so the function took a
+5 % chroma cut and returned `r = 0.957`, failing the spec's own tolerance by 2x.
+
+The deeper issue is that the spec's remedy is **discontinuous**: just inside the
+boundary you clamp, just outside you lose 5 % of chroma. Clamping `1.00021` is
+imperceptible; desaturating a colour by 5 % is visible as a hue shift. So the
+tolerance is deliberately set ~5x above the observed float noise, making us
+clamp rather than desaturate at the boundary. Genuinely out-of-gamut colours
+(e.g. C = 0.9) still take the reduction path, which a test now asserts
+monotonically.
+
+---
+
+## 2026-10-10 · T0.3 · `expApproach` with `tau = 0` now jumps instead of behaving as tau = 1 s
+
+**Spec said:** nothing explicit; §9.1 and §9.10 both pass small taus.
+
+**Did:** `expApproach(..., tau <= 0)` returns `target` immediately.
+
+**Why:** The original `tau || 1` fallback made `tau = 0` silently behave as a
+1-second time constant. That is surprising, and it disagreed with the sibling
+`smoothingCoefficient`, which already returns `1` (full application) for
+`tau <= 0`. Both now mean "no smoothing". The unit test caught this.
+
+---
+
+## 2026-10-10 · T0.3 · `vitest.config.ts` -> `vitest.config.mts`
+
+**Spec said:** §5.3 lists `vitest.config.ts`.
+
+**Did:** Named the file `vitest.config.mts`.
+
+**Why:** The package is CommonJS (`package.json` has no `"type": "module"`), so
+Vite's native config loader warned that the ESM syntax in `vitest.config.ts`
+"uses features unsupported by `configLoader: 'native'`" and would break on a
+future Vite major. `.mts` is unambiguous under both loaders and, unlike adding
+`"type": "module"`, does not affect how Next.js and the esbuild worker script
+resolve modules. Logged because it is a deliberate departure from the literal
+file list in §5.3.
+
+---
+
+## 2026-10-10 · T0.3 · FNV-1a uses `Math.imul`, not shift arithmetic
+
+**Spec said:** §13.2 gives the vectors `fnv1a("") = 0x811c9dc5` and
+`fnv1a("a") = 0xe40c292c`.
+
+**Did:** `h = Math.imul(h, FNV_PRIME)` instead of the
+`h += (h<<1) + (h<<4) + (h<<7) + (h<<8) + (h<<24)` shift form.
+
+**Why:** Both produce identical results (the shift form is the multiplication
+spelled out), but `Math.imul` states the intent — multiply by the FNV prime —
+and is a single operation. The constant `FNV_PRIME` was previously declared and
+unused, which the lint gate flagged; using it removed the dead code rather than
+deleting the constant and leaving a reader to wonder why the prime is missing.
