@@ -102,3 +102,15 @@ Reviewed by: ____________________ Date: ____________
 
 Outstanding issues:
 <!-- free text -->
+
+- [ ] **B10.** ⚠️ **Bell pitch is unverifiable automatically.** §13.2 asks for a
+      2 % fundamental check on the bell, but the spec's own inharmonic FM ratio
+      of 3.99 makes the waveform quasi-periodic and leaves the carrier at a Bessel
+      null — measured carrier energy was **3e-7 of the band peak**, so every
+      measurement method tried (FFT peak-pick, autocorrelation, carrier energy,
+      spectral centroid) either measures a sideband or does not scale with pitch.
+      Full evidence in `DECISIONS.md` at T3.1. **Confirm by ear** that
+      bell/removal notes move to the expected pitch as an edit grows. If they do
+      not, the lever is a _rational_ FM ratio (4.0) — which would change the
+      metallic timbre the spec deliberately specifies, so it is a real trade-off,
+      not a free fix.
