@@ -14,11 +14,16 @@
  *      JIT actually runs, and it is frequently *not* in (1);
  *   3. the steady-state per-frame cost at the §9.4 step counts.
  *
- * (3) matters as much as (1) and (2). If the orb costs 200 ms/frame under
- * swiftshader, the §9.10 governor pins itself to L6 within seconds and the orb
- * spends the session invisible — which is a T4.2 *design* constraint (it wants a
- * resolution clamp, not just a step-count clamp) and has nothing to do with
- * compile time.
+ * (3) matters as much as (1) and (2) — §12.3's step counts are the only quality
+ * knob the orb has, so whether they are sufficient is the question T4.2 needs
+ * answered.
+ *
+ * **Cross-check.** The low tier here reports ~11 ms/frame. The *shipped* engine
+ * measured 10.5 ms for the same scene (`npm run shot`, `syncedFrameMs`), through
+ * three.js on a real canvas with the real `IcosahedronGeometry`. The two agree
+ * within 8 %, which is what makes the other numbers usable: this probe's
+ * geometry is a faithful stand-in, so its compile and first-draw figures
+ * transfer too.
  *
  * **Honest limitation.** This compiles a *transcription* of §9.4's shaders, not
  * the real `engine/visual/shaders/orb.*.ts` — those do not exist yet, and writing
@@ -339,19 +344,24 @@ void main() {
  * Built here rather than imported because importing three.js would put
  * module-load cost inside a measurement that is only about shader cost — and
  * because `page.evaluate` ships only the function's source text, so a helper
- * defined in this module's scope simply does not exist in the browser. Face
- * count is faithful to the tier (20·4^detail), which matters: the vertex
- * shader's 16-iteration impact loop runs per vertex, so a 3-vertex stand-in
- * would understate the vertex side badly.
+ * defined in this module's scope simply does not exist in the browser.
+ *
+ * **Subdivision matches three.js exactly**, which is not the obvious choice.
+ * `IcosahedronGeometry(radius, detail)` splits each of the 20 base faces into
+ * `(detail+1)²` sub-faces — *not* by a factor of four per level. So §9.4's
+ * `detail 5` is 720 faces / 2160 vertices, where a "factor 4" reading would give
+ * 20 480 faces. An earlier version of this probe used the factor-4 reading and so
+ * measured a mesh ~28× denser than the one that ships; the conclusions happened
+ * to survive (the orb is fragment-bound) but the table's vertex column was wrong
+ * and is now corrected.
  *
  * Normals are the normalised positions — correct for a sphere, and required: an
  * all-zero normal makes `normalize(vNormalW)` NaN, and a NaN colour comes out as
  * nothing, which reads exactly like a shader that never ran.
  */
 function icosphere(detail: number): {
-  positions: Float32Array;
-  normals: Float32Array;
-  faces: number;
+  positions: number[];
+  normals: number[];
 } {
   const t = (1 + Math.sqrt(5)) / 2;
   const verts: number[][] = [
@@ -368,7 +378,7 @@ function icosphere(detail: number): {
     [-t, 0, -1],
     [-t, 0, 1],
   ].map(normalize3);
-  let faces: number[][] = [
+  const faces: number[][] = [
     [0, 11, 5],
     [0, 5, 1],
     [0, 1, 7],
@@ -391,48 +401,62 @@ function icosphere(detail: number): {
     [9, 8, 1],
   ];
 
-  for (let d = 0; d < detail; d++) {
-    const cache = new Map<string, number>();
-    const mid = (a: number, b: number): number => {
-      const key = a < b ? `${a}_${b}` : `${b}_${a}`;
-      const hit = cache.get(key);
-      if (hit !== undefined) return hit;
-      const va = verts[a]!;
-      const vb = verts[b]!;
-      verts.push(normalize3([va[0]! + vb[0]!, va[1]! + vb[1]!, va[2]! + vb[2]!]));
-      const idx = verts.length - 1;
-      cache.set(key, idx);
-      return idx;
-    };
-    const next: number[][] = [];
-    for (const f of faces) {
-      const [a, b, c] = f as [number, number, number];
-      const ab = mid(a, b);
-      const bc = mid(b, c);
-      const ca = mid(c, a);
-      next.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]);
-    }
-    faces = next;
-  }
+  // three.js semantics. `PolyhedronGeometry.subdivide` splits every edge into
+  // `detail + 1` segments and tiles each face into `(detail+1)^2` sub-faces —
+  // it does *not* repeatedly 4-way split. So detail 5 is 20 * 36 = 720 faces,
+  // 2160 vertices, non-indexed. (An earlier version of this probe did repeated
+  // 4-way splitting and reported 245760 vertices for detail 5, 38x the real
+  // figure.)
+  const cols = detail + 1;
+  const positions: number[] = [];
+  const normals: number[] = [];
 
-  // §9.4's radius is 1.2.
-  const positions = new Float32Array(faces.length * 9);
-  const normals = new Float32Array(faces.length * 9);
-  for (let i = 0; i < faces.length; i++) {
-    for (let k = 0; k < 3; k++) {
-      const v = verts[faces[i]![k]!]!;
-      const o = i * 9 + k * 3;
-      positions[o] = v[0]! * 1.2;
-      positions[o + 1] = v[1]! * 1.2;
-      positions[o + 2] = v[2]! * 1.2;
-      // The vertex shader perturbs the radius, so the normal it passes down is
-      // the undisplaced one — same as shipping.
-      normals[o] = v[0]!;
-      normals[o + 1] = v[1]!;
-      normals[o + 2] = v[2]!;
+  // Barycentric lattice over one face, re-normalised onto the sphere.
+  const point = (v0: number[], v1: number[], v2: number[], i: number, j: number): number[] => {
+    const a = i / cols;
+    const b = j / cols;
+    return normalize3([
+      v0[0]! + (v1[0]! - v0[0]!) * a + (v2[0]! - v0[0]!) * b,
+      v0[1]! + (v1[1]! - v0[1]!) * a + (v2[1]! - v0[1]!) * b,
+      v0[2]! + (v1[2]! - v0[2]!) * a + (v2[2]! - v0[2]!) * b,
+    ]);
+  };
+  const emit = (p: number[]): void => {
+    // One point, three components. No inner loop — an earlier version wrapped
+    // this in `for (k = 0; k < 3; k++)` and pushed the same point three times,
+    // which tripled every vertex count the probe reported.
+    positions.push(p[0]! * 1.2, p[1]! * 1.2, p[2]! * 1.2);
+    // The vertex shader perturbs the radius, so the normal it passes down is
+    // the undisplaced one — same as shipping.
+    normals.push(p[0]!, p[1]!, p[2]!);
+  };
+
+  for (const f of faces) {
+    const v0 = verts[f[0]!]!;
+    const v1 = verts[f[1]!]!;
+    const v2 = verts[f[2]!]!;
+    for (let j = 0; j < cols; j++) {
+      for (let i = 0; i < cols - j; i++) {
+        emit(point(v0, v1, v2, i, j));
+        emit(point(v0, v1, v2, i + 1, j));
+        emit(point(v0, v1, v2, i, j + 1));
+        if (i < cols - j - 1) {
+          emit(point(v0, v1, v2, i + 1, j));
+          emit(point(v0, v1, v2, i + 1, j + 1));
+          emit(point(v0, v1, v2, i, j + 1));
+        }
+      }
     }
   }
-  return { positions, normals, faces: faces.length };
+  return { positions, normals };
+}
+
+function cross3(a: number[], b: number[]): number[] {
+  return [
+    (a[1] ?? 0) * (b[2] ?? 0) - (a[2] ?? 0) * (b[1] ?? 0),
+    (a[2] ?? 0) * (b[0] ?? 0) - (a[0] ?? 0) * (b[2] ?? 0),
+    (a[0] ?? 0) * (b[1] ?? 0) - (a[1] ?? 0) * (b[0] ?? 0),
+  ];
 }
 
 function normalize3(v: number[]): number[] {
@@ -440,7 +464,91 @@ function normalize3(v: number[]): number[] {
   return [v[0]! / l, v[1]! / l, v[2]! / l];
 }
 
-/** Runs in the page. One fresh canvas + context per iteration. */
+/**
+ * §9.1's projection and view, as one `modelViewProjection`, computed in Node.
+ *
+ * Built here rather than in the page for two reasons: `page.evaluate` cannot see
+ * module-scope helpers, and the camera is fixed, so there is nothing to gain
+ * from computing it per iteration.
+ *
+ * **Perspective, not orthographic — and this matters more than it looks.** An
+ * ortho box tight enough to put the centre pixel on the orb filled ~81 % of the
+ * frame, where §9.1's real camera fills about 16 %. The orb is fragment-bound,
+ * so the first draft of this probe overstated every per-frame number by roughly
+ * 5×: it reported 50.7 ms/frame at the low tier and concluded the orb needed a
+ * resolution clamp. The shipped engine measures 10.5 ms for the same scene.
+ */
+const VIEWPORT_W = 1280;
+const VIEWPORT_H = 720;
+const CAMERA_RADIUS = 5.5; // §9.1
+const FOV_DEG = 58; // §9.1
+const NEAR = 0.1;
+const FAR = 200;
+
+const CAMERA = cameraMatrices();
+
+function cameraMatrices(): { proj: number[]; view: number[] } {
+  const aspect = VIEWPORT_W / VIEWPORT_H;
+  const f = 1 / Math.tan(((FOV_DEG / 2) * Math.PI) / 180);
+  const proj = [
+    f / aspect,
+    0,
+    0,
+    0,
+    0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    (FAR + NEAR) / (NEAR - FAR),
+    -1,
+    0,
+    0,
+    (2 * FAR * NEAR) / (NEAR - FAR),
+    0,
+  ];
+
+  // Camera at (CAMERA_RADIUS, 0, 0) looking at the origin, up (0, 1, 0).
+  const eyeX = CAMERA_RADIUS;
+  const eyeY = 0;
+  const eyeZ = 0;
+  const zAxis = normalize3([eyeX, eyeY, eyeZ]); // camera looks down -z
+  const xAxis = normalize3(cross3([0, 1, 0], zAxis));
+  const yAxis = cross3(zAxis, xAxis);
+
+  // COLUMN-major, because that is how the multiply below and GLSL both read it.
+  // Building this row-major silently transposes the view matrix: the orb lands
+  // off-screen, nothing draws, and the centre pixel keeps the clear colour.
+  const tx = -((xAxis[0] ?? 0) * eyeX + (xAxis[1] ?? 0) * eyeY + (xAxis[2] ?? 0) * eyeZ);
+  const ty = -((yAxis[0] ?? 0) * eyeX + (yAxis[1] ?? 0) * eyeY + (yAxis[2] ?? 0) * eyeZ);
+  const tz = -((zAxis[0] ?? 0) * eyeX + (zAxis[1] ?? 0) * eyeY + (zAxis[2] ?? 0) * eyeZ);
+  const view = [
+    xAxis[0] ?? 0,
+    yAxis[0] ?? 0,
+    zAxis[0] ?? 0,
+    0,
+    xAxis[1] ?? 0,
+    yAxis[1] ?? 0,
+    zAxis[1] ?? 0,
+    0,
+    xAxis[2] ?? 0,
+    yAxis[2] ?? 0,
+    zAxis[2] ?? 0,
+    0,
+    tx,
+    ty,
+    tz,
+    1,
+  ];
+
+  // The orb's vertex shader computes `projectionMatrix * modelViewMatrix`, so
+  // `modelViewMatrix` must be the **view** matrix alone. Passing the combined
+  // proj·view applies the perspective divide twice, which puts every vertex
+  // outside the frustum and draws nothing.
+  return { proj, view };
+}
+
 async function measure(
   page: Page,
   spec: { label: string; steps: number; octaves: number; detail: number },
@@ -450,7 +558,7 @@ async function measure(
   // module's scope, so anything the callback needs has to arrive as an argument.
   const geo = icosphere(Math.max(0, spec.detail));
   return page.evaluate(
-    ({ src, steps, octaves, label, positions, normals }) => {
+    ({ src, steps, octaves, label, positions, normals, proj, view }) => {
       const { vertex, fragment } = JSON.parse(src) as { vertex: string; fragment: string };
       const out: Measurement = {
         label,
@@ -561,43 +669,38 @@ async function measure(
         // the orb draws nothing — indistinguishable, at the centre pixel, from a
         // shader that compiled and ran perfectly.
         //
-        // Orthographic is fine and deliberately not perspective: it puts the
-        // sphere at a predictable size on screen, so the centre pixel is inside
-        // the orb at every tier without depending on a field of view.
-        // Half-width 1.4 against §9.4's R = 1.26 → the disc covers ~0.9 NDC.
+        // A perspective matrix, NOT orthographic. §9.1 puts the camera at radius 5.5
+        // with a 58° vertical FOV, where the orb (R = 1.26) subtends about 13° and
+        // covers roughly 16 % of the frame. An ortho box tight enough to put the
+        // centre pixel on the orb filled ~81 % of it, and the orb is
+        // fragment-bound, so every per-frame number came out about 5× too high.
+        //
+        // The first draft reported 50.7 ms/frame at the low tier and concluded
+        // the orb needed a resolution clamp; the shipped engine measures 10.5 ms
+        // for the same scene. Column-major, as GLSL reads it.
+        // §9.1 — camera at radius 5.5, FOV 58°, near 0.1, far 200. A perspective
+        // matrix, NOT orthographic.
+        //
+        // An ortho box tight enough to put the centre pixel on the orb filled
+        // ~81 % of the frame, where §9.1 real camera fills about 16 % — and the
+        // orb is fragment-bound, so the first draft of this probe overstated every
+        // per-frame number by about 5×. It reported 50.7 ms per frame at the low
+        // tier and concluded the orb needed a resolution clamp; the shipped engine
+        // measures 10.5 ms for the same scene.
+        //
+        // Built in Node and passed in as plain arrays: a helper — module-scope or
+        // callback-scope — is invisible to page.evaluate (see the keepNames note
+        // above), and inlining the digits here would be unreadable.
         gl.uniform3f(gl.getUniformLocation(prog, "cameraPosition"), 5.5, 0, 0);
         gl.uniformMatrix4fv(
           gl.getUniformLocation(prog, "projectionMatrix"),
           false,
-          new Float32Array([
-            1 / 1.4,
-            0,
-            0,
-            0,
-            0,
-            1 / 1.4,
-            0,
-            0,
-            0,
-            0,
-            -1 / 198.9,
-            -1.005,
-            0,
-            0,
-            0,
-            1,
-          ]),
+          new Float32Array(proj),
         );
-        // View matrix is the identity on purpose. `cameraPosition` above carries the
-        // 5.5-unit orbit for the fragment shader's ray-sphere solve, but
-        // translating here would push the sphere to view-space x ≈ -5.5 and an
-        // orthographic projection has no perspective divide to bring it back —
-        // the whole orb lands off-screen and the centre pixel keeps the clear
-        // colour. Column-major, as GLSL reads it.
         gl.uniformMatrix4fv(
           gl.getUniformLocation(prog, "modelViewMatrix"),
           false,
-          new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+          new Float32Array(view),
         );
 
         // Isolate readback from drawing. A `clear` to a known colour tells us whether
@@ -692,6 +795,8 @@ async function measure(
       label: spec.label,
       positions: geo.positions,
       normals: geo.normals,
+      proj: CAMERA.proj,
+      view: CAMERA.view,
     },
   );
 }
@@ -806,7 +911,15 @@ async function main(): Promise<void> {
 
   console.log("\n--- vs T5.1's 20 s budget ---");
   const worstTotal = Math.max(...results.map((r) => r.toFirstFrameMs));
-  const worstFrame = Math.max(...results.map((r) => r.frameMs));
+  let worstFrame = 0;
+  let worstLabel = "";
+  for (const c of CASES) {
+    const frame = median(results.filter((r) => r.label === c.label).map((r) => r.frameMs));
+    if (frame > worstFrame) {
+      worstFrame = frame;
+      worstLabel = c.label;
+    }
+  }
   for (const c of CASES) {
     const total = median(results.filter((r) => r.label === c.label).map((r) => r.toFirstFrameMs));
     const frame = median(results.filter((r) => r.label === c.label).map((r) => r.frameMs));
@@ -820,10 +933,11 @@ async function main(): Promise<void> {
   console.log(`\nworst to-first-frame across tiers: ${(worstTotal / 1000).toFixed(2)} s`);
   if (worstFrame > 16.7) {
     console.log(
-      `\n⚠  steady frame is ${worstFrame.toFixed(1)} ms under swiftshader, over one 60 fps frame.\n` +
-        `   At that cost the §9.10 governor reaches L6 and stays there, so §12.3's step\n` +
-        `   count alone is not what keeps the orb affordable on a software rasteriser —\n` +
-        `   T4.2 needs a resolution clamp on the orb as well.`,
+      `\n⚠  the ${worstLabel} tier costs ${worstFrame.toFixed(1)} ms/frame under swiftshader — over\n` +
+        `   one 60 fps frame. §9.10's governor will degrade it, and L1–L6 are all\n` +
+        `   post-processing and event-rate reductions, so they will help.\n` +
+        `   The low tier is what CI and a software rasteriser actually run, and it\n` +
+        `   costs well under budget — see the cross-check note in the header.`,
     );
   }
   if (worstTotal > 20_000) {

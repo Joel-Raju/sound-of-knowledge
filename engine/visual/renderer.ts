@@ -51,6 +51,12 @@ export interface RendererOptions {
   canvas?: HTMLCanvasElement;
   /** overrides tier detection — `?quality=` */
   tier?: Tier;
+  /**
+   * An explicit non-`auto` quality setting. §9.10: it "fixes the tier and disables
+   * the governor's `improve()` beyond that tier's max (but still allows degrade
+   * for safety)". Distinct from `tier`, which alone only sets the ceiling.
+   */
+  pinnedQuality?: boolean;
   /** injected for tests */
   env?: TierEnv;
   /** `prefers-reduced-motion`, §9.11 */
@@ -242,7 +248,10 @@ export class VisualEngine {
     this.frames = new FrameStats();
     // dpr must be known before the governor: its ceiling *is* a pixel ratio
     // (§12.3), so it depends on the display.
-    this.governor = new Governor({ tierMaxScale: this.pixelRatioCeiling() });
+    this.governor = new Governor({
+      tierMaxScale: this.pixelRatioCeiling(),
+      pinned: opts.pinnedQuality === true,
+    });
 
     // §9.1 — clear colour is the palette's `deep`, not black.
     this.applyClearColor();
@@ -270,6 +279,18 @@ export class VisualEngine {
   /** The DOM canvas, for `document.hidden` checks and the screenshot helper. */
   get domElement(): HTMLCanvasElement {
     return this.canvas;
+  }
+
+  /**
+   * Elapsed render time in seconds, advanced only by rendered frames.
+   *
+   * This is the clock §9.4's impact ages are measured against, and it is
+   * deliberately *not* wall-clock: an impact's 2.5 s lifetime should expire in
+   * 2.5 s of the piece being watched, not 2.5 s of the tab being open. Same
+   * reasoning as the audio engine's injected clock in T3.5.
+   */
+  get clockNow(): number {
+    return this.time;
   }
 
   /**

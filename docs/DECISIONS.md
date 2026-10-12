@@ -1272,80 +1272,154 @@ identical at magnitude 0 and 1, so the next person to be tempted sees the reason
 
 ---
 
-## 2026-10-12 · T4.1 · The orb's shader compile is free; its _frame_ is not
+## 2026-10-12 · T4.1 · The orb's shader compile is free — and a resolution clamp is **not** needed
+
+> **Corrected during T4.2.** This entry's original conclusion — "T4.2 likely needs a
+> resolution clamp on the orb" — was **wrong**, and was caused by a measurement error
+> described at the end. The heading above is the corrected claim; the error is recorded
+> because the reasoning looks sound until you check the projection matrix.
 
 T4.1 shipped a scene with no shaders in it, so T5.1's "Enter enables ≤ 20 s under
 swiftshader" budget had never been measured. `npm run probe:shader` compiles a
-transcription of §9.4's orb — the full Ashima 3D simplex, the 16-iteration impact
-loop in the vertex shader, the 8-step ray-march with fbm in the fragment shader —
-at all three tiers' §12.3 parameters, on a fresh WebGL2 context each iteration.
+transcription of §9.4's orb — the full Ashima 3D simplex, the 16-iteration impact loop
+in the vertex shader, the 8-step ray-march with fbm in the fragment shader — at all
+three tiers' §12.3 parameters, on a fresh WebGL2 context each iteration.
 
-Measured at 1280×720, dpr 1, median of 3, load average ≈ 2.2:
+Measured at 1280×720, dpr 1, §9.1's camera (radius 5.5, 58° FOV), median of 3, load
+average ≈ 2.0:
 
-| tier   | steps | oct | vertices | compile | first draw | to first frame | steady frame |          |
-| ------ | ----- | --- | -------- | ------- | ---------- | -------------- | ------------ | -------- |
-| high   | 8     | 3   | 61 440   | 0.0 ms  | 262.9 ms   | **299.1 ms**   | 157.0 ms     | 6.4 fps  |
-| medium | 5     | 2   | 15 360   | 0.0 ms  | 204.4 ms   | **241.9 ms**   | 78.3 ms      | 12.8 fps |
-| low    | 3     | 2   | 3 840    | 0.0 ms  | 168.4 ms   | **206.8 ms**   | 50.7 ms      | 19.7 fps |
+| tier   | steps | oct | vertices | compile | first draw | to first frame | steady frame |        |
+| ------ | ----- | --- | -------- | ------- | ---------- | -------------- | ------------ | ------ |
+| high   | 8     | 3   | 2 160    | 0.1 ms  | 144.1 ms   | **180.3 ms**   | 24.3 ms      | 41 fps |
+| medium | 5     | 2   | 1 500    | 0.0 ms  | 122.6 ms   | **158.3 ms**   | 14.7 ms      | 68 fps |
+| low    | 3     | 2   | 960      | 0.1 ms  | 122.5 ms   | **159.5 ms**   | 11.3 ms      | 88 fps |
 
-**Finding 1 — the 20 s budget is not at risk from shaders.** Worst case to first
-frame is **0.31 s**, about 1.5 % of the budget. Shader _compilation_ is
-effectively free (≈ 0.0–0.1 ms); the real startup cost is swiftshader's JIT at
-first draw, 0.17–0.26 s. T4.2 does not need async shader pre-warm, a compile
-timeout, or any startup accommodation at all. That question is settled.
+**Finding 1 — the 20 s budget is not at risk from shaders.** Worst case to first frame
+is **0.18 s**, about 1 % of the budget. Shader _compilation_ is effectively free
+(≈ 0.0–0.1 ms); the real startup cost is swiftshader's JIT at first draw,
+0.12–0.14 s. T4.2 needs no async shader pre-warm, no compile timeout, and no startup
+accommodation. That question is settled and was never in doubt.
 
-**Finding 2 — §12.3's step counts do not make the orb affordable on swiftshader,
-and no governor level can fix it.** The low tier — 3 steps, 2 octaves, the
-cheapest the orb can ever be configured — costs **50.7 ms/frame, 3× a 60 fps
-frame**. §9.10's degradation levels bottom out at L3 (steps −2, octaves 2), which
-on the low tier is already its floor, so L4–L6 buy nothing for the orb: the
-governor will walk to L6, disable bloom and chromatic aberration, halve the dust,
-and still be sitting at ~50 ms.
+**Finding 2 — §12.3's step counts _are_ sufficient.** The low tier — 3 steps, 2
+octaves, the cheapest the orb can be configured, and what CI and any software
+rasteriser actually run — costs **11.3 ms/frame, inside a 60 fps budget**. The high
+tier costs 24.3 ms and §9.10 will degrade it, but every one of L1–L6 is a
+post-processing or event-rate reduction that reclaims far more than the orb's share.
+No resolution clamp is needed, and none should be added.
 
-The orb's cost is **fragment-bound, not vertex-bound**: vertex count varies 16×
-across the tiers (3 840 → 61 440) while fragment work varies 4× (steps×octaves
-6 → 24), and total cost moves 3.1×. Steps and octaves track the fragment count.
+**Cross-check against the shipped engine.** The low tier's 11.3 ms here matches the
+**10.5 ms** `npm run shot` measures for the real thing — three.js, the real
+`IcosahedronGeometry`, a real canvas — within 8 %. That agreement is what makes the
+compile and first-draw figures trustworthy too, since both use the same stand-in
+geometry.
 
-So **T4.2 needs a resolution clamp on the orb, not just a step-count clamp** —
-the orb renders to a reduced-size offscreen target on the low tier, and the
-compositor upscales it. That is a §9.8 post-processing concern as much as a
-§9.4 one, and it is a design decision I have not made: see the open item below.
+### The measurement error, since it nearly survived
 
-### Caveats, stated plainly
+The first version of this probe reported **50.7 ms/frame** at the low tier and I
+concluded from it that the orb needed a resolution clamp. That was wrong, and the
+cause was a projection matrix that was not §9.1's.
 
-- This compiles a **transcription** of §9.4, not the shipped
-  `engine/visual/shaders/orb.*.ts` — those are T4.2's deliverable. Re-run the
-  probe against the real module when it exists.
-- One machine, swiftshader, 1280×720, dpr 1. Like `npm run bench`, these move
-  with load average; the probe prints it for that reason. The _shape_ of the
-  result — compile free, frame dominant, fragment-bound — is the durable part.
-- This is a software rasteriser. On real hardware the absolute numbers are much
-  lower; what transfers is the ratio and the governor-deadlock finding.
+The probe used an **orthographic** projection, chosen so the centre pixel would land
+on the orb at every tier. It filled ~81 % of the frame with it. §9.1's real camera —
+radius 5.5, 58° FOV — puts the orb at an NDC radius of 0.413, or about **13 %** of the
+frame. The orb is fragment-bound, so rendering it 6× larger overstated the per-frame
+cost by about 5×. The compile and first-draw numbers were never affected, which is
+why they survived while the frame numbers did not.
 
-### The probe earned its keep four times before it produced a number
+Three further errors sat behind that one, each of which produced a _plausible_ number
+rather than an obvious failure:
 
-Every one of these produced a confident, wrong result first:
+- `IcosahedronGeometry(radius, detail)` subdivides each of the 20 base faces into
+  `(detail+1)²`, **not** by a factor of four per level. §9.4's `detail 5` is
+  **720 faces / 2160 vertices** — I had assumed 20 480, and the probe measured a mesh
+  28× denser than the one that ships. The `vertices` column above is corrected.
+- The perspective matrix's last column was transposed — `(2·far·near)/(near−far)` and
+  `−1` swapped — so `w` came out 1.1 where it should have been 5.5.
+- `projectionMatrix * modelViewMatrix` was handed the _combined_ proj·view, applying
+  the perspective divide twice.
 
-1. **`gl.finish()` does not block.** A 400-iteration per-fragment control shader
-   timed 0.0 ms — the same number a dead shader produces. Fixed by forcing
-   completion with `readPixels`, which must return real data.
-2. **A dead shader times beautifully.** The control's first output was
-   `fract(acc) * 0.02`, which rounds to 0 in 8-bit, so a working shader was
-   indistinguishable from a broken one. Now every run asserts a known-clear
-   colour reads back _and_ that the draw overwrote it.
-3. **`cameraPosition`, `modelViewMatrix` and `projectionMatrix` are three.js
-   injections, not GLSL built-ins.** Unset, `gl_Position` collapses to zero and
-   the orb draws nothing. Then, with matrices set but the view matrix carrying
-   the 5.5-unit orbit, an orthographic projection has no perspective divide to
-   bring the sphere back and the whole orb lands off-screen. Two wrong turns
-   before it rendered.
-4. **`cameraPosition` at the origin degenerates the ray-sphere solve**, which is
-   the shader's whole entry-point test.
+Every one of these was caught by the probe's own `draw=…` assertion, which prints the
+centre pixel and compares it against the known clear colour. `draw=255,0,0` — the clear
+surviving — is the signature of "nothing rendered", and it looks exactly like a shader
+that compiled and ran perfectly. That check is the reason this took twenty minutes
+instead of an afternoon.
 
-The probe now ships with a control shader, a clear-colour readback, a pixel
-assertion, and a CPU clock calibration — because on three separate occasions the
-"result" was more confident than the instrument.
+### The general lesson, restated
 
-Generalising the earlier lesson: _a confirmed no-change result means suspect the
-input_ became _an implausibly good result means suspect the instrument._ Both are
-the same failure — believing the number.
+The caching incident's rule was: _a confirmed no-change result means suspect the
+input_. This was the same failure wearing different clothes — _an implausibly bad
+result means suspect the instrument_. In both cases a number was believed because it
+was produced by a process that had already proven it could produce numbers
+independently of reality.
+
+The habit that actually caught it was not scepticism about the number's size. It was
+**comparing against a second, independent measurement of the thing that ships**
+(`shot`'s `syncedFrameMs`, using no stand-in geometry at all). Two numbers that
+disagree by 5× is a finding; one number with no cross-check is a rumour.
+
+---
+
+## 2026-10-12 · T4.2 · Looking at the orb: three visible defects, none of them silent
+
+T4.2's acceptance says "if you can view images, inspect and note findings". I can —
+`artifacts/shots/*.png` renders directly. All three defects below were **invisible** to
+the acceptance check: centre-region luminance std-dev is 20.5 against a threshold of 5,
+mean absolute pixel difference between captures is 5.2 against a threshold of 1.0, and
+there are no console errors. Every one of these scenes is a clean pass.
+
+That is the real lesson of §13.4's proxy metrics, and it belongs next to the spec's own
+claim that a measurable proxy exists for every visual target. There is one — but it
+measures _presence and motion_, not _quality_. The gap between "the orb is rendering"
+and "the orb is right" is exactly where a screenshot review earns its place.
+
+### 1. The IGN jitter reads as a visible screen-door, not as hidden banding
+
+§9.4 uses `ign(gl_FragCoord.xy + uFrame)` to offset the march: `(float(i) + jitter) *
+stepLen`. The jitter is therefore **a full step** of displacement, and with only 3–8
+steps there is little averaging left to hide it. In both the low (3-step) and high
+(8-step) captures the interior shows a regular diagonal weave over the bright regions
+— strongest where the emission is brightest, because that is where the per-pixel
+variance in the noise sample is most visible.
+
+It is present at _both_ tiers, so this is not a low-tier artefact. It is §9.4's
+arithmetic working as written; I have not changed it. Two candidate fixes, neither
+taken:
+
+- scale the jitter, `jitter * 0.5`, halving the displacement;
+- accumulate temporally — offset by `ign(gl_FragCoord.xy + uFrame)` where `uFrame`
+  advances far faster than the display refresh, which averages over frames instead of
+  smearing within one.
+
+The second is what the `uFrame` uniform was presumably for, and §9.4's wording ("start
+offset") does not rule it out. It is a visual decision, so it is recorded rather than
+made.
+
+### 2. The core is dark, not luminous
+
+§9.4 says the field is "denser toward the core" and the shader implements that as
+`fbm(...) * (1.0 - rr*rr)`. But `smoothstep(0.15, 0.85, d + 0.25 * uMid)` then applies
+a _threshold_, which clips the low-density outer volume to nothing and leaves the core
+reading as a dark planet with glowing patches rather than the luminous heart the
+comment describes. Mean centre luminance is only 13.5/255.
+
+Whether that is wrong is a judgement call about the piece, not a defect with a correct
+answer, so it goes to `HUMAN-CHECKLIST.md`.
+
+### 3. The silhouette is visibly faceted
+
+§9.4's `detail 5` is 720 faces (see the T4.1 entry above — `IcosahedronGeometry` uses
+`(detail+1)²` subdivision), and the outline shows roughly a dozen straight runs. The
+±11 % radius displacement from `disp` amplifies whatever faceting exists, because a
+coarse sphere's silhouette vertices move a long way in screen space.
+
+Again, this is §9.4's number passed through faithfully. Raising the detail would fix it
+and costs vertex work that the measurements say is not currently a bottleneck — but it
+is a spec change, not an implementation choice.
+
+### What the captures do confirm
+
+The orb is genuinely animating (5.2 mean absolute pixel difference over 8 s), the
+palette drives it (the clear colour drifts through a harmony change and the orb's
+interior hue follows), §9.4's impact ripples put structure on the surface, and the
+whole scene is **fragment-bound and comfortably inside budget** at the tier CI runs —
+11.3 ms in the probe, 10.5 ms in the shipped engine, against a 16.7 ms frame.

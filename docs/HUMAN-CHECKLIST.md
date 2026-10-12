@@ -56,6 +56,16 @@ This file is the authoritative list. It is populated as the build progresses.
       _(Regression risk: LEGACY-NOTES §3.2 found `AdditiveBlending` washed the orb
       out, but spec §9.2 mandates additive. Verify and report.)_
 - [ ] **C8.** Clicking a label opens the correct article in a new tab.
+- [ ] **C9.** The orb reads as a **luminous core**, not a dark sphere with bright
+      patches. _(T4.2. From `artifacts/shots/`: mean centre luminance is 13.5/255.
+      §9.4's `smoothstep(0.15, 0.85, …)` clips the low-density outer volume to
+      nothing, so "denser toward the core" does not survive the threshold. Needs an
+      eye, not a std-dev.)_
+- [ ] **C10.** The orb's interior has **no visible screen-door weave**. _(T4.2.
+      §9.4's IGN jitter displaces the march by a full `stepLen`, and at 3–8 steps
+      there is little averaging left — a regular diagonal lattice shows over the
+      bright regions, at both tiers. Two candidate fixes recorded in `DECISIONS.md`;
+      neither applied.)_
 
 ## D. Audio listen files
 

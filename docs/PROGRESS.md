@@ -153,7 +153,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 ## Phase 4 — Visual engine
 
 - [x] **T4.1** Renderer bootstrap, camera rig, palette, governor, tiers
-- [ ] **T4.2** Core orb
+- [x] **T4.2** Core orb
 - [ ] **T4.3** Sparks and rings
 - [ ] **T4.4** Dust and post-processing
 - [ ] **T4.5** Visual queue, event firing, labels, audio coupling
@@ -198,8 +198,8 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1) — **17
-of 31 tasks**. 641 unit tests, 9 e2e tests, all gates green.
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.2) —
+**18 of 31 tasks**. 673 unit tests, 9 e2e tests, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
@@ -219,15 +219,30 @@ contradicts §12.3's table"_.
 
 **Shader budget measured before T4.2**, since T4.2 is what compiles real GLSL.
 `npm run probe:shader` compiles a transcription of §9.4's orb under swiftshader:
-worst case to first frame is **0.31 s against T5.1's 20 s budget**, and shader
-compilation itself is ~0.0 ms. The 20 s budget is not at risk.
+worst case to first frame is **0.18 s against T5.1's 20 s budget**, and shader
+compilation itself is ~0.1 ms. The 20 s budget is not at risk.
 
-But the same probe found something T4.2 has to design around: the orb's cost is
-**fragment-bound**, and the low tier's cheapest configuration still costs
-**50.7 ms/frame** — 3× a 60 fps frame. §9.10's degradation levels bottom out at
-the low tier's own step count, so no governor level can reach its target. T4.2
-likely needs a **resolution clamp** on the orb, not just §12.3's step counts.
-Details and caveats in `DECISIONS.md`.
+The probe first reported 50.7 ms/frame at the low tier and I concluded the orb needed
+a resolution clamp. **That was wrong** — the probe used an orthographic projection
+filling ~81 % of the frame where §9.1's camera puts the orb at ~13 %, and the orb is
+fragment-bound. Corrected: the low tier costs **11.3 ms**, which `npm run shot`
+independently measures at **10.5 ms** for the shipped engine. §12.3's step counts are
+sufficient and no resolution clamp is needed. Full write-up in `DECISIONS.md`.
 
-Next: **T4.2**, the core orb — with the resolution-clamp question above still
-open, since it changes what the orb should be built as.
+**T4.2** adds the core orb: §9.4's volumetric ray-march, the Ashima simplex/fbm/IGN
+chunks, the 16-slot impact ring buffer, and `scripts/shot.ts` — the §13.4 screenshot
+harness T4.2's acceptance depends on, which did not exist until now.
+
+Acceptance passes (centre-region std-dev 20.3 > 5, mean |Δpixel| 4.6 > 1.0, no console
+errors). **Looking at the captures found three defects that every automated check
+passed**: a visible IGN screen-door weave in the orb's interior, a dark rather than
+luminous core, and a faceted silhouette. Two are written up in `DECISIONS.md` with
+candidate fixes (neither applied — they are visual judgements); the core-brightness
+question is `HUMAN-CHECKLIST.md` C9, the weave is C10.
+
+The probe was corrected in the same pass: it had been measuring an orthographic
+projection filling ~81 % of the frame where §9.1's camera puts the orb at ~13 %, which
+is what produced the wrong 50.7 ms figure. It now agrees with the shipped engine to
+within 8 % (11.3 ms vs 10.5 ms).
+
+Next: **T4.3**, sparks and rings.
