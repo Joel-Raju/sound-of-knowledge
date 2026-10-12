@@ -60,7 +60,7 @@ export interface AudioEngineOptions {
    *
    * The offline harness (§13.3) schedules every note up-front and only then
    * calls `startRendering()`, so `ctx.currentTime` is still 0 for the whole
-   * scheduling pass. Anything time-dependent — the pad's 1 Hz cutoff/air
+   * scheduling pass. Anything time-dependent — the pad's 1 Hz cutoff
    * update, the drone glide, the master fade — must therefore read an
    * injected virtual clock instead, or it collapses to a single event at t=0.
    */
@@ -129,7 +129,7 @@ export class AudioEngine {
    * start continuous layers → fade master in.
    *
    * FX that live in the worklet or need more than this task's scope (reverb,
-   * delay, pad, air) are added in T3.3; this establishes the spine so the
+   * delay, pad) are added in T3.3; this establishes the spine so the
    * e2e boot test can already load the worklet and trigger a note.
    */
   async init(): Promise<void> {
@@ -232,7 +232,7 @@ export class AudioEngine {
   }
 
   /**
-   * Start the continuous layers (pad, drone, air) — spec §8.13. Split from
+   * Start the continuous layers (pad, drone) — spec §8.13. Split from
    * `init` so the offline harness can build the graph without a real
    * oscillator clock, and so the React shell controls when sound begins.
    */
@@ -242,7 +242,6 @@ export class AudioEngine {
       tier: this.tier,
       padBus: this.fx.padBus,
       droneBus: this.fx.droneBus,
-      airBus: this.fx.airBus,
     });
     this.pad.start(state, this.ctx);
   }
@@ -253,7 +252,7 @@ export class AudioEngine {
     this.pad.onHarmony(e.state, this.ctx, e.at);
   }
 
-  /** Spec §8.8 — pad cutoff and air gain follow global energy. */
+  /** Spec §8.8 — the pad cutoff follows global energy. */
   setEnergy(energy: number): void {
     this.pad?.setEnergy(energy, this.now());
   }

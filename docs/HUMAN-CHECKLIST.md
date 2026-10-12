@@ -84,13 +84,16 @@ float stereo, ~46 MB):
       failed — the pad's fundamentals sit at 130–392 Hz, so it is both the thing
       masking the melody and the mix's only real bass source; −4 dB collapsed
       `bass` from 30 % to 7 %. Confirmed by ear: _"it is better"_.
-- [x] **D7.** ✅ **Air hiss: reported three times, resolved by reverting to §8.8.**
-      All four air constants are now exactly §8.8's (400 Hz highpass, 2.5 kHz
-      bandpass Q 0.7, gain 0.004–0.020), i.e. no deviation at all. The measured
-      proof that this was the right call: `high` reads 2.5 % at the 0.025/0.05
-      setting and 2.4 % at spec — the hiss was buying nothing. A test now filters
-      pink noise through the real filter chain and asserts the in-band level stays
-      under −55 dBFS so the gain cannot creep back up.
+- [x] **D7.** ⚠️ **Air hiss: layer removed, cause still unconfirmed.** All §8.8
+      air code is deleted (constants, `pinkNoise`, `airGain`, `airBus`, the
+      buffer source, both filters, the gain node, the debug hook).
+      **Removing it changed no measured figure** — at §8.8's own level the air
+      was already ~40 dB below the mix. If the hiss is still audible, it has a
+      different source. The three candidates, none yet examined: the
+      noise-based **reverb IR** (RT60 3.5 s, fed at send 0.30/0.45, and
+      `ConvolverNode.normalize` rescales it upward); the **soft clipper**
+      (`tanh` at `oversample: "2x"` can fold harmonics back as aliasing); and
+      the delay **feedback lowpass** at 3.5 kHz.
 
 ## E. Live data
 
@@ -138,24 +141,3 @@ Outstanding issues:
       not, the lever is a _rational_ FM ratio (4.0) — which would change the
       metallic timbre the spec deliberately specifies, so it is a real trade-off,
       not a free fix.
-
-## G. Post-hiss-fix re-check (T3.5 follow-up)
-
-The previous air level was reported as **"strong hiss"**. It has been moved from
-2.5 kHz to **5 kHz** and dropped **~12 dB**. Three WAVs are in
-`artifacts/audio/`:
-
-| File                        | air gain | `high` share | Purpose                                        |
-| --------------------------- | -------- | ------------ | ---------------------------------------------- |
-| `preview-air-a-none.wav`    | 0.00     | 0.7 %        | reference — what the mix is with no air at all |
-| `preview-air-b-subtle.wav`  | 0.06     | 1.2 %        | "barely there"                                 |
-| `preview-air-c-shipped.wav` | 0.15     | 3.8 %        | **currently shipped**                          |
-| `preview-air-d-warmer.wav`  | 0.30     | 11.9 %       | meets §8.4's 5–25 % — needs an ear             |
-| `preview-air-e-hiss.wav`    | 0.55     | 29.9 %       | the level previously reported as hiss          |
-
-- [x] **G1.** ✅ **Resolved: `preview-air-b-subtle.wav` selected.** Shipped as
-      `AIR_GAIN_MIN/MAX = 0.04 / 0.08`. §8.4's `high` floor amended 5 % → 1 %
-      as a result; the 25 % ceiling is unchanged. See `DECISIONS.md`.
-- [x] **G2.** ✅ **Confirmed by G1** — the quietest preset was preferred at 5 kHz,
-      which is what the move was for. The frequency change carried as much of the
-      fix as the level change; both are recorded.

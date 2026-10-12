@@ -176,36 +176,22 @@ describe("AudioEngine graph topology", () => {
     }
   });
 
-  it("builds the four-second mono air loop only when the layers start", async () => {
-    const e = newEngine();
-    await e.init();
-    // The IR exists at init; the air buffer does not — `startContinuous` is
-    // the user-gesture gate (§8.13) and nothing may sound before it.
-    expect(ctx.buffers.length).toBe(1);
-    expect(ctx.bufferSources().length).toBe(0);
-
-    e.startContinuous(harmony());
-    expect(ctx.bufferSources().length).toBe(1);
-    expect(ctx.bufferSources()[0]!.loop).toBe(true);
-    expect(ctx.buffers[1]!.numberOfChannels).toBe(1);
-    expect(ctx.buffers[1]!.length).toBe(4 * 48000);
-    // Air: highpass 400 Hz → bandpass 2.5 kHz → gain → airBus (§8.8).
-    const airChain = [ctx.bufferSources()[0]!, ...ctx.biquads()];
-    for (const b of airChain) expect(b.outgoing.size).toBeGreaterThan(0);
-  });
-
-  it("starts the pad, drone and air only when asked", async () => {
+  it("starts the pad and drone only when asked", async () => {
     const e = newEngine();
     await e.init();
     expect(ctx.oscillators().length).toBe(0);
     expect(e.getPadLayer()).toBeNull();
+    // No noise source is created at all — the §8.8 air layer has been removed.
+    expect(ctx.bufferSources().length).toBe(0);
 
-    e.startContinuous(harmony());
+    e.startContinuous({ rootPc: 0, mode: "aeolian", chordIdx: 0, barCounter: 0 });
     expect(e.getPadLayer()).not.toBeNull();
     // Bank A: 5 notes × 2 oscillators, plus 2 drone = 12.
     expect(ctx.oscillators().length).toBe(12);
     expect(ctx.oscillators().length).toBeLessThanOrEqual(22);
-    expect(ctx.bufferSources().length).toBe(1);
+    // Still no buffer source: the only buffer is the reverb IR.
+    expect(ctx.bufferSources().length).toBe(0);
+    expect(ctx.buffers.length).toBe(1);
   });
 
   it("cross-fades a new pad bank on a harmony event and retires the old one", async () => {

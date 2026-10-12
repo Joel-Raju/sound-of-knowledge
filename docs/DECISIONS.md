@@ -1055,3 +1055,59 @@ Confirmed by ear: "it is better".
 11.3× when idle, against a ≥10× budget. Nothing in the change touched the DSP
 path. The bench is load-sensitive and will flake on a busy CI runner — carried to
 T6.3.
+
+## 2026-10-12 · T3.5 (fix) · Air layer **removed** — §8.8 deviation, on explicit instruction
+
+**Human feedback:** the hiss persisted after the revert to §8.8's own values.
+The request, given twice: _"I want to completely remove the air hiss."_
+
+**Did:** deleted the layer rather than zeroing it. `AIR_*` constants,
+`pinkNoise()`, `airGain()`, `airBus`, the buffer source, the highpass, the
+bandpass, the gain node, and the `overrideAirGain` debug hook are all gone. The
+oscillator budget is unaffected — the air cost no oscillators, only three nodes
+and one 4-second buffer.
+
+**The measurement that matters most, and it is not reassuring:**
+
+|     | before                                  | after                                   |
+| --- | --------------------------------------- | --------------------------------------- |
+| E30 | sub 29.2, bass 29.1, mid 40.1, high 1.2 | sub 29.2, bass 29.1, mid 40.1, high 1.2 |
+| E60 | sub 22.4, bass 23.3, mid 51.7, high 2.4 | sub 22.4, bass 23.3, mid 51.7, high 2.4 |
+| E90 | sub 21.8, bass 22.7, mid 52.8, high 2.6 | sub 21.8, bass 22.7, mid 52.8, high 2.6 |
+
+**Removing the layer changed nothing measurable.** At §8.8's level the air was
+already ~40 dB below the mix, so it was contributing approximately zero to every
+figure in the report.
+
+**Which means the hiss was probably never the air layer.** Three earlier
+failures share a shape: I assumed the most obvious culprit, changed it, and the
+compliment persisted. The remaining noise sources in the graph, none of them
+examined yet:
+
+- **the reverb IR** — a noise-based impulse response at RT60 3.5 s, fed by
+  `REVERB_SEND` 0.30 and `PAD_REVERB_SEND` 0.45. It is broadband noise by
+  construction, and `ConvolverNode.normalize = true` rescales it upward.
+- **the soft clipper** — `tanh(1.2x)` on a dense signal at `oversample: "2x"`.
+  WaveShaper oversampling can fold harmonics back as aliasing, which is
+  broadband and hiss-like.
+- **the ping-pong delay feedback lowpass** at 3.5 kHz.
+
+**Corroborating detail from the human review:** the hiss was reported as
+_slightly lower_ at E60 than at E30. The air layer's gain curve rises with
+energy, so the air would be **louder** at E60. That observation pointed away from
+the air at the time and I did not act on it.
+
+**Not treated as resolved.** The layer is removed because that was asked for,
+not because removal was shown to fix the hiss. A fresh listen is the decisive
+test: the air is now physically absent from the graph, so if the hiss remains it
+has a different source, and the three candidates above are where to look next.
+`PadLayer.start()` no longer creates a single buffer source, and
+`audio-graph.test.ts` asserts it.
+
+## 2026-10-12 · T3.5 (fix) · `scripts/preview-air.ts` removed
+
+The A/B tool existed to make the air level choosable by ear. With the layer gone
+it has no purpose, so it and its artefacts are deleted rather than left as dead
+weight. The lesson it was built for is recorded in `TUNING.md`: it was written
+after round 2 and still not used for rounds 2 and 3, because the slow
+measure-then-change loop was already habitual.

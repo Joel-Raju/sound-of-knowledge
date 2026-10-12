@@ -41,11 +41,6 @@ export interface RenderOfflineOptions {
    * `pan-right` is the §13.4 spatial-correctness scenario (T6.3).
    */
   scenario?: "full" | "notes-only" | "pad-only" | "pan-right";
-  /**
-   * Force the air layer's energy-1 gain, for the A/B preview only.
-   * `null` (default) uses the configured `AIR_GAIN_MIN/MAX` curve.
-   */
-  airGainMax?: number | null;
 }
 
 export interface RenderReport extends Levels {
@@ -128,7 +123,6 @@ export async function renderOffline(opts: RenderOfflineOptions): Promise<RenderR
         // the scheduler emits and start the continuous layers there.
         started = true;
         engine.startContinuous(e.state);
-        if (opts.airGainMax != null) engine.getPadLayer()?.overrideAirGain(opts.airGainMax, ctx);
         return;
       }
       engine.onHarmony(e);

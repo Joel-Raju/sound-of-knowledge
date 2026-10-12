@@ -382,7 +382,7 @@ export const IR_EARLY_AMP_LO = 0.15;
 export const IR_LP_LO = 0.15;
 export const IR_LP_HI = 0.92;
 
-/** spec §8.8 — pad / drone / air. */
+/** spec §8.8 — pad and drone. The air layer has been removed; see below. */
 export const PAD_OSC_SAW_GAIN = 0.016;
 export const PAD_OSC_TRI_GAIN = 0.022;
 export const PAD_OSC_DETUNE_CENTS = 7;
@@ -397,12 +397,12 @@ export const PAD_MAX_OSCILLATORS = 22;
 export const DRONE_SUB_GAIN = 0.042;
 export const DRONE_ROOT_GAIN = 0.03;
 export const DRONE_GLIDE_TC = 1.0;
-export const AIR_LOOP_SEC = 4;
-export const AIR_HIGHPASS_HZ = 400; // spec 8.8
-export const AIR_BANDPASS_HZ = 2500; // spec 8.8
-export const AIR_BANDPASS_Q = 0.7; // spec 8.8
-export const AIR_GAIN_MIN = 0.004; // spec 8.8
-export const AIR_GAIN_MAX = 0.02; // spec 8.8
+
+// The air layer specified in §8.8 (a 4 s looped pink-noise buffer through a
+// highpass and bandpass) has been **removed**. Human review reported the result
+// as hiss at three successively quieter levels, and the request to remove it
+// entirely was given twice. The constants are deleted rather than zeroed so no
+// dead configuration remains. See `DECISIONS.md`.
 
 /** spec §8.9 — spatialisation. */
 export const PANNER_REF_DISTANCE = 5;
