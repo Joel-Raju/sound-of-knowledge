@@ -179,6 +179,25 @@ export class NumericRing {
     return s / this.count;
   }
 
+  /**
+   * Median of the retained samples.
+   *
+   * Spec §12.1 pairs p95 with a mean, but for stutter the useful pair is
+   * p95 and median: a high p95 with a low median is occasional hitching, while
+   * a high median is a uniformly slow machine, and the two call for different
+   * responses (§9.10 lowers resolution for the first, features for the second).
+   *
+   * Allocates a sort scratch like `percentile` does, so it belongs at the HUD's
+   * 4 Hz refresh (§11.3) and not on the frame loop.
+   */
+  median(): number {
+    if (this.count === 0) return 0;
+    const sorted: number[] = [];
+    for (let i = 0; i < this.count; i++) sorted.push(this.data[i]!);
+    sorted.sort((a, b) => a - b);
+    return sorted[Math.floor(this.count / 2)] ?? 0;
+  }
+
   clear(): void {
     this.head = 0;
     this.count = 0;

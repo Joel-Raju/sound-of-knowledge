@@ -12,6 +12,18 @@ import { smoothingCoefficient } from "./math";
 /** Spec §12.1 — p95 frame time over a ~2 s window at 60 fps. */
 export const FRAME_WINDOW = 240;
 
+/**
+ * Largest delta `tick()` will accept, ms.
+ *
+ * Spec §9.10 ignores anything above 250 ms as a tab switch or GC pause. Clamping
+ * at the same threshold keeps the EMA honest: without it, one long stall would
+ * drag the average for minutes afterwards.
+ */
+export const MAX_FRAME_DT_MS = 250;
+
+/** EMA weight for frame time. Spec §9.10: `ema += 0.05 * (dt - ema)`. */
+export const FRAME_EMA_ALPHA = 0.05;
+
 export class FrameStats {
   readonly frames: NumericRing;
   private emaMs = 16.7;
@@ -21,14 +33,22 @@ export class FrameStats {
   /** Frames rendered since the last reset. */
   frameCount = 0;
 
+  /** Rolling 1-second average, used for the HUD's fps readout (§11.3). */
+  private fpsAccum = 0;
+  private fpsCount = 0;
+  private fpsWindowAt = 0;
+  private fpsValue = 0;
+
   constructor(window = FRAME_WINDOW) {
     this.frames = new NumericRing(window);
   }
 
   /**
-   * Feed one frame. Returns the frame delta in ms, clamped so a tab-switch or
-   * GC pause does not poison the governor (spec §9.10 ignores > 250 ms spikes,
-   * but clamping here keeps the EMA honest too).
+   * Feed one frame from rAF timestamps. Returns the frame delta in ms.
+   *
+   * Callers that already compute and clamp their own delta — the visual renderer
+   * does, because the camera, the palette and the governor all share that clamp
+   * — should call `push` instead, so every consumer sees the same number.
    */
   tick(nowMs: number): number {
     if (!this.started) {
@@ -41,12 +61,41 @@ export class FrameStats {
     // A negative or absurd delta means the clock jumped (tab visibility, clock
     // adjustment). Report 0 rather than a nonsense value.
     if (!Number.isFinite(dt) || dt < 0) dt = 0;
-    if (dt > 250) dt = 250;
+    if (dt > MAX_FRAME_DT_MS) dt = MAX_FRAME_DT_MS;
 
-    this.emaMs += 0.05 * (dt - this.emaMs); // spec §9.10: ema += 0.05 * (dt - ema)
-    this.frames.push(dt);
-    this.frameCount++;
+    this.push(dt, nowMs);
     return dt;
+  }
+
+  /**
+   * Record an already-computed frame delta, in ms.
+   *
+   * @param dtMs  frame delta; non-finite and non-positive values are dropped
+   * @param nowMs optional clock, used only for the 1 s fps average. Omitting it
+   *              leaves `fpsWindowed` untouched, which is what a synthetic
+   *              caller replaying a fixed dt wants.
+   * @returns the recorded delta, after the sanity filter
+   */
+  push(dtMs: number, nowMs?: number): number {
+    if (!Number.isFinite(dtMs) || dtMs <= 0) return 0;
+
+    this.emaMs += FRAME_EMA_ALPHA * (dtMs - this.emaMs); // spec §9.10
+    this.frames.push(dtMs);
+    this.frameCount++;
+
+    if (nowMs !== undefined && Number.isFinite(nowMs)) {
+      if (this.fpsWindowAt === 0) this.fpsWindowAt = nowMs;
+      this.fpsAccum += dtMs;
+      this.fpsCount++;
+      if (nowMs - this.fpsWindowAt >= 1000) {
+        const mean = this.fpsAccum / Math.max(1, this.fpsCount);
+        this.fpsValue = mean > 0 ? 1000 / mean : 0;
+        this.fpsAccum = 0;
+        this.fpsCount = 0;
+        this.fpsWindowAt = nowMs;
+      }
+    }
+    return dtMs;
   }
 
   get frameMsEma(): number {
@@ -57,8 +106,33 @@ export class FrameStats {
     return this.frames.percentile(95);
   }
 
+  /** Median frame time — see `NumericRing.median` for why it pairs with p95. */
+  get frameMsMedian(): number {
+    return this.frames.median();
+  }
+
+  get frameMsMean(): number {
+    return this.frames.mean;
+  }
+
+  /** Samples retained, saturating at the window size. */
+  get sampleCount(): number {
+    return this.frames.length;
+  }
+
+  /**
+   * fps derived from the smoothed frame time — available from the first frame.
+   *
+   * `fpsWindowed` is the measured 1 s average, which is steadier but reads 0
+   * until a full second has elapsed. The HUD shows the latter once it has one.
+   */
   get fps(): number {
     return this.emaMs > 0 ? 1000 / this.emaMs : 0;
+  }
+
+  /** Measured 1 s average; 0 until the first full window completes. */
+  get fpsWindowed(): number {
+    return this.fpsValue;
   }
 
   reset(): void {
@@ -66,6 +140,10 @@ export class FrameStats {
     this.started = false;
     this.emaMs = 16.7;
     this.frameCount = 0;
+    this.fpsAccum = 0;
+    this.fpsCount = 0;
+    this.fpsWindowAt = 0;
+    this.fpsValue = 0;
   }
 }
 

@@ -69,13 +69,40 @@ decode → router → queue → scheduler → audio + visual.
 
 ## 4. Module map
 
-_TODO (T6.5):_ full tree from `engine/`, `components/`, `scripts/`, `tests/`.
+_Full tree lands at T6.5._ The visual engine's T4.1 skeleton:
+
+| File                            | Spec    | Role                                                                                                                                           |
+| ------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `visual/renderer.ts`            | §9.1–2  | `VisualEngine` — context, scene, rAF loop, governor's effect on resolution, context loss, `dispose()`. Knows nothing about Wikipedia or audio. |
+| `visual/camera-rig.ts`          | §9.1    | Auto-orbit, drag inertia, entrance ease, trauma shake. Pure helpers are unit-tested; the class writes into preallocated `position`/`forward`.  |
+| `visual/palette.ts`             | §9.3    | Per-mode OKLCH palette, key hue shift, τ = 2 s ease, event colours.                                                                            |
+| `visual/governor.ts`            | §9.10   | Pure state machine, injected clock. `scale` (pixel ratio) and `level ∈ [0..6]`.                                                                |
+| `visual/tier.ts`                | §12.2–3 | `detectTier(env)` (pure), `readEnvironment()`, `pixelRatioCeiling(dpr, tier)`.                                                                 |
+| `util/perf.ts`                  | §12.1   | `FrameStats` — frame-time EMA, p95, median, mean, 1 s fps. Fixed `NumericRing`, so a long session cannot grow the heap.                        |
+| `components/visual-harness.tsx` | T4.1    | Debug-only React mount; publishes `window.__sok.visual`. Dynamically imported so three.js stays out of the production bundle.                  |
+
+Two invariants the next tasks should preserve:
+
+- **The renderer owns no allocation on the frame path.** `position`, `forward`,
+  `listenerPose`, the clear colour and `Palette.colorFor`'s result are all reused
+  triples. §12.1's "no per-frame allocations" is a budget, not a preference.
+- **Every clock is injected.** `Governor.update(dtMs, now)` and `Scheduler`'s
+  clock both take the time as an argument, for the same reason `AudioEngine` grew
+  a `now` hook in T3.5 — a frame loop's own clock makes the state untestable.
 
 ## 5. Build pipeline
 
-_TODO (T0.2):_ esbuild → `public/engine/ingest.worker.js` and
-`public/engine/voice-pool.worklet.js`.
+`scripts/build-workers.mjs` (esbuild, one-shot, always production) →
+`public/engine/ingest.worker.js` and `public/engine/voice-pool.worklet.js`. The
+visual engine is **not** bundled here — it is a dynamic `import()` behind
+`?debug=1`, so three.js never reaches the production bundle (§12.4's 40 KB).
 
 ## 6. Testing strategy
 
-_TODO (T0.2):_ unit / integration / e2e / offline-audio / soak.
+Unit (vitest) for everything pure: modes, harmony, pitch, spatial mapping,
+scheduler, DSP, the audio graph's topology, mix analysis, and the visual
+governor / palette / tier / camera-rig helpers. Playwright for the two things
+unit tests cannot reach — that an `AudioContext` boots and the worklet loads
+(`audio-boot.spec.ts`), and that a real WebGL2 context renders, sizes and
+disposes cleanly (`visual-boot.spec.ts`). Offline audio renders (`npm run
+audio:check`) for §8.4's mix targets.

@@ -160,6 +160,142 @@ describe("FrameStats", () => {
     expect(f.frameCount).toBe(0);
     expect(f.frameMsEma).toBeCloseTo(16.7, 6);
   });
+
+  // --- push(): the renderer's path, sharing one clamp with the camera ------
+
+  it("accepts an externally computed delta", () => {
+    const f = new FrameStats(60);
+    // 200 frames of 16 ms: the EMA starts at the 16.7 ms seed and converges as
+    // 16.7 + (16 - 16.7) * 0.95^n, so a handful of frames would not do.
+    for (let i = 0; i < 200; i++) f.push(16);
+    expect(f.frameCount).toBe(200);
+    expect(f.frameMsEma).toBeCloseTo(16, 4);
+    expect(f.frameMsP95).toBeCloseTo(16, 6);
+  });
+
+  it("drops a non-finite or non-positive delta rather than recording it", () => {
+    const f = new FrameStats(60);
+    for (const bad of [0, -5, NaN, Infinity, -Infinity]) expect(f.push(bad)).toBe(0);
+    expect(f.frameCount).toBe(0);
+    expect(f.frameMsEma).toBe(16.7); // untouched
+  });
+
+  it("records exactly what tick would have recorded for the same deltas", () => {
+    // The renderer clamps to `THREE_MAX_DT_MS` (100) before pushing, while
+    // `tick` clamps at 250. Below that threshold the two must agree, or the HUD
+    // and the camera would be describing different sessions. `b.tick(0)` primes
+    // the way a real rAF callback's first frame does, recording no sample.
+    const a = new FrameStats(240);
+    const b = new FrameStats(240);
+    let t = 0;
+    b.tick(0);
+    for (let i = 0; i < 200; i++) {
+      const dt = 8 + (i % 7);
+      a.push(dt, t);
+      t += dt;
+      b.tick(t);
+    }
+    expect(a.frameCount).toBe(b.frameCount);
+    expect(a.frameMsEma).toBeCloseTo(b.frameMsEma, 9);
+    expect(a.frameMsP95).toBeCloseTo(b.frameMsP95, 9);
+  });
+
+  it("keeps the ring bounded, so a long session does not grow the heap", () => {
+    // §12.1's "JS heap growth < 10 MB over a 10-minute soak". An unbounded frame
+    // history would be a slow leak of exactly the kind that budget exists for.
+    const f = new FrameStats(240);
+    for (let i = 0; i < 200_000; i++) f.push(16, i * 16);
+    expect(f.sampleCount).toBe(240);
+    expect(f.frames.capacity).toBe(240);
+  });
+
+  // --- percentile / median / mean -----------------------------------------
+
+  it("reports p95 above the median when the tail is heavy", () => {
+    const f = new FrameStats(240);
+    // 10 hitches in 100 frames: above the 5 % that p95 measures, so it must land
+    // in the tail. A 5 % tail would leave p95 in the body by construction.
+    for (let i = 0; i < 90; i++) f.push(16);
+    for (let i = 0; i < 10; i++) f.push(200);
+    expect(f.frameMsP95).toBe(200);
+    expect(f.frameMsMedian).toBeCloseTo(16, 9);
+    expect(f.frameMsMean).toBeGreaterThan(f.frameMsMedian);
+  });
+
+  it("leaves p95 in the body when the tail is under 5 %", () => {
+    // The other half of the same property, and the reason p95 is not just "the
+    // worst frame": a uniform machine with rare stutter should not read as slow.
+    const f = new FrameStats(240);
+    for (let i = 0; i < 100; i++) f.push(16);
+    for (let i = 0; i < 4; i++) f.push(200);
+    expect(f.frameMsP95).toBeCloseTo(16, 9);
+    expect(f.frameMsMean).toBeGreaterThan(f.frameMsMedian);
+  });
+
+  it("reports p95 within the sample range and never below the median", () => {
+    const f = new FrameStats(240);
+    let max = 0;
+    for (let i = 0; i < 240; i++) {
+      const v = 10 + (i % 30);
+      max = Math.max(max, v);
+      f.push(v);
+    }
+    expect(f.frameMsP95).toBeLessThanOrEqual(max);
+    expect(f.frameMsP95).toBeGreaterThanOrEqual(f.frameMsMedian);
+  });
+
+  it("reports zeros before any sample", () => {
+    const f = new FrameStats(60);
+    expect(f.frameMsP95).toBe(0);
+    expect(f.frameMsMedian).toBe(0);
+    expect(f.frameMsMean).toBe(0);
+    expect(f.sampleCount).toBe(0);
+  });
+
+  // --- fps ------------------------------------------------------------------
+
+  it("leaves the windowed fps at 0 until a full second has elapsed", () => {
+    const f = new FrameStats(240);
+    let t = 0;
+    for (let i = 0; i < 30; i++) {
+      f.push(16, t);
+      t += 16;
+    }
+    // 30 frames × 16 ms ≈ 480 ms — not yet a window.
+    expect(f.fpsWindowed).toBe(0);
+    // The EMA-derived figure is available immediately, so the HUD is never blank.
+    expect(f.fps).toBeGreaterThan(0);
+  });
+
+  it("measures ~60 fps over a window of 16 ms frames", () => {
+    const f = new FrameStats(240);
+    let t = 1000; // start the window partway in, as a real session would
+    for (let i = 0; i < 70; i++) {
+      f.push(16, t);
+      t += 16;
+    }
+    expect(f.fpsWindowed).toBeGreaterThan(55);
+    expect(f.fpsWindowed).toBeLessThan(65);
+  });
+
+  it("ignores a bogus clock for the fps window", () => {
+    const f = new FrameStats(240);
+    for (let i = 0; i < 100; i++) f.push(16, NaN);
+    expect(f.fpsWindowed).toBe(0);
+    expect(f.frameCount).toBe(100); // the samples still counted
+  });
+
+  it("reset clears the fps window", () => {
+    const f = new FrameStats(240);
+    let t = 0;
+    for (let i = 0; i < 100; i++) {
+      f.push(16, t);
+      t += 16;
+    }
+    expect(f.fpsWindowed).toBeGreaterThan(0);
+    f.reset();
+    expect(f.fpsWindowed).toBe(0);
+  });
 });
 
 describe("Ema", () => {

@@ -152,7 +152,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 
 ## Phase 4 — Visual engine
 
-- [ ] **T4.1** Renderer bootstrap, camera rig, palette, governor, tiers
+- [x] **T4.1** Renderer bootstrap, camera rig, palette, governor, tiers
 - [ ] **T4.2** Core orb
 - [ ] **T4.3** Sparks and rings
 - [ ] **T4.4** Dust and post-processing
@@ -198,15 +198,25 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–3 complete** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5) — **16 of
-31 tasks**. 508 unit tests, all gates green including `audio:check`.
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1) — **17
+of 31 tasks**. 641 unit tests, 9 e2e tests, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
-confirmed inaudible at §8.8’s values. The one thing that went wrong in Phase 3 —
+confirmed inaudible at §8.8's values. The one thing that went wrong in Phase 3 —
 four rounds of tuning against a cached render — is written up in `DECISIONS.md`
 along with the protocol that prevents a repeat.
 
-Next: **T4.1** renderer bootstrap, camera rig, palette, governor, tiers. The
-whole visual engine (`engine/visual/`) is still 0 lines, so Phase 4 is the
-largest remaining block.
+Phase 4 opened with T4.1. `engine/visual/` went from 0 lines to the renderer's
+full skeleton: WebGL2 bootstrap, resize/DPR, the rAF loop with its delta clamp,
+context-loss handling, `dispose()`, the camera rig, the palette, the governor and
+tier detection. The debug page now shows a live dark canvas.
+
+One spec conflict had to be resolved rather than followed — §9.8's
+`setPixelRatio(dpr * renderScale)` cannot be reconciled with §12.3's pixel-ratio
+table. Logged in `DECISIONS.md` under _"§9.8's `setPixelRatio(dpr * renderScale)`
+contradicts §12.3's table"_.
+
+Next: **T4.2**, the core orb. The scene has a clear colour and a moving camera but
+nothing in it yet, so this is the first task that puts the piece's subject on
+screen.

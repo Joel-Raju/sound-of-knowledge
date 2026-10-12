@@ -448,6 +448,19 @@ export const MUTE_FADE_TC = 0.05;
 export const OUTPUT_LATENCY_FALLBACK = 0.02;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Visual — spec §9, §12
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Longest frame delta the visual engine will act on, ms.
+ *
+ * A backgrounded tab, a GC pause or a shader compile can produce a multi-second
+ * delta. Feeding that to the camera teleports it, and feeding it to the governor
+ * (§9.10) triggers a spurious degrade that then has to cool down. Clamped once,
+ * at the top of the frame loop, before anything else sees the value.
+ */
+export const THREE_MAX_DT_MS = 100;
+
 // Quality tiers — spec §8.12 (audio) and §12.3 (visual)
 // ─────────────────────────────────────────────────────────────────────────────
 

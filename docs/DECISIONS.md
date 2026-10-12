@@ -1172,3 +1172,100 @@ single build with a timestamp in each filename, and prints `afplay` commands. If
 the two sound the same, §8.8's air level is genuinely inaudible and needs no
 tuning at all — which is the likeliest outcome now that the level was never the
 problem.
+
+---
+
+## 2026-10-12 · T4.1 · §9.8's `setPixelRatio(dpr * renderScale)` contradicts §12.3's table
+
+**Two spec sections, one symbol, no consistent reading.** Found while wiring
+`resize()` and caught by writing the §12.3 table out as a test.
+
+§9.8 (post-processing, T4.4) says:
+
+> The composer is the only thing that draws to screen;
+> `renderer.setPixelRatio(dpr * renderScale)` and `composer.setSize(w, h)` on
+> resize and governor scale changes.
+
+§9.10 (the governor) says `scale ∈ [0.55, tierMaxScale]`, where `tierMaxScale` is
+the tier's `maxRenderScale`. §12.3 defines that column as:
+
+| Parameter                             | high        | medium        | low |
+| ------------------------------------- | ----------- | ------------- | --- |
+| max render scale (× devicePixelRatio) | min(dpr, 2) | min(dpr, 1.5) | 1.0 |
+
+Read `renderScale` as a **multiple of dpr** (§9.8's arithmetic) and §12.3's own
+values stop being pixel ratios:
+
+- `low`'s entry is a bare `1.0`, not a `min(...)`. As a multiple, it means
+  `setPixelRatio(dpr × 1.0)` — render at full device resolution — which
+  contradicts the column caption's own "× devicePixelRatio" and the evident
+  intent that `low` is the cheap one.
+- Worse, it does not compose with §9.10's floor. Making `low` actually render at
+  pixel ratio 1.0 on a 2× display needs a multiple of `1.0 / 2 = 0.5`, which is
+  **below §9.10's floor of 0.55**. The governor would then be asked to operate on
+  an empty range, and `clamp(v, 0.55, 0.5)` resolves differently depending on
+  which side of the range `v` sits.
+
+Read `renderScale` as **the pixel ratio itself** and everything lines up: §12.3's
+table is reproduced exactly, the floor never conflicts with a ceiling
+(`low`'s 1.0 > 0.55), and degradation works — `high` on a 2× display goes
+2 → 1.9 → 1.8 … → 0.55 instead of being silently clamped back to 2 by a ceiling
+expressed in the wrong units.
+
+**Decision: `renderScale` is the drawing-buffer pixel ratio, and
+`renderer.setPixelRatio(scale)`.** Ceiling is
+`min(dpr, TIER_PARAMS[tier].maxRenderScale)`, exposed as the pure
+`pixelRatioCeiling(dpr, tier)` in `visual/tier.ts` so §12.3's table is directly
+testable at eight `dpr` values.
+
+Two supporting details, both forced by the same reading:
+
+- **The ceiling always beats the floor.** On `dpr < 0.55` (heavy page zoom-out,
+  a `resolution` override) the tier ceiling is below 0.55. `resize()` takes
+  `min(GOVERNOR.minScale, ceiling)` as its floor rather than letting `clamp`
+  arbitrate. Rendering _above_ the tier's budget is the one thing the floor
+  cannot grant.
+- **`devicePixelRatio` is read before the governor is constructed**, because the
+  ceiling _is_ a pixel ratio and so depends on the display. Constructing the
+  governor first (as the first draft did) pins the ceiling at whatever `dpr`
+  happened to be during field initialisation — 1 — which makes
+  `TIER_PARAMS.high.maxRenderScale = 2` unreachable on every device.
+
+**Cost of the deviation:** one line differs from §9.8's literal text, in T4.4's
+post-processing resize handler as well as here. §9.8's _intent_ — "keep the
+composer in step with the renderer's pixel ratio" — is preserved.
+
+**Guard:** `tests/unit/tier.test.ts` reproduces the §12.3 table at
+dpr ∈ {1, 1.25, 1.5, 2, 2.5, 3, 3.5, 4}, asserts the low tier is 1.0 everywhere,
+and asserts monotonicity in both `dpr` and tier. A future edit that reintroduces
+the `dpr *` multiply fails the table test rather than shipping a tier that
+renders at 4× its pixel budget.
+
+---
+
+## 2026-10-12 · T4.1 · §9.5's spark brightness multiplier belongs to the shader, not the palette
+
+§9.5 lists, under "HDR brightness multipliers":
+
+> spark head 1.5–3.5 scaled by lerp(1.5, 3.5, magnitude)
+
+It is tempting to read that as a palette concern and apply it in
+`Palette.colorFor`, since `colorFor` already takes a `magnitude` and §9.3 already
+specifies HDR multipliers for `large`, `revert` and `burst` (`mix(core, accent,
+0.5) * 1.3` and friends).
+
+The first draft did exactly that, and a test caught it: `colorFor("addition", 0)`
+returned the accent scaled by 1.5, so "additions take the accent" (§9.3) was
+false for every value of `magnitude`.
+
+**Decision: `Palette.colorFor` returns the base event colour unchanged.**
+§9.5's multiplier is a property of the _spark shader_, applied per-spark in T4.3.
+§9.3's own multipliers — `large`, `revert`, `burst`, `bot` — are palette-level
+and stay here. The two lists are not interchangeable: applying §9.5's at the
+palette would make every ordinary note 1.5–3.5× brighter, which is the spark's
+job applied twice.
+
+The `magnitude` parameter is kept on the signature, renamed `_magnitude`, because
+the spark layer reads a colour and a magnitude together and should not have to
+learn that the second is currently ignored. A test asserts the base colour is
+identical at magnitude 0 and 1, so the next person to be tempted sees the reason.
