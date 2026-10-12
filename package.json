@@ -19,6 +19,7 @@
     "audio:check": "tsx scripts/render-audio.ts",
     "bench": "tsx scripts/bench.ts",
     "probe:stream": "tsx scripts/probe-stream.ts",
+    "probe:shader": "tsx scripts/probe-shader-compile.ts",
     "gen:synthetic": "tsx scripts/gen-synthetic.ts",
     "build:workers": "node scripts/build-workers.mjs",
     "build:workers:watch": "node scripts/build-workers.mjs --watch",

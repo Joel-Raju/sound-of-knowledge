@@ -1269,3 +1269,83 @@ The `magnitude` parameter is kept on the signature, renamed `_magnitude`, becaus
 the spark layer reads a colour and a magnitude together and should not have to
 learn that the second is currently ignored. A test asserts the base colour is
 identical at magnitude 0 and 1, so the next person to be tempted sees the reason.
+
+---
+
+## 2026-10-12 · T4.1 · The orb's shader compile is free; its _frame_ is not
+
+T4.1 shipped a scene with no shaders in it, so T5.1's "Enter enables ≤ 20 s under
+swiftshader" budget had never been measured. `npm run probe:shader` compiles a
+transcription of §9.4's orb — the full Ashima 3D simplex, the 16-iteration impact
+loop in the vertex shader, the 8-step ray-march with fbm in the fragment shader —
+at all three tiers' §12.3 parameters, on a fresh WebGL2 context each iteration.
+
+Measured at 1280×720, dpr 1, median of 3, load average ≈ 2.2:
+
+| tier   | steps | oct | vertices | compile | first draw | to first frame | steady frame |          |
+| ------ | ----- | --- | -------- | ------- | ---------- | -------------- | ------------ | -------- |
+| high   | 8     | 3   | 61 440   | 0.0 ms  | 262.9 ms   | **299.1 ms**   | 157.0 ms     | 6.4 fps  |
+| medium | 5     | 2   | 15 360   | 0.0 ms  | 204.4 ms   | **241.9 ms**   | 78.3 ms      | 12.8 fps |
+| low    | 3     | 2   | 3 840    | 0.0 ms  | 168.4 ms   | **206.8 ms**   | 50.7 ms      | 19.7 fps |
+
+**Finding 1 — the 20 s budget is not at risk from shaders.** Worst case to first
+frame is **0.31 s**, about 1.5 % of the budget. Shader _compilation_ is
+effectively free (≈ 0.0–0.1 ms); the real startup cost is swiftshader's JIT at
+first draw, 0.17–0.26 s. T4.2 does not need async shader pre-warm, a compile
+timeout, or any startup accommodation at all. That question is settled.
+
+**Finding 2 — §12.3's step counts do not make the orb affordable on swiftshader,
+and no governor level can fix it.** The low tier — 3 steps, 2 octaves, the
+cheapest the orb can ever be configured — costs **50.7 ms/frame, 3× a 60 fps
+frame**. §9.10's degradation levels bottom out at L3 (steps −2, octaves 2), which
+on the low tier is already its floor, so L4–L6 buy nothing for the orb: the
+governor will walk to L6, disable bloom and chromatic aberration, halve the dust,
+and still be sitting at ~50 ms.
+
+The orb's cost is **fragment-bound, not vertex-bound**: vertex count varies 16×
+across the tiers (3 840 → 61 440) while fragment work varies 4× (steps×octaves
+6 → 24), and total cost moves 3.1×. Steps and octaves track the fragment count.
+
+So **T4.2 needs a resolution clamp on the orb, not just a step-count clamp** —
+the orb renders to a reduced-size offscreen target on the low tier, and the
+compositor upscales it. That is a §9.8 post-processing concern as much as a
+§9.4 one, and it is a design decision I have not made: see the open item below.
+
+### Caveats, stated plainly
+
+- This compiles a **transcription** of §9.4, not the shipped
+  `engine/visual/shaders/orb.*.ts` — those are T4.2's deliverable. Re-run the
+  probe against the real module when it exists.
+- One machine, swiftshader, 1280×720, dpr 1. Like `npm run bench`, these move
+  with load average; the probe prints it for that reason. The _shape_ of the
+  result — compile free, frame dominant, fragment-bound — is the durable part.
+- This is a software rasteriser. On real hardware the absolute numbers are much
+  lower; what transfers is the ratio and the governor-deadlock finding.
+
+### The probe earned its keep four times before it produced a number
+
+Every one of these produced a confident, wrong result first:
+
+1. **`gl.finish()` does not block.** A 400-iteration per-fragment control shader
+   timed 0.0 ms — the same number a dead shader produces. Fixed by forcing
+   completion with `readPixels`, which must return real data.
+2. **A dead shader times beautifully.** The control's first output was
+   `fract(acc) * 0.02`, which rounds to 0 in 8-bit, so a working shader was
+   indistinguishable from a broken one. Now every run asserts a known-clear
+   colour reads back _and_ that the draw overwrote it.
+3. **`cameraPosition`, `modelViewMatrix` and `projectionMatrix` are three.js
+   injections, not GLSL built-ins.** Unset, `gl_Position` collapses to zero and
+   the orb draws nothing. Then, with matrices set but the view matrix carrying
+   the 5.5-unit orbit, an orthographic projection has no perspective divide to
+   bring the sphere back and the whole orb lands off-screen. Two wrong turns
+   before it rendered.
+4. **`cameraPosition` at the origin degenerates the ray-sphere solve**, which is
+   the shader's whole entry-point test.
+
+The probe now ships with a control shader, a clear-colour readback, a pixel
+assertion, and a CPU clock calibration — because on three separate occasions the
+"result" was more confident than the instrument.
+
+Generalising the earlier lesson: _a confirmed no-change result means suspect the
+input_ became _an implausibly good result means suspect the instrument._ Both are
+the same failure — believing the number.

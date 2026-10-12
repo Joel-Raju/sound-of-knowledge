@@ -217,6 +217,17 @@ One spec conflict had to be resolved rather than followed — §9.8's
 table. Logged in `DECISIONS.md` under _"§9.8's `setPixelRatio(dpr * renderScale)`
 contradicts §12.3's table"_.
 
-Next: **T4.2**, the core orb. The scene has a clear colour and a moving camera but
-nothing in it yet, so this is the first task that puts the piece's subject on
-screen.
+**Shader budget measured before T4.2**, since T4.2 is what compiles real GLSL.
+`npm run probe:shader` compiles a transcription of §9.4's orb under swiftshader:
+worst case to first frame is **0.31 s against T5.1's 20 s budget**, and shader
+compilation itself is ~0.0 ms. The 20 s budget is not at risk.
+
+But the same probe found something T4.2 has to design around: the orb's cost is
+**fragment-bound**, and the low tier's cheapest configuration still costs
+**50.7 ms/frame** — 3× a 60 fps frame. §9.10's degradation levels bottom out at
+the low tier's own step count, so no governor level can reach its target. T4.2
+likely needs a **resolution clamp** on the orb, not just §12.3's step counts.
+Details and caveats in `DECISIONS.md`.
+
+Next: **T4.2**, the core orb — with the resolution-clamp question above still
+open, since it changes what the orb should be built as.
