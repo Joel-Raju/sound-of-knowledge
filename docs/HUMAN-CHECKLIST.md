@@ -68,32 +68,35 @@ float stereo, ~46 MB):
       no clipping or distortion.
 - [ ] **D4.** `render-soak.wav` (10 min, E ≈ 0.6) — no drift, no runaway
       resonance, no patchy silence. _Pending — produced by T6.3, not T3.5._
-- [x] **D5.** ✅ **Answered: hiss. Fixed by moving the band to 5 kHz and dropping ~19 dB
-      (0.30/0.55 → 0.04/0.08). Original question preserved below for context.
-      ~~**Does the air layer read as "air", or as hiss?**~~ The band-share
-      numbers prove `high` is 7.8–15.3 % of the mix; they cannot tell you whether
-      that sounds like a room or like static. The final air gain is a **+35 dB**
-      deviation from §8.8 (`DECISIONS.md`, T3.5) and it is the single most
-      likely thing in the whole mix to be wrong. If it hisses, the lever is
-      `AIR_GAIN_MIN/MAX` — but note §8.4's 5–25 % high-band target cannot be met
-      without it, because nothing else in the synthesis produces 2–8 kHz energy.
+- [x] **D5.** ✅ **Resolved: the air layer is inaudible at §8.8's own values.**
+      Confirmed by ear at the end of T3.5. It was briefly raised +37 dB to chase
+      §8.4's 2–8 kHz target, and that raised version _was_ genuinely loud — but
+      the four "still hissing" reports that followed described a **cached file**,
+      not the render (see D7). The layer is now at §8.8's exact values with no
+      deviation, and `audio:check` shows air-on and air-off to be identical to two
+      decimal places (rms −21.0 dBFS, `high` 2.40 % vs 2.43 %).
 - [x] **D6.** ✅ **Answered: originally a wash — fixed.** The bed was changed
       **spectrally, not by level**: the pad's cutoff coefficient went 2800 → 1400 Hz
       (darkening it so its energy sits below the melody rather than competing with
       it) and `VOICE_GAIN.pluck` 0.26 → 0.31. A level cut was tried first and
       failed — the pad's fundamentals sit at 130–392 Hz, so it is both the thing
       masking the melody and the mix's only real bass source; −4 dB collapsed
-      `bass` from 30 % to 7 %. Confirmed by ear: _"it is better"_.
-- [x] **D7.** ⚠️ **Air hiss: layer removed, cause still unconfirmed.** All §8.8
-      air code is deleted (constants, `pinkNoise`, `airGain`, `airBus`, the
-      buffer source, both filters, the gain node, the debug hook).
-      **Removing it changed no measured figure** — at §8.8's own level the air
-      was already ~40 dB below the mix. If the hiss is still audible, it has a
-      different source. The three candidates, none yet examined: the
-      noise-based **reverb IR** (RT60 3.5 s, fed at send 0.30/0.45, and
-      `ConvolverNode.normalize` rescales it upward); the **soft clipper**
-      (`tanh` at `oversample: "2x"` can fold harmonics back as aliasing); and
-      the delay **feedback lowpass** at 3.5 kHz.
+      `bass` from 30 % to 7 %. Confirmed by ear: _"it is better"_. This fix
+      stands on its own evidence and was not affected by the caching incident.
+- [x] **D7.** ✅ **Root cause: macOS Quick Look served a cached render.** Every
+      render in this project is exactly **46,080,044 bytes**, so `open`ing
+      `artifacts/audio/render-E60.wav` again served a stale preview
+      indistinguishable from a fresh one. `afplay`, which re-reads the file,
+      showed no hiss at all. Full account in `DECISIONS.md`.
+
+      **Protocol for every future listen of an artefact:**
+      - Play with **`afplay`, never `open`** — it does not cache.
+      - Or copy to a unique name first: `cp x.wav /tmp/x-$(date +%s).wav`
+      - **Give a timestamp** with anything audible. _"Hiss at 2:10"_ is
+        debuggable; _"hiss"_ is a 120-second search.
+      - A **confirmed no-change result means suspect the input**, not that the fix
+        needs to be smaller. That was the tell available throughout and it was
+        read the wrong way five times.
 
 ## E. Live data
 
