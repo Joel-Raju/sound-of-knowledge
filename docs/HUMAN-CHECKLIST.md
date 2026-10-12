@@ -77,12 +77,20 @@ float stereo, ~46 MB):
       likely thing in the whole mix to be wrong. If it hisses, the lever is
       `AIR_GAIN_MIN/MAX` — but note §8.4's 5–25 % high-band target cannot be met
       without it, because nothing else in the synthesis produces 2–8 kHz energy.
-- [ ] **D6.** ⚠️ **Do edits still read as audible events, or has the bed taken
-      over?** T3.5 moved a lot of energy into the pad, drone and sub voices to
-      reach §8.4's band targets (§7.7's sub limits were raised from 2/bar to 3
-      for exactly this reason). The thresholds prove the _spectrum_; only a pair
-      of ears can confirm the _hierarchy_. The failure to watch for is a steady
-      pad with melody buried under it.
+- [x] **D6.** ✅ **Answered: originally a wash — fixed.** The bed was changed
+      **spectrally, not by level**: the pad's cutoff coefficient went 2800 → 1400 Hz
+      (darkening it so its energy sits below the melody rather than competing with
+      it) and `VOICE_GAIN.pluck` 0.26 → 0.31. A level cut was tried first and
+      failed — the pad's fundamentals sit at 130–392 Hz, so it is both the thing
+      masking the melody and the mix's only real bass source; −4 dB collapsed
+      `bass` from 30 % to 7 %. Confirmed by ear: _"it is better"_.
+- [x] **D7.** ✅ **Air hiss: reported three times, resolved by reverting to §8.8.**
+      All four air constants are now exactly §8.8's (400 Hz highpass, 2.5 kHz
+      bandpass Q 0.7, gain 0.004–0.020), i.e. no deviation at all. The measured
+      proof that this was the right call: `high` reads 2.5 % at the 0.025/0.05
+      setting and 2.4 % at spec — the hiss was buying nothing. A test now filters
+      pink noise through the real filter chain and asserts the in-band level stays
+      under −55 dBFS so the gain cannot creep back up.
 
 ## E. Live data
 

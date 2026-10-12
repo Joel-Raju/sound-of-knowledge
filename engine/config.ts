@@ -278,7 +278,7 @@ export const SPARK_TARGET_RADIUS = 1.25;
 /** spec §8.6 — per-voice output gains. */
 export const VOICE_GAIN: Record<VoiceType, number> = {
   bell: 0.5,
-  pluck: 0.26,
+  pluck: 0.31,
   sub: 0.55,
   gong: 0.12,
   thud: 0.8,
@@ -391,18 +391,18 @@ export const PAD_FADE_IN_TC = 1.4;
 export const PAD_FADE_OUT_TC = 1.2;
 export const PAD_STOP_AFTER_SEC = 9;
 export const PAD_CUTOFF_BASE_HZ = 500;
-export const PAD_CUTOFF_ENERGY_HZ = 2800;
+export const PAD_CUTOFF_ENERGY_HZ = 1400;
 export const PAD_CUTOFF_WOBBLE_HZ = 120;
 export const PAD_MAX_OSCILLATORS = 22;
 export const DRONE_SUB_GAIN = 0.042;
 export const DRONE_ROOT_GAIN = 0.03;
 export const DRONE_GLIDE_TC = 1.0;
 export const AIR_LOOP_SEC = 4;
-export const AIR_HIGHPASS_HZ = 2500;
-export const AIR_BANDPASS_HZ = 5000;
-export const AIR_BANDPASS_Q = 1.4;
-export const AIR_GAIN_MIN = 0.04;
-export const AIR_GAIN_MAX = 0.08;
+export const AIR_HIGHPASS_HZ = 400; // spec 8.8
+export const AIR_BANDPASS_HZ = 2500; // spec 8.8
+export const AIR_BANDPASS_Q = 0.7; // spec 8.8
+export const AIR_GAIN_MIN = 0.004; // spec 8.8
+export const AIR_GAIN_MAX = 0.02; // spec 8.8
 
 /** spec §8.9 — spatialisation. */
 export const PANNER_REF_DISTANCE = 5;

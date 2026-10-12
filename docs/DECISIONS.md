@@ -982,3 +982,76 @@ times the render cost.
 **Practical rule now recorded in `MIX_TARGETS`:** measure at the spec's 120 s, at
 the fixed CI seed, and treat differences of a few points between runs as possibly
 being the key rather than the change.
+
+## 2026-10-12 · T3.5 (fix) · Air reverted to §8.8 — the hiss was buying nothing
+
+**Human feedback, third time:** the hiss was still audible after three
+progressively quieter settings (0.30/0.55 → 0.15/0.08 → 0.025/0.05, with the
+band moved 2.5 → 5 → 7.5 kHz). Request: remove it entirely.
+
+**Did:** reverted all four air constants to §8.8's own values —
+highpass 400 Hz, bandpass 2.5 kHz Q 0.7, gain `lerp(0.004, 0.020, E)`. No
+deviation left in this layer.
+
+**What the revert revealed.** The measured high-band share barely moved:
+
+| air gain                | `high` share |
+| ----------------------- | ------------ |
+| 0.025 / 0.05 (7.5 kHz)  | 2.5 %        |
+| **0.004 / 0.02 (spec)** | **2.4 %**    |
+
+**The hiss bought nothing.** The premise behind all three rounds — "the air layer
+is the only source of 2–8 kHz energy, so it must be raised" — was circular: the
+air was the source of the high band _because it was the only thing loud enough to
+measure there_. At any level a human accepts, the high band reads 1–3 % from the
+bells' FM sidebands and the pluck's upper partial, with the air contributing
+almost nothing.
+
+That reframes the earlier finding too. `probe-bands.ts` showed "pad + air" at
+8.8 % high against "notes only" at 2.0 %, and I read the gap as the air's doing.
+It was not: with the air at spec level the gap persists, because it is the pad's
+harmonics, not the noise.
+
+**The failures, in order of how much they cost:**
+
+1. **I optimised a threshold instead of listening.** §8.4 says tune until the
+   band shares hold. Every share went green while the mix got worse, three times.
+2. **I then tuned against measurement instead of ears.** After each rejection I
+   moved a constant and re-ran `audio:check` — which was already green and
+   therefore told me nothing new. Each round should have been a 40-second listen,
+   not a 4-minute render.
+3. **I under-read how audible it was.** After the first two rejections I believed
+   I had moved it 12 dB and then 4 dB; neither was enough, and I did not treat
+   that as evidence that my model of "audible" was wrong rather than my
+   arithmetic.
+
+**Kept rather than deleted.** §8.8 specifies an air layer, and at its own level it
+is genuinely inaudible — verified numerically (in-band ≈ −62 dBFS against a
+−21 dBFS mix) and now by ear. It costs three nodes and one 4-second buffer. The
+alternative — deleting a specified layer because I could not tune it — would have
+been the wrong call.
+
+**Guard added.** A test runs pink noise through the same highpass and bandpass
+the graph uses and asserts the in-band level stays under −55 dBFS, so the gain
+cannot be raised again without someone noticing.
+
+## 2026-10-12 · T3.5 (fix) · Melody was a wash (checklist D6) — fixed spectrally, not by level
+
+**Human feedback:** edits were not distinguishable from the bed.
+
+**Tried first:** cutting the pad and drone 4 dB. This collapsed `bass` from 30 %
+to 7 % and pushed `mid` to 80 % — the pad's fundamentals sit at 130–392 Hz, so it
+is **both** the thing masking the melody **and** the mix's only real bass source.
+Cutting it removes the problem and the bottom end together.
+
+**Did instead:** darkened the pad rather than silencing it — cutoff coefficient
+2800 → 1400 Hz (§8.8's value), which moves its energy below the melody instead of
+removing it — and raised `VOICE_GAIN.pluck` 0.26 → 0.31 for presence. A dark pad
+at full level masks less than a bright pad at reduced level.
+
+Confirmed by ear: "it is better".
+
+**Also noted:** `npm run bench` read 7.8× RTF under machine load average 3.5 and
+11.3× when idle, against a ≥10× budget. Nothing in the change touched the DSP
+path. The bench is load-sensitive and will flake on a busy CI runner — carried to
+T6.3.

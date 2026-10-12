@@ -11,6 +11,9 @@ import {
 import { padVoicing } from "@/engine/music/pitch";
 import { MODES } from "@/engine/music/modes";
 import {
+  PAD_CUTOFF_BASE_HZ,
+  PAD_CUTOFF_ENERGY_HZ,
+  PAD_CUTOFF_WOBBLE_HZ,
   PAD_MAX_OSCILLATORS,
   REVERB_SEND,
   DELAY_SEND,
@@ -229,10 +232,35 @@ describe("pad cutoff and air gain — spec §8.8", () => {
     const calm = padCutoffHz(0, 0);
     const busy = padCutoffHz(1, 0);
     expect(busy).toBeGreaterThan(calm);
-    expect(calm).toBeCloseTo(500, 6); // 500 + 0 + 0
-    expect(busy).toBeCloseTo(3300, 6); // 500 + 2800
+    expect(calm).toBeCloseTo(PAD_CUTOFF_BASE_HZ, 6);
+    expect(busy).toBeCloseTo(PAD_CUTOFF_BASE_HZ + PAD_CUTOFF_ENERGY_HZ, 6);
+    // The energy coefficient is below §8.8's 2800 Hz: human review found the
+    // melody indistinct against the pad (checklist D6), and the pad's
+    // fundamentals sit at 130–392 Hz — right where the plucks' fundamentals
+    // live. Darkening the pad moves its energy *below* the melody instead of
+    // removing it, which a level cut could not do: the pad is also the mix's
+    // only meaningful bass source, and cutting it 4 dB collapsed `bass` from
+    // 30 % to 7 %. See `DECISIONS.md`.
+    expect(PAD_CUTOFF_ENERGY_HZ).toBe(1400);
     // The wobble is small but present.
     expect(padCutoffHz(0, 0.5)).not.toBeCloseTo(padCutoffHz(0, 0), 3);
+  });
+
+  it("keeps the pad cutoff under §8.8's at every energy", () => {
+    // §8.8 gives `500 + 2800·E + 120·sin(0.2t)`, which opens to ~3.4 kHz at
+    // full energy. Human review found the melody indistinct (checklist D6), so
+    // the coefficient is 1400 instead. This asserts the whole envelope sits
+    // below the spec's — including the wobble — so the deviation cannot creep.
+    const SPEC_ENERGY_HZ = 2800;
+    for (let e = 0; e <= 1; e += 0.05) {
+      for (let t = 0; t < 31.5; t += 1.7) {
+        expect(padCutoffHz(e, t)).toBeLessThan(
+          PAD_CUTOFF_BASE_HZ + SPEC_ENERGY_HZ * e + PAD_CUTOFF_WOBBLE_HZ + 1e-6,
+        );
+      }
+    }
+    // At the reference energy the pad sits an octave below §8.8's ceiling.
+    expect(padCutoffHz(0.6, 0)).toBeCloseTo(500 + 840, 6);
   });
 
   it("cutoff stays in a sane filter range across the whole energy span", () => {
@@ -251,31 +279,97 @@ describe("pad cutoff and air gain — spec §8.8", () => {
     expect(airGain(0.5)).toBeGreaterThan(airGain(0));
     expect(airGain(0.5)).toBeLessThan(airGain(1));
 
-    // §8.8's starting values are 0.004…0.020 with the band at 2.5 kHz. T3.5
-    // first raised the gain ~20x to reach §8.4's 5–25 % high band, and a human
-    // reported the result as "strong hiss" (checklist D5). The band was then
-    // moved to 5 kHz — where noise reads as air rather than sibilance — and the
-    // gain dropped again; human review of five A/B presets selected the quietest
-    // one (`preview-air-b-subtle.wav`). See `DECISIONS.md` (T3.5, hiss fix).
-    expect(AIR_BANDPASS_HZ).toBe(5000);
-    expect(AIR_HIGHPASS_HZ).toBe(2500);
-    expect(AIR_GAIN_MIN).toBe(0.04);
-    expect(AIR_GAIN_MAX).toBe(0.08);
-
-    // The energy curve is deliberately flatter than §8.8's 5x ratio: at the
-    // spec-shaped curve the E 0.9 render put 30 % of the mix above 2 kHz.
-    expect(AIR_GAIN_MAX / AIR_GAIN_MIN).toBeLessThan(2.5);
+    // §8.8's values, unchanged. The air layer was raised to 0.30/0.55 at T3.5 to
+    // reach §8.4's 5–25 % high band, and was reported as "strong hiss" — three
+    // times, at three progressively quieter settings. Reverted to the spec's
+    // own numbers.
+    //
+    // Two things this establishes, both measured:
+    //   1. At the spec's level the air path sits ~40 dB below the mix and is
+    //      inaudible, which is evidently the intent.
+    //   2. It contributes **nothing** to the measured high band. With the air at
+    //      0.025/0.05 `high` read 2.5 %; with it at 0.004/0.02 it still reads
+    //      2.4 %. So the hiss bought no band share at all — the premise that
+    //      "air is the only source of 2–8 kHz" was true only of the loud
+    //      version, where it was the source because it was the only thing loud
+    //      enough to measure. See `DECISIONS.md`.
+    expect(AIR_BANDPASS_HZ).toBe(2500);
+    expect(AIR_HIGHPASS_HZ).toBe(400);
+    expect(AIR_GAIN_MIN).toBe(0.004);
+    expect(AIR_GAIN_MAX).toBe(0.02);
+    // The energy curve is §8.8's own 5x ratio, untouched.
+    expect(AIR_GAIN_MAX / AIR_GAIN_MIN).toBeCloseTo(5, 6);
   });
 
-  it("the air band sits above the region that reads as hiss", () => {
-    // A noise band centred at 2.5 kHz reads as sibilance/hiss; the same level
-    // centred at 5 kHz reads as air. This is the whole point of the move, so it
-    // is worth asserting rather than leaving as a comment.
-    expect(AIR_BANDPASS_HZ).toBeGreaterThanOrEqual(4500);
-    expect(AIR_HIGHPASS_HZ).toBeGreaterThan(2000);
-    // Narrower than the §8.8 band so it reads as a band of air, not as broadband
-    // noise spread across the whole upper spectrum.
-    expect(AIR_BANDPASS_Q).toBeGreaterThanOrEqual(1);
+  it("keeps the air layer inaudible relative to the mix", () => {
+    // Measured, not asserted against a guessed threshold: run pink noise
+    // through the same highpass → bandpass the graph uses, and compare the
+    // in-band RMS with the mix (≈ -21 dBFS RMS, from `audio:check`).
+    const sr = 48000;
+    const n = 48000;
+    const noise = pinkNoise(n, 1);
+
+    // Transposed-direct-form II, matching Web Audio's BiquadFilter.
+    const biquad = (
+      type: "highpass" | "bandpass",
+      freq: number,
+      q: number,
+    ): { process: (input: Float32Array) => Float32Array } => {
+      const w0 = (2 * Math.PI * freq) / sr;
+      const alpha = Math.sin(w0) / (2 * q);
+      const cos = Math.cos(w0);
+      const b0 = type === "highpass" ? (1 + cos) / 2 : alpha;
+      const b1 = type === "highpass" ? -(1 + cos) : 0;
+      const b2 = type === "highpass" ? (1 + cos) / 2 : -alpha;
+      const a0 = 1 + alpha;
+      const a1 = -2 * cos;
+      const a2 = 1 - alpha;
+      return {
+        process: (input) => {
+          const out = new Float32Array(input.length);
+          let x1 = 0;
+          let x2 = 0;
+          let y1 = 0;
+          let y2 = 0;
+          for (let i = 0; i < input.length; i++) {
+            const x0 = input[i]!;
+            const y0 =
+              (b0 / a0) * x0 + (b1 / a0) * x1 + (b2 / a0) * x2 - (a1 / a0) * y1 - (a2 / a0) * y2;
+            x2 = x1;
+            x1 = x0;
+            y2 = y1;
+            y1 = y0;
+            out[i] = y0;
+          }
+          return out;
+        },
+      };
+    };
+
+    const scaled = new Float32Array(n);
+    const g = airGain(0.6);
+    for (let i = 0; i < n; i++) scaled[i] = noise[i]! * g;
+
+    const filtered = biquad("bandpass", AIR_BANDPASS_HZ, AIR_BANDPASS_Q).process(
+      biquad("highpass", AIR_HIGHPASS_HZ, 1).process(scaled),
+    );
+    let sum = 0;
+    for (const v of filtered) sum += v * v;
+    const inBandDb = 20 * Math.log10(Math.sqrt(sum / n));
+
+    // The mix sits near -21 dBFS RMS. Human review confirmed the air is not
+    // audible there; this test stops anyone raising the gain again without
+    // repeating that review.
+    expect(inBandDb).toBeLessThan(-55);
+  });
+
+  it("keeps the air filter chain exactly as §8.8 specifies", () => {
+    // No deviation left here at all: highpass 400 → bandpass 2.5 kHz Q 0.7.
+    // Any future change to this layer must be justified against the three
+    // rounds of "still a hiss" human review that preceded the revert.
+    expect(AIR_HIGHPASS_HZ).toBe(400);
+    expect(AIR_BANDPASS_HZ).toBe(2500);
+    expect(AIR_BANDPASS_Q).toBe(0.7);
   });
 });
 

@@ -54,34 +54,49 @@ envelope at 3 %, below the continuous pad, and cut the E 0.9 drop rate from
 
 ### Continuous layers (spec §8.8) — the big changes
 
-| Constant           | Spec  | Final | Notes                                                                            |
-| ------------------ | ----- | ----- | -------------------------------------------------------------------------------- |
-| `PAD_OSC_SAW_GAIN` | 0.030 | 0.016 | Pad fundamentals dominate `bass`; cut hard to bring that band inside its ceiling |
-| `PAD_OSC_TRI_GAIN` | 0.040 | 0.022 | as above                                                                         |
-| `DRONE_SUB_GAIN`   | 0.100 | 0.042 | −7.5 dB. Owned 47 % of the mix's sub band on its own                             |
-| `DRONE_ROOT_GAIN`  | 0.040 | 0.030 | −2.5 dB. 130–246 Hz, the main bass contributor                                   |
-| `AIR_HIGHPASS_HZ`  | 400   | 2500  | See below — moved up out of the sibilance region                                 |
-| `AIR_BANDPASS_HZ`  | 2500  | 5000  | See below                                                                        |
-| `AIR_BANDPASS_Q`   | 0.7   | 1.4   | Narrower, so it reads as a band of air rather than broadband noise               |
-| `AIR_GAIN_MIN`     | 0.004 | 0.04  | See below — revised three times                                                  |
-| `AIR_GAIN_MAX`     | 0.020 | 0.08  | See below — revised three times                                                  |
+| Constant           | Spec  | Final     | Notes                                                                            |
+| ------------------ | ----- | --------- | -------------------------------------------------------------------------------- |
+| `PAD_OSC_SAW_GAIN` | 0.030 | 0.016     | Pad fundamentals dominate `bass`; cut hard to bring that band inside its ceiling |
+| `PAD_OSC_TRI_GAIN` | 0.040 | 0.022     | as above                                                                         |
+| `DRONE_SUB_GAIN`   | 0.100 | 0.042     | −7.5 dB. Owned 47 % of the mix's sub band on its own                             |
+| `DRONE_ROOT_GAIN`  | 0.040 | 0.030     | −2.5 dB. 130–246 Hz, the main bass contributor                                   |
+| `AIR_HIGHPASS_HZ`  | 400   | **400**   | Unchanged — reverted to §8.8 after three rounds of hiss reports                  |
+| `AIR_BANDPASS_HZ`  | 2500  | **2500**  | Unchanged — same                                                                 |
+| `AIR_BANDPASS_Q`   | 0.7   | **0.7**   | Unchanged — same                                                                 |
+| `AIR_GAIN_MIN`     | 0.004 | **0.004** | Unchanged — same                                                                 |
+| `AIR_GAIN_MAX`     | 0.020 | **0.020** | Unchanged — same                                                                 |
 
-**Why air is the interesting constant.** It took three passes, each driven by
-feedback rather than by a number:
+**Why air took three attempts — and what it cost.** It is _not_ tuned; it is
+**reverted to §8.8 unchanged**. The sequence, because the failure is the useful
+part:
 
-1. **+37 dB** (0.004 → 0.30), because the air layer is the only source of 2–8 kHz
-   energy in this synthesis — see the layer attribution below — and §8.4 wanted
-   5 % there.
-2. **−12 dB and moved to 5 kHz**, because human review of the render called that
-   result "strong hiss". A 2.5 kHz noise band reads as sibilance at almost any
-   level; 5 kHz reads as air.
-3. **−6 dB again** (0.15 → 0.08), from five A/B presets in
-   `scripts/preview-air.ts`. `preview-air-b-subtle.wav` was selected.
+1. **+37 dB** (0.004 → 0.30), on the belief that air is the only source of 2–8 kHz
+   energy and §8.4 wanted 5 % there. Every §8.4 threshold went green.
+2. **Human review: "strong hiss."** → −12 dB and band moved to 5 kHz.
+3. **Human review: "still loud."** → a further −6 dB, band to 7.5 kHz.
+4. **Human review: "still loud — remove it entirely."** → reverted to §8.8.
 
-**The general lesson, worth more than the number:** step 1 satisfied every
-threshold §8.4 states and produced a mix a person rejected on sight of the
-spectrum. Band-share targets are necessary, not sufficient. Optimise them last,
-and listen first.
+**The measured fact that settles it:** `high` reads **2.5 %** at 0.025/0.05 and
+**2.4 %** at the spec's 0.004/0.02. The air contributed essentially nothing to the
+band it was being raised for. The premise was circular — the air was the source of
+the high band _because it was the only thing loud enough to measure there_. At any
+level a human accepts, the high band comes from the bells' FM sidebands and the
+pluck's upper partials.
+
+**Three lessons, in descending order of cost:**
+
+1. **Don't optimise a threshold instead of listening.** §8.4 says tune until the
+   shares hold. Every share was green while the mix got worse, three times.
+2. **After a rejection, a 40-second listen beats a 4-minute render.** Each round
+   after the first was spent re-running `audio:check`, which was already passing
+   and therefore told me nothing.
+3. **When a change is rejected twice, distrust the model, not the constant.** I
+   read "still loud" after a 12 dB cut as "needs 4 dB more"; the right reading was
+   "my sense of 'audible' is wrong", which the revert proved.
+
+`scripts/preview-air.ts` was built to prevent exactly this and was not used early
+enough — it existed by round 2, and rounds 2 and 3 still went through the slow
+loop.
 
 ### Where the `high` band actually comes from
 
@@ -94,24 +109,20 @@ isolated:
 | pad + drone | 22 %  | 41 %  | 31 %   | 8.8 % |
 
 Plucks span midi 64–88 (329–1308 Hz) and bells start at midi 76 (659 Hz), so
-essentially every melodic note lands in 250–2000 Hz. The pad is lowpassed at
-`500 + 2800·E` ≈ 2.2 kHz, and a sawtooth's 20th partial at that cutoff is ≈
-−26 dB — raising the ceiling to 5 kHz moved the high band by 0.3 points, because
-there is nothing up there to reveal. A 4th and 5th pluck partial were also tried
-and changed the measured band by < 0.1 points (their τ is τ₁/4 and τ₁/5, so they
-are gone within ~0.2 s); they were reverted rather than kept as an unjustified
-§8.6 deviation.
+essentially every melodic note lands in 250–2000 Hz. The pad's cutoff coefficient
+was reduced 2800 → 1400 Hz to fix melody clarity (D6), and a 4th and 5th pluck
+partial were also tried; neither moved the high band meaningfully, so the
+melodic high content stays where the voices put it.
 
-**Conclusion: no amount of musical tuning reaches §8.4's 5 % high floor. Only the
-noise layer can, and at the level required it is audible as hiss.** That is the
-whole trade-off, and it is why §8.4's `high` floor was amended to 1 % rather
-than met.
+**This measurement is the one I misread.** `pad + drone` reads 8.8 % high against
+`notes only` at 2.0 %, and I attributed the 6.8-point gap to the air layer. It is
+not the air: with the air at spec level the gap persists. It is the pad's
+harmonics. That misreading is what sent the air gain up 37 dB in the first place,
+and it is worth flagging because the table invites exactly that error — the row is
+labelled `pad + drone` but the air starts inside it.
 
-**Air level in absolute terms:** pink-noise RMS is 0.196, so at E 0.6 the air path
-sits ≈ 21 dB below the mix — a faint texture.
-
-**The energy curve is flatter than §8.8's 5× ratio** (now 2×). At §8.8's ratio the
-E 0.9 render put **30 %** of the mix above 2 kHz, which is not an air layer.
+**Air level in absolute terms:** §8.8's own values put the air path ≈ 40 dB below
+the mix — inaudible, as confirmed by ear after the revert.
 
 ### Sub voice frequency — `SUB_MAX_PER_BAR`, `SUB_MAX_CONCURRENT`
 
@@ -130,12 +141,12 @@ edit" to sound like.
 | Metric                    | Target    | E≈0.3   | E≈0.6   | E≈0.9    |
 | ------------------------- | --------- | ------- | ------- | -------- |
 | Peak dBFS                 | ≤ −1.0    | −4.8 ✓  | −5.1 ✓  | −5.3 ✓   |
-| RMS dBFS                  | −24 … −16 | −22.1 ✓ | −21.2 ✓ | −21.8 ✓  |
-| Crest dB                  | 10 … 22   | 17.3 ✓  | 16.1 ✓  | 16.5 ✓   |
-| sub band share            | 8–45 % *  | 30.8 ✓  | 23.1 ✓  | 22.4 ✓   |
-| bass band share           | 10–40 % * | 30.4 ✓  | 23.8 ✓  | 23.2 ✓   |
-| mid band share            | 20–55 % * | 36.9 ✓  | 50.0 ✓  | 50.9 ✓   |
-| high band share           | 1–25 % *  | 1.6 ✓   | 3.0 ✓   | 3.4 ✓    |
+| RMS dBFS                  | −24 … −16 | −21.9 ✓ | −21.0 ✓ | −21.6 ✓  |
+| Crest dB                  | 10 … 22   | 17.1 ✓  | 15.9 ✓  | 16.4 ✓   |
+| sub band share            | 8–45 % *  | 29.2 ✓  | 22.4 ✓  | 21.8 ✓   |
+| bass band share           | 10–40 % * | 29.1 ✓  | 23.3 ✓  | 22.6 ✓   |
+| mid band share            | 20–55 % * | 40.1 ✓  | 51.7 ✓  | 52.9 ✓   |
+| high band share           | 1–25 % *  | 1.2 ✓   | 2.4 ✓   | 2.6 ✓    |
 | air band share            | ≤ 8 %     | 0.3 ✓   | 0.2 ✓   | 0.1 ✓    |
 | dropped/attempted @ E 0.9 | ≤ 35 %    | 0.0 % ✓ | 8.4 % ✓ | 31.3 % ✓ |
 | clipped samples           | 0         | 0 ✓     | 0 ✓     | 0 ✓      |
@@ -212,21 +223,21 @@ Recorded at T4.2–T4.5 and T6.3.
 
 Full rationale in `docs/DECISIONS.md` (search "T3.5"). Summary:
 
-| Constant                    | Spec                   | Final                  | Reason                                                                                   |
-| --------------------------- | ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
-| `AIR_GAIN_MIN/MAX`          | 0.004 / 0.020          | 0.04 / 0.08            | Only source of 2–8 kHz energy; the level that met §8.4's high floor was reported as hiss |
-| `AIR_BANDPASS_HZ/Q`         | 2500 / 0.7             | 5000 / 1.4             | A 2.5 kHz noise band reads as sibilance at almost any level                              |
-| `AIR_HIGHPASS_HZ`           | 400                    | 2500                   | as above                                                                                 |
-| `SUB_MAX_PER_BAR`           | 2                      | 3                      | Notes carried 0 % sub/bass at the spec value                                             |
-| `SUB_MAX_CONCURRENT`        | 3                      | 5                      | Same                                                                                     |
-| `MELODIC_DUR_TAU`           | 5                      | 3.5                    | `5τ` holds a voice slot for an inaudible tail; 42.7 % → 38.3 % drops                     |
-| `VOICE_GAIN.pluck`          | 0.35                   | 0.26                   | Plucks were 97.5 % mid-band                                                              |
-| `VOICE_GAIN.bell`           | 0.30                   | 0.50                   | FM sidebands are the brightest musical content available                                 |
-| `DRONE_SUB_GAIN`            | 0.10                   | 0.042                  | Owned 47 % of the sub band alone                                                         |
-| `DRONE_ROOT_GAIN`           | 0.04                   | 0.030                  | Main bass contributor; bass band was over 30 % at all energies                           |
-| `PAD_OSC_SAW/TRI_GAIN`      | 0.030 / 0.040          | 0.016 / 0.022          | Pad fundamentals dominate `bass`                                                         |
-| **§8.4 `high` floor**       | 5 %                    | 1 %                    | **Spec amendment** — met only at a level heard as hiss. The 25 % ceiling is unchanged    |
-| **§8.4 `sub`/`bass`/`mid`** | 8–30 / 10–30 / 25–50 % | 8–45 / 10–40 / 20–55 % | **Spec amendment** — contains the seed-to-seed spread above                              |
+| Constant                    | Spec                   | Final                  | Reason                                                                                                                                                 |
+| --------------------------- | ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AIR_GAIN_MIN/MAX`          | 0.004 / 0.020          | **0.004 / 0.020**      | **No deviation** — reverted to §8.8 after three rounds of hiss reports. `high` measured 2.5 % at 0.025/0.05 and 2.4 % at spec: the hiss bought nothing |
+| `AIR_BANDPASS_HZ/Q`         | 2500 / 0.7             | **2500 / 0.7**         | **No deviation**                                                                                                                                       |
+| `AIR_HIGHPASS_HZ`           | 400                    | **400**                | **No deviation**                                                                                                                                       |
+| `SUB_MAX_PER_BAR`           | 2                      | 3                      | Notes carried 0 % sub/bass at the spec value                                                                                                           |
+| `SUB_MAX_CONCURRENT`        | 3                      | 5                      | Same                                                                                                                                                   |
+| `MELODIC_DUR_TAU`           | 5                      | 3.5                    | `5τ` holds a voice slot for an inaudible tail; 42.7 % → 38.3 % drops                                                                                   |
+| `VOICE_GAIN.pluck`          | 0.35                   | 0.26                   | Plucks were 97.5 % mid-band                                                                                                                            |
+| `VOICE_GAIN.bell`           | 0.30                   | 0.50                   | FM sidebands are the brightest musical content available                                                                                               |
+| `DRONE_SUB_GAIN`            | 0.10                   | 0.042                  | Owned 47 % of the sub band alone                                                                                                                       |
+| `DRONE_ROOT_GAIN`           | 0.04                   | 0.030                  | Main bass contributor; bass band was over 30 % at all energies                                                                                         |
+| `PAD_OSC_SAW/TRI_GAIN`      | 0.030 / 0.040          | 0.016 / 0.022          | Pad fundamentals dominate `bass`                                                                                                                       |
+| **§8.4 `high` floor**       | 5 %                    | 1 %                    | **Spec amendment** — met only at a level heard as hiss. The 25 % ceiling is unchanged                                                                  |
+| **§8.4 `sub`/`bass`/`mid`** | 8–30 / 10–30 / 25–50 % | 8–45 / 10–40 / 20–55 % | **Spec amendment** — contains the seed-to-seed spread above                                                                                            |
 
 Peak, RMS, crest, clipping and the E 0.9 drop rate are **unchanged from §8.4**,
 and a test (`keeps every non-band threshold exactly as §8.4 specifies`) pins them
