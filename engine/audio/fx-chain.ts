@@ -10,6 +10,7 @@
  *   padBus ───┬─> mixBus
  *             └─> padReverbSend ─> Convolver ────────────────> mixBus
  *   drone ────────> mixBus
+ *   air   ────────> mixBus
  *   mixBus ─> Compressor ─> SoftClip ─┬─> analyserTap
  *                                      └─> masterGain ─> destination
  *
@@ -73,6 +74,7 @@ export interface FxChain {
   padDuck: GainNode;
   padReverbSend: GainNode;
   droneBus: GainNode;
+  airBus: GainNode;
   reverbConvolver: ConvolverNode;
   delayL: DelayNode;
   delayR: DelayNode;
@@ -93,10 +95,12 @@ export function buildFxChain(ctx: BaseAudioContext, opts: FxChainOptions): FxCha
   const padDuck = ctx.createGain();
   const mixBus = ctx.createGain();
   const droneBus = ctx.createGain();
+  const airBus = ctx.createGain();
 
   padBus.connect(padDuck);
   padDuck.connect(mixBus);
   droneBus.connect(mixBus);
+  airBus.connect(mixBus);
 
   // --- Reverb (§8.3) ------------------------------------------------------
   const convolver = ctx.createConvolver();
@@ -174,6 +178,7 @@ export function buildFxChain(ctx: BaseAudioContext, opts: FxChainOptions): FxCha
     padDuck,
     padReverbSend,
     droneBus,
+    airBus,
     reverbConvolver: convolver,
     delayL,
     delayR,

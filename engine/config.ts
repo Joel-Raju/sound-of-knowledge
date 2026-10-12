@@ -398,11 +398,23 @@ export const DRONE_SUB_GAIN = 0.042;
 export const DRONE_ROOT_GAIN = 0.03;
 export const DRONE_GLIDE_TC = 1.0;
 
-// The air layer specified in §8.8 (a 4 s looped pink-noise buffer through a
-// highpass and bandpass) has been **removed**. Human review reported the result
-// as hiss at three successively quieter levels, and the request to remove it
-// entirely was given twice. The constants are deleted rather than zeroed so no
-// dead configuration remains. See `DECISIONS.md`.
+// The §8.8 air layer: a 4 s looped pink-noise buffer through a highpass and a
+// bandpass, gained up with energy. **These are §8.8's values exactly.**
+//
+// The layer was briefly raised ~+37 dB to chase §8.4's 2-8 kHz band target, then
+// lowered three times in response to reports of "hiss", and finally deleted —
+// all of which turned out to be reports on a *cached file* rather than on the
+// render. Restored at spec on instruction.
+//
+// The one real finding from that episode: this layer is genuinely subtle at spec
+// level (in-band ~-62 dBFS against a -21 dBFS mix). The loud versions were loud
+// because they were raised, not because §8.8 asks for it. See `DECISIONS.md`.
+export const AIR_LOOP_SEC = 4;
+export const AIR_HIGHPASS_HZ = 400;
+export const AIR_BANDPASS_HZ = 2500;
+export const AIR_BANDPASS_Q = 0.7;
+export const AIR_GAIN_MIN = 0.004;
+export const AIR_GAIN_MAX = 0.02;
 
 /** spec §8.9 — spatialisation. */
 export const PANNER_REF_DISTANCE = 5;

@@ -25,10 +25,11 @@ const PORT = Number(process.env.SOK_PORT ?? 4323);
 const seconds = Number(process.argv[2] ?? 30);
 const rateMul = Number(process.argv[3] ?? 0.306);
 
-type Part = "reverb" | "delay" | "softclip" | "hrtf";
+type Part = "reverb" | "delay" | "softclip" | "hrtf" | "air";
 
 const VARIANTS: { name: string; bypass: Part[]; what: string }[] = [
   { name: "0-baseline", bypass: [], what: "everything on — the reference" },
+  { name: "0b-air-off", bypass: ["air"], what: "air layer muted (§8.8 restored)" },
   { name: "1-no-reverb", bypass: ["reverb"], what: "convolver + both reverb sends muted" },
   {
     name: "2-no-softclip",

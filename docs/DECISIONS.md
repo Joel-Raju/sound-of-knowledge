@@ -1111,3 +1111,64 @@ it has no purpose, so it and its artefacts are deleted rather than left as dead
 weight. The lesson it was built for is recorded in `TUNING.md`: it was written
 after round 2 and still not used for rounds 2 and 3, because the slow
 measure-then-change loop was already habitual.
+
+---
+
+# 2026-10-12 · The hiss reports described a cached file, not the render
+
+**The finding.** macOS Quick Look cached `artifacts/audio/render-E60.wav` by path
+and size. Every render in this project is **exactly 46,080,044 bytes** — 120 s,
+48 kHz, 32-bit float, stereo — so a re-`open` of the same path served a stale
+preview that was indistinguishable from a fresh one. `afplay`, which re-reads the
+file, showed no hiss at all.
+
+**How it went undetected for four rounds.** I treated every "still there, no
+change" as a fact about the mix and acted on it:
+
+| round | change made                              | based on                              |
+| ----- | ---------------------------------------- | ------------------------------------- |
+| 1     | air 0.30/0.55 → 0.15/0.08, band to 5 kHz | a real report (that build _was_ loud) |
+| 2     | → 0.04/0.08                              | cached                                |
+| 3     | → 0.025/0.05, band to 7.5 kHz            | cached                                |
+| 4     | air layer **deleted**                    | cached                                |
+| 5     | §8.4 `high` floor amended 5 % → 1 %      | cached                                |
+| 6     | `scripts/preview-air.ts` deleted         | cached                                |
+
+Round 1 was genuine — the +37 dB version really was loud. Everything after it
+was me iterating against a frozen input, which is why the measurements moved by
+0.0 points each time and the complaint never moved.
+
+**What this cost.** A spec'd §8.8 layer was deleted on the strength of feedback
+that never happened, and an acceptance threshold was amended to accommodate a
+phantom. The air layer is now restored at §8.8's exact values.
+
+**The lesson, which is the part worth keeping.** I have been treating human
+listens as ground truth and iterating against them, which is right in principle.
+The failure was not trusting the listener — it was not checking whether the
+_channel_ was delivering current data. A measurement that silently returns a stale
+value is worse than no measurement, because it looks authoritative. Three rounds
+of confident, well-measured "fixes" against a frozen input is exactly the trap.
+
+**Protocol for the rest of this build:**
+
+- **Play artefacts with `afplay`, never `open`.** It does not cache.
+- Or copy to a uniquely-named file first: `cp x.wav /tmp/x-$(date +%s).wav`.
+- When reporting an audible artefact, **give a timestamp**. "Hiss at 2:10" is
+  debuggable; "hiss" is a 120-second search.
+- Treat a _confirmed_ no-change result as a signal that the input is stale, not
+  that the fix was too small. That was the tell I had and did not use: three
+  consecutive no-change results should have stopped me cold, and instead each one
+  prompted a smaller, more confident adjustment.
+
+Also worth recording: the diagnostic that finally settled it was comparing
+`probe-noise-0-baseline.wav` against `render-E60.wav` block by block. They
+agreed within 0.5 dB for the first 90 s and diverged after — where §7.1's key
+change lands (32 bars ≈ 113 s). Two files that should be near-identical for most
+of their length made it obvious they were not the same render, which is what
+pointed at the file rather than the mix.
+
+**Guard added:** `scripts/probe-air-ab.ts` renders air-on and air-off from a
+single build with a timestamp in each filename, and prints `afplay` commands. If
+the two sound the same, §8.8's air level is genuinely inaudible and needs no
+tuning at all — which is the likeliest outcome now that the level was never the
+problem.

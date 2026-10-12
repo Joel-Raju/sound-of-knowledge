@@ -1,20 +1,25 @@
 /**
- * Continuous layers: chord pad and drone. Spec §8.8.
+ * Continuous layers: chord pad, drone, and air. Spec §8.8.
  *
  * These are the only long-lived voices, and the oscillator budget is tight by
  * design — spec §8.8 caps them at 22 total. Two pad banks × 5 pitches × 2
- * oscillators = 20, plus 2 drone = 22 exactly.
+ * oscillators = 20, plus 2 drone = 22 exactly. The air layer reuses a single
+ * noise buffer and costs no oscillator.
  *
  * Cross-fading rather than retriggering is what keeps the pad from clicking and
  * lets the harmony drift underneath a continuous bed (§2.2.6).
  *
- * **The air layer specified in §8.8 has been removed.** It was a 4 s looped
- * pink-noise buffer through a highpass and bandpass. Human review reported the
- * result as hiss at three successively quieter levels, including at §8.8's own
- * values, which put it ~40 dB below the mix. Removing it was an explicit
- * instruction, given twice. See `DECISIONS.md`.
+ * The air layer was deleted for one commit (918d6f6) on the strength of hiss
+ * reports that later turned out to describe a cached file rather than the
+ * render. It is restored here at §8.8's exact values. See `DECISIONS.md`.
  */
 import {
+  AIR_BANDPASS_HZ,
+  AIR_BANDPASS_Q,
+  AIR_GAIN_MAX,
+  AIR_GAIN_MIN,
+  AIR_HIGHPASS_HZ,
+  AIR_LOOP_SEC,
   DRONE_ROOT_GAIN,
   DRONE_GLIDE_TC,
   DRONE_SUB_GAIN,
@@ -35,12 +40,18 @@ import {
 import type { HarmonyState } from "../music/harmony";
 import { padVoicing } from "../music/pitch";
 import type { Tier } from "../types";
+import { mulberry32 } from "../util/random";
+import { lerp } from "../util/math";
+
+/** Fixed seed for the air buffer so the offline render is reproducible. */
+const NOISE_SEED = 1;
 
 export interface PadLayerOptions {
   tier: Tier;
-  /** where the pad and drone connect (the FX chain's buses) */
+  /** where the pad, drone and air connect (the FX chain's buses) */
   padBus: AudioNode;
   droneBus: AudioNode;
+  airBus: AudioNode;
 }
 
 interface PadBank {
@@ -49,6 +60,42 @@ interface PadBank {
   oscs: OscillatorNode[];
   /** true once the bank has been scheduled to stop */
   retiring: boolean;
+}
+
+/**
+ * Paul Kellet's pink-noise approximation. Pink rather than white because white
+ * reads as hiss, while pink's ~1/f slope sits under music without drawing
+ * attention to itself — the reason §8.8 specifies it.
+ *
+ * Pure and unit-testable: returns the samples, no Web Audio involved.
+ */
+export function pinkNoise(length: number, seed = 1): Float32Array {
+  const out = new Float32Array(length);
+  const rnd = mulberry32(seed);
+  let b0 = 0;
+  let b1 = 0;
+  let b2 = 0;
+  let b3 = 0;
+  let b4 = 0;
+  let b5 = 0;
+  let b6 = 0;
+  for (let i = 0; i < length; i++) {
+    const white = rnd() * 2 - 1;
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.969 * b2 + white * 0.153852;
+    b3 = 0.8665 * b3 + white * 0.3104856;
+    b4 = 0.55 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.016898;
+    out[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    b6 = white * 0.115926;
+  }
+  return out;
+}
+
+/** Air gain for a given energy (spec §8.8). */
+export function airGain(energy: number): number {
+  return lerp(AIR_GAIN_MIN, AIR_GAIN_MAX, energy);
 }
 
 /** Pad cutoff in Hz for a given energy and time (spec §8.8). */
@@ -78,16 +125,51 @@ export class PadLayer {
   private banks: PadBank[] = [];
   private droneOscs: OscillatorNode[] = [];
   private droneGains: GainNode[] = [];
+  private airSource: AudioBufferSourceNode | null = null;
+  private airGainNode: GainNode | null = null;
+  private airFilterLp: BiquadFilterNode | null = null;
+  private airFilterBp: BiquadFilterNode | null = null;
   private lastCutoffAt = -1;
+  private lastEnergy = 0;
 
   private readonly tier: Tier;
-  private readonly buses: { pad: AudioNode; drone: AudioNode };
+  private readonly buses: { pad: AudioNode; drone: AudioNode; air: AudioNode };
   private state: HarmonyState | null = null;
   private started = false;
 
   constructor(opts: PadLayerOptions) {
     this.tier = opts.tier;
-    this.buses = { pad: opts.padBus, drone: opts.droneBus };
+    this.buses = { pad: opts.padBus, drone: opts.droneBus, air: opts.airBus };
+  }
+
+  /**
+   * Mute the air layer without tearing it down, so a probe can A/B it from a
+   * single build. `false` restores the energy-driven curve on the next
+   * `setEnergy` call.
+   */
+  setAirMuted(muted: boolean): void {
+    if (!this.airGainNode) return;
+    if (muted) {
+      this.lastEnergy = -1; // mark for immediate refresh
+      try {
+        this.airGainNode.gain.cancelScheduledValues(this.lastCutoffAt);
+        this.airGainNode.gain.setTargetAtTime(0, this.lastCutoffAt, 0.05);
+      } catch {
+        /* node gone */
+      }
+    } else {
+      try {
+        this.airGainNode.gain.cancelScheduledValues(this.lastCutoffAt);
+        this.airGainNode.gain.setTargetAtTime(airGain(this.lastEnergy), this.lastCutoffAt, 0.1);
+      } catch {
+        /* node gone */
+      }
+    }
+  }
+
+  /** The air layer's output gain, for tests and probes. */
+  get airOutput(): GainNode | null {
+    return this.airGainNode;
   }
 
   get oscillatorCount(): number {
@@ -129,6 +211,37 @@ export class PadLayer {
       this.droneOscs.push(osc);
       this.droneGains.push(g);
     }
+
+    // --- Air (§8.8) -------------------------------------------------------
+    const len = Math.round(AIR_LOOP_SEC * ctx.sampleRate);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    buf.copyToChannel(pinkNoise(len, NOISE_SEED) as Float32Array<ArrayBuffer>, 0);
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = "highpass";
+    lp.frequency.value = AIR_HIGHPASS_HZ;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = AIR_BANDPASS_HZ;
+    bp.Q.value = AIR_BANDPASS_Q;
+
+    const g = ctx.createGain();
+    g.gain.value = AIR_GAIN_MIN;
+
+    src.connect(lp);
+    lp.connect(bp);
+    bp.connect(g);
+    g.connect(this.buses.air);
+    src.start(now);
+
+    this.airSource = src;
+    this.airGainNode = g;
+    this.airFilterLp = lp;
+    this.airFilterBp = bp;
   }
 
   /**
@@ -182,11 +295,12 @@ export class PadLayer {
   }
 
   /**
-   * Spec §8.8 — once-per-second smoothing of the pad cutoff.
+   * Spec §8.8 — once-per-second smoothing of the pad cutoff and the air gain.
    * Called from the frame loop; internally rate-limited to 1 Hz so the
    * AudioParam writes do not become a per-frame cost.
    */
   setEnergy(energy: number, now: number): void {
+    this.lastEnergy = energy;
     if (!this.started) return;
     if (this.lastCutoffAt >= 0 && now - this.lastCutoffAt < 1) return;
     this.lastCutoffAt = now;
@@ -195,6 +309,13 @@ export class PadLayer {
     for (const b of this.banks) {
       try {
         b.filter.frequency.setTargetAtTime(cutoff, now, 1.5);
+      } catch {
+        /* node gone */
+      }
+    }
+    if (this.airGainNode) {
+      try {
+        this.airGainNode.gain.setTargetAtTime(airGain(energy), now, 1.0);
       } catch {
         /* node gone */
       }
@@ -279,6 +400,16 @@ export class PadLayer {
     }
     this.droneOscs.length = 0;
     this.droneGains.length = 0;
+    for (const n of [this.airSource, this.airGainNode, this.airFilterLp, this.airFilterBp]) {
+      try {
+        if (n && "stop" in n) (n as AudioBufferSourceNode).stop();
+        n?.disconnect();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.airSource = null;
+    this.airGainNode = null;
     this.started = false;
   }
 }

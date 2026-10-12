@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { renderIr, irLengthFor } from "@/engine/audio/reverb-ir";
 import { padDuckAutomation, pingPongTimes, MASTER_COMP_SETTINGS } from "@/engine/audio/fx-chain";
-import { padCutoffHz, oscillatorsForVoicing, plannedOscillators } from "@/engine/audio/pad-layer";
+import {
+  pinkNoise,
+  airGain,
+  padCutoffHz,
+  oscillatorsForVoicing,
+  plannedOscillators,
+} from "@/engine/audio/pad-layer";
 import { padVoicing } from "@/engine/music/pitch";
 import { MODES } from "@/engine/music/modes";
-import * as config from "@/engine/config";
 import {
   PAD_CUTOFF_BASE_HZ,
   PAD_CUTOFF_ENERGY_HZ,
@@ -21,6 +26,12 @@ import {
   DELAY_STEPS_B,
   STEP_SEC,
   TIER_PARAMS,
+  AIR_LOOP_SEC,
+  AIR_HIGHPASS_HZ,
+  AIR_BANDPASS_HZ,
+  AIR_BANDPASS_Q,
+  AIR_GAIN_MIN,
+  AIR_GAIN_MAX,
   IR_PRE_DELAY_SEC,
   MODE_NAMES,
 } from "@/engine/config";
@@ -264,33 +275,116 @@ describe("pad cutoff — spec §8.8", () => {
   });
 });
 
-describe("the air layer is gone — spec §8.8 deviation", () => {
-  // §8.8 specifies an air layer: a 4 s looped pink-noise buffer through a
-  // highpass and bandpass, gained up with energy. Human review reported the
-  // result as hiss at three successively quieter levels and asked for it to be
-  // removed entirely, twice.
+describe("the air layer — spec §8.8, restored at spec values", () => {
+  // The layer was raised ~+37 dB to chase §8.4's high-band target, then lowered
+  // three times in response to "hiss" reports that later proved to describe a
+  // cached file rather than the render (see `DECISIONS.md`). It was deleted in
+  // 918d6f6 on that basis and is now restored at §8.8's exact values.
   //
-  // These tests exist so the layer cannot be reintroduced by accident and so the
-  // removal is visible in the test suite rather than being an undocumented gap.
+  // These tests pin the values, because the one thing that episode established
+  // is that the loud versions were loud because they were *raised* — §8.8's own
+  // numbers are ~40 dB below the mix.
 
-  it("exports no air configuration from engine/config", () => {
-    const names = Object.keys(config).filter((k) => k.startsWith("AIR_"));
-    expect(names).toEqual([]);
+  it("uses §8.8's values exactly", () => {
+    expect(AIR_LOOP_SEC).toBe(4);
+    expect(AIR_HIGHPASS_HZ).toBe(400);
+    expect(AIR_BANDPASS_HZ).toBe(2500);
+    expect(AIR_BANDPASS_Q).toBe(0.7);
+    expect(AIR_GAIN_MIN).toBe(0.004);
+    expect(AIR_GAIN_MAX).toBe(0.02);
   });
 
-  it("exports no air helpers from pad-layer", () => {
-    // `pinkNoise` and `airGain` were the only two. Both are gone; a
-    // re-export would mean the layer is back.
-    const padLayer = config as unknown as Record<string, unknown>;
-    void padLayer;
-    const src = Object.keys(config);
-    expect(src.some((k) => /^(pinkNoise|airGain)$/.test(k))).toBe(false);
+  it("gains up with energy on §8.8's own curve", () => {
+    expect(airGain(0)).toBeCloseTo(AIR_GAIN_MIN, 9);
+    expect(airGain(1)).toBeCloseTo(AIR_GAIN_MAX, 9);
+    expect(airGain(0.5)).toBeCloseTo(0.012, 9);
+    // Monotonic, so the layer can only ever get louder as traffic rises.
+    expect(airGain(0.7)).toBeGreaterThan(airGain(0.3));
   });
 
-  it("the oscillator budget is unchanged by the removal", () => {
-    // The air cost no oscillators (it reused one buffer), so removing it must
-    // not change the §8.8 cap or the planned count.
+  it("sits far enough below the mix to be inaudible", () => {
+    // Measured, not guessed: run the actual pink noise through the actual
+    // highpass and bandpass and compare with the mix (~-21 dBFS RMS, from
+    // `audio:check`). This is the assertion that would have caught the original
+    // +37 dB change at review time instead of after four rounds.
+    const sr = 48000;
+    const n = 48000;
+    const noise = pinkNoise(n, 1);
+
+    const biquad = (
+      type: "highpass" | "bandpass",
+      freq: number,
+      q: number,
+    ): { process: (input: Float32Array) => Float32Array } => {
+      const w0 = (2 * Math.PI * freq) / sr;
+      const alpha = Math.sin(w0) / (2 * q);
+      const cos = Math.cos(w0);
+      const b0 = type === "highpass" ? (1 + cos) / 2 : alpha;
+      const b1 = type === "highpass" ? -(1 + cos) : 0;
+      const b2 = type === "highpass" ? (1 + cos) / 2 : -alpha;
+      const a0 = 1 + alpha;
+      const a1 = -2 * cos;
+      const a2 = 1 - alpha;
+      return {
+        process: (input) => {
+          const out = new Float32Array(input.length);
+          let x1 = 0;
+          let x2 = 0;
+          let y1 = 0;
+          let y2 = 0;
+          for (let i = 0; i < input.length; i++) {
+            const x0 = input[i]!;
+            const y0 =
+              (b0 / a0) * x0 + (b1 / a0) * x1 + (b2 / a0) * x2 - (a1 / a0) * y1 - (a2 / a0) * y2;
+            x2 = x1;
+            x1 = x0;
+            y2 = y1;
+            y1 = y0;
+            out[i] = y0;
+          }
+          return out;
+        },
+      };
+    };
+
+    const scaled = new Float32Array(n);
+    const g = airGain(0.6);
+    for (let i = 0; i < n; i++) scaled[i] = noise[i]! * g;
+    const filtered = biquad("bandpass", AIR_BANDPASS_HZ, AIR_BANDPASS_Q).process(
+      biquad("highpass", AIR_HIGHPASS_HZ, 1).process(scaled),
+    );
+    let sum = 0;
+    for (const v of filtered) sum += v * v;
+    expect(20 * Math.log10(Math.sqrt(sum / n))).toBeLessThan(-55);
+  });
+
+  it("costs no oscillators, so the §8.8 budget is unchanged", () => {
     expect(PAD_MAX_OSCILLATORS).toBe(22);
     expect(plannedOscillators("high", [52, 55, 59, 62, 66])).toBe(22);
+  });
+});
+
+describe("pink noise — spec §8.8", () => {
+  it("is deterministic and finite", () => {
+    expect(Array.from(pinkNoise(1024, 3))).toEqual(Array.from(pinkNoise(1024, 3)));
+    for (const v of pinkNoise(1024, 3)) {
+      expect(Number.isFinite(v)).toBe(true);
+      expect(Math.abs(v)).toBeLessThan(2);
+    }
+  });
+
+  it("has near-zero mean", () => {
+    const n = pinkNoise(48000, 5);
+    let s = 0;
+    for (const v of n) s += v;
+    expect(Math.abs(s / n.length)).toBeLessThan(0.02);
+  });
+
+  it("differs for a different seed", () => {
+    const a = pinkNoise(512, 1);
+    const b = pinkNoise(512, 2);
+    let same = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] === b[i]) same++;
+    expect(same / a.length).toBeLessThan(0.1);
   });
 });

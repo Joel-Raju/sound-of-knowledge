@@ -49,7 +49,7 @@ import type { Tier, Vec3, NoteEvent } from "../types";
 const IR_SEED = 0x5eed;
 
 /** Parts of the mix chain that `bypassFx` can mute. Debug-only. */
-export type FxPart = "reverb" | "delay" | "softclip" | "hrtf";
+export type FxPart = "reverb" | "delay" | "softclip" | "hrtf" | "air";
 
 export interface AudioEngineOptions {
   tier: Tier;
@@ -248,6 +248,7 @@ export class AudioEngine {
       tier: this.tier,
       padBus: this.fx.padBus,
       droneBus: this.fx.droneBus,
+      airBus: this.fx.airBus,
     });
     this.pad.start(state, this.ctx);
   }
@@ -258,7 +259,7 @@ export class AudioEngine {
     this.pad.onHarmony(e.state, this.ctx, e.at);
   }
 
-  /** Spec §8.8 — the pad cutoff follows global energy. */
+  /** Spec §8.8 — the pad cutoff and air gain follow global energy. */
   setEnergy(energy: number): void {
     this.pad?.setEnergy(energy, this.now());
   }
@@ -289,6 +290,8 @@ export class AudioEngine {
    *   path rather than a send level.
    * - `hrtf` — switches every panner to `equalpower`, keeping position but
    *   dropping the head-related convolution.
+   * - `air` — mutes the §8.8 air layer, so its level can be A/B'd from one
+   *   build rather than one build per candidate.
    *
    * Only `scripts/probe-noise.ts` calls this. `on = false` restores the
    * configured values.
@@ -310,6 +313,9 @@ export class AudioEngine {
           ? null
           : (makeSoftClipCurve(SOFTCLIP_POINTS, SOFTCLIP_DRIVE) as Float32Array<ArrayBuffer>);
         this.clip.oversample = on ? "none" : "2x";
+      }
+      if (parts.includes("air") || restoring) {
+        this.pad?.setAirMuted(parts.includes("air") && !restoring);
       }
       if (parts.includes("hrtf") || restoring) {
         const model: PanningModelType = on ? "equalpower" : "HRTF";
