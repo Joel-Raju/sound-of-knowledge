@@ -14,13 +14,16 @@ import {
   COMP_THRESHOLD_DB,
   DELAY_STEPS_A,
   DELAY_STEPS_B,
+  DELAY_SEND,
   MASTER_FADE_IN_SEC,
   MASTER_DISPOSE_FADE_SEC,
   MUTE_FADE_TC,
   OUTPUT_LATENCY_FALLBACK,
+  PAD_REVERB_SEND,
   PANNER_MAX_DISTANCE,
   PANNER_REF_DISTANCE,
   PANNER_ROLLOFF,
+  REVERB_SEND,
   SOFTCLIP_DRIVE,
   SOFTCLIP_POINTS,
   STEP_SEC,
@@ -44,6 +47,9 @@ import type { Tier, Vec3, NoteEvent } from "../types";
  * reason to vary it per session.
  */
 const IR_SEED = 0x5eed;
+
+/** Parts of the mix chain that `bypassFx` can mute. Debug-only. */
+export type FxPart = "reverb" | "delay" | "softclip" | "hrtf";
 
 export interface AudioEngineOptions {
   tier: Tier;
@@ -265,6 +271,53 @@ export class AudioEngine {
   adoptNode(node: AudioWorkletNode, voices: number): void {
     this.node = node;
     this.allocator = new VoiceAllocator(voices);
+  }
+
+  /**
+   * **Debug-only.** Mute parts of the mix chain so a render can isolate a noise
+   * source by ear.
+   *
+   * Built because three rounds of guessing at the hiss picked the wrong layer
+   * each time. Each part is muted at its *send*, so the dry path is untouched
+   * and the comparison is clean:
+   *
+   * - `reverb` — zeroes both reverb sends; the convolver keeps running but
+   *   receives silence.
+   * - `delay` — zeroes the ping-pong send.
+   * - `softclip` — sets the WaveShaper's curve to `null`, which per the Web
+   *   Audio spec is a pass-through. The one bypass that changes the signal
+   *   path rather than a send level.
+   * - `hrtf` — switches every panner to `equalpower`, keeping position but
+   *   dropping the head-related convolution.
+   *
+   * Only `scripts/probe-noise.ts` calls this. `on = false` restores the
+   * configured values.
+   */
+  bypassFx(parts: readonly FxPart[], on = true): void {
+    const fx = this.fx;
+    const restoring = !on;
+    try {
+      if (fx && (parts.includes("reverb") || restoring)) {
+        fx.reverbSend.gain.value = restoring ? REVERB_SEND : 0;
+        fx.padReverbSend.gain.value = restoring ? PAD_REVERB_SEND : 0;
+      }
+      if (fx && (parts.includes("delay") || restoring)) {
+        fx.delaySend.gain.value = restoring ? DELAY_SEND : 0;
+      }
+      if ((parts.includes("softclip") || restoring) && this.clip) {
+        // A null curve is an identity pass-through in Web Audio.
+        this.clip.curve = on
+          ? null
+          : (makeSoftClipCurve(SOFTCLIP_POINTS, SOFTCLIP_DRIVE) as Float32Array<ArrayBuffer>);
+        this.clip.oversample = on ? "none" : "2x";
+      }
+      if (parts.includes("hrtf") || restoring) {
+        const model: PanningModelType = on ? "equalpower" : "HRTF";
+        for (const p of this.panners) p.panningModel = model;
+      }
+    } catch {
+      /* context not ready */
+    }
   }
 
   getAnalyser(): AnalyserNode | null {

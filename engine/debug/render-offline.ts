@@ -16,7 +16,7 @@
  * wiring bug where the FX bus connected to nothing; a harness that rebuilt the
  * graph itself would have kept reporting success. See `DECISIONS.md`.
  */
-import { AudioEngine } from "../audio/audio-engine";
+import { AudioEngine, type FxPart } from "../audio/audio-engine";
 import { Scheduler } from "../music/scheduler";
 import { SyntheticSource } from "../ingest/synthetic";
 import { mulberry32 } from "../util/random";
@@ -41,6 +41,11 @@ export interface RenderOfflineOptions {
    * `pan-right` is the §13.4 spatial-correctness scenario (T6.3).
    */
   scenario?: "full" | "notes-only" | "pad-only" | "pan-right";
+  /**
+   * Mute parts of the mix chain before rendering, so a noise source can be
+   * isolated by ear. See `AudioEngine.bypassFx` and `scripts/probe-noise.ts`.
+   */
+  bypass?: readonly FxPart[];
 }
 
 export interface RenderReport extends Levels {
@@ -92,6 +97,7 @@ export async function renderOffline(opts: RenderOfflineOptions): Promise<RenderR
 
   const engine = new AudioEngine(ctx, { tier: "high", spatial: true, now: () => now });
   await engine.init();
+  if (opts.bypass && opts.bypass.length > 0) engine.bypassFx(opts.bypass, true);
 
   // --- drive the scheduler on the same virtual clock -----------------------
   let started = false;
