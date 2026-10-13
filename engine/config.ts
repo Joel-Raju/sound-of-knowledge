@@ -155,13 +155,24 @@ export const REVERT_PATTERNS: readonly RegExp[] = [
   /^Revertidos?/i, // es
   /Rückgängig/i, // de — un-anchored in the spec; this is its own false-positive risk
   /^Révocation/i, // fr
-  /^Annulation/i, // fr
+  /^Annulation/i, // fr — see below: French bots sign "Bot : ", with a space
   /^Annullata/i, // it — singular only; see below
   /^Ripristino/i, // it
   /^Revertido/i, // pt
   /^Desfeita/i, // pt
   /^Откат/i, // ru
   /^Отмена/i, // ru — anchored; structurally wrong for an inflected language, see DECISIONS.md
+
+  // --- French, from the capture ---
+  // French LiveRC signs its summaries "Bot : " — with a space *before* the colon,
+  // unlike the English "Bot: ". The §6.2.6 pattern is anchored, so the signature
+  // alone defeated it:
+  //   "Bot : Annulation des modifications de [[Special:Contributions/Niggbabynski|Niggbabynski]], retour à la version de …"
+  // Optional signature, so the un-prefixed "Annulation" still matches, and the verb
+  // is still the first word after it. Note the capture also contains
+  // "Bot : Avertissement 2 sur [[Joseph Babinski]]" — a warning, not a revert, and
+  // correctly unmatched because it does not begin with "Annulation".
+  /^(?:Bot\s*:?\s*)?Annulation/i,
 
   // --- Italian, from the capture ---
   // §6.2.6's /^Annullata/ is singular, so the plural that LiveRC actually writes
@@ -171,6 +182,36 @@ export const REVERT_PATTERNS: readonly RegExp[] = [
   // the first *word* of what follows it, so "Annullamento del servizio" (a service
   // cancellation notice) cannot slip in ahead of it.
   /^(?:\[\[[^\]]+\]\]\s*:?\s*)?Annullat[eo]\b/i,
+  // LiveRC announcing the revert it just made, rather than making it. "Notice of
+  // automatic revert" — a distinct summary from the two above.
+  //   "Avviso di annullamento automatico su [[Piede]]"
+  /^Avviso di annullamento\b/i,
+
+  // --- Japanese, from the capture ---
+  //
+  // **Un-anchored, deliberately, and the same reasoning as the Russian `отмена` entry
+  // above.** Japanese does not use spaces between words, so `^` would require the
+  // revert word to be the first *character* of the summary — and every MediaWiki
+  // summary of this shape begins with a `[[Special:Contributions/…]]` link. Anchoring
+  // would guarantee a miss. What protects against false positives here is keying on
+  // the revert *verb*, not on position.
+  //
+  // **Specifically not `による`.** It is the most common token in these summaries and
+  // a false-positive machine: the capture contains three real reverts using it *and*
+  // three non-reverts —
+  //   "ボットによる: 1件のスレッドを「[[ノート:ウルトラマン]]」より過去ログ化"
+  //   — "by bot: archived thread from …", which is housekeeping, not a revert.
+  // 差し戻し is "send back / revert"; の版を…取り消し is MediaWiki ja's own RV shape.
+  /差し戻し/,
+  /の版を.*取り消し/,
+
+  // --- Chinese, from the capture ---
+  //
+  // MediaWiki zh's standard revert summary. Anchored, and the language writes no
+  // spaces either, but here the verb *is* the first character — unlike Japanese,
+  // where a contributions link precedes it.
+  //   "回退[[Special:Contributions/Bndsijr|Bndsijr]]（…）做出的1次编辑"
+  /^回退/,
 ] as const;
 
 /** spec §6.2.7 — host patterns for the Wikipedia family projects. */

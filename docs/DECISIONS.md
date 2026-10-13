@@ -1999,3 +1999,97 @@ vsync-pinned case, but **the end-to-end demonstration needs a GPU** (`HUMAN-CHEC
 C1–C8). It cannot be demonstrated here, and claiming otherwise from a software
 rasteriser would be the seventh instance of a confident number from an instrument that
 was not measuring the thing asked about.
+
+## Remaining revert gaps closed — ja, zh, fr, it
+
+The human's instruction was to close what remained. Reading the **full** summaries
+rather than the truncated view I had been working from changed two of the four answers.
+
+### Japanese — and why `による` must not be the pattern
+
+The capture's two Japanese candidates are real reverts, but `による` appears in **six**
+summaries, and three of those are not:
+
+```
+Revert:  … ([[User talk:X|会話]]) による ID:111372436 の版を[[H:RV|取り消し]]
+NOT:     ボットによる: 1件のスレッドを「[[ノート:ウルトラマン]]」より過去ログ化
+NOT:     ボットによる: 1件のスレッド (366日以上経過) を「…へ過去ログ化
+NOT:     ボットによる: 1件のスレッドを「[[ノート:仮面ライダー]]」より過去ログ化
+```
+
+The `ボットによる` lines are thread-archiving housekeeping. `による` — "by" — is simply
+the most common token in a Japanese edit summary, and keying on it would have matched
+three housekeeping events for every revert. The patterns key on the **revert verb**
+instead: `差し戻し` ("send back") and `の版を…取り消し` (MediaWiki ja's own RV shape).
+
+**These two are un-anchored, and that is deliberate** — the same structural problem as
+the Russian `отмена` entry. Japanese writes no spaces between words, so `^` would
+require the revert verb to be the first *character*, and every summary of this shape
+opens with a `[[Special:Contributions/…]]` link. Anchoring would guarantee a miss. What
+replaces position as the guard is that the verb itself is unambiguous.
+
+This is now asserted: `normalize.test.ts` walks every pattern and fails if one becomes
+un-anchored without appearing in the exemption list, which names its reason.
+
+### Chinese — one word, anchored
+
+`回退[[Special:Contributions/Bndsijr|Bndsijr]]（…）做出的1次编辑` — MediaWiki zh's standard
+revert summary. Anchored, and here the verb genuinely is the first character, unlike
+Japanese.
+
+### French — the signature is `"Bot : "` with a space
+
+```
+Bot : Annulation des modifications de [[…]], retour à la version de [[…]]
+```
+
+§6.2.6's `/^Annulation/i` is anchored, and French LiveRC signs with a space **before**
+the colon (English is `"Bot: "`). The signature alone defeated the pattern. Now
+optional, so the un-prefixed form still matches.
+
+The same capture contains `Bot : Avertissement 2 sur [[Joseph Babinski]]` — a warning,
+correctly unmatched, since it does not begin with `Annulation`. Near-miss verified.
+
+### Italian — the announcement, not just the action
+
+`Avviso di annullamento automatico su [[Piede]]` is LiveRC *announcing* the revert it
+just made, a third summary shape alongside the plural `Annullate` and the singular
+`Annullata`. Added as `/^Avviso di annullamento\b/i`.
+
+**`Annullo: non trovo alcun riscontro, men che meno nel sito ufficiale.` remains
+unmatched, on purpose.** "I cancel, finding no trace of it, not even on the official
+site" — that is an editor justifying the removal of content. It may be reverting an edit
+and it may be deleting an unsourced section; the summary alone cannot say which. It is
+the one case in the capture where the decision is genuinely not mechanical, and it is
+recorded here rather than guessed at.
+
+### Verification
+
+Replaying all 2 659 summaries of the capture through old and new sets:
+
+```
+matched by §6.2.6 as shipped    : 51
+matched with all additions      : 70      (+37.3 %)
+newly matched                   : 19
+```
+
+All 19 inspected individually — three Italian `Annullate`, two Japanese `差し戻し`, two
+Japanese `取り消し`, one Japanese standalone `差し戻し`, one Chinese `回退`, one French
+`Bot : Annulation`, one Italian `Avviso`, and the eight English classes from the
+previous commit. **Every one is a real revert.**
+
+Fourteen known non-reverts — the two Hastinapur talk-page summaries, the three Japanese
+`ボットによる` housekeeping lines, the French warning, a German bot summary, the Italian
+maintenance notice, the ambiguous `Annullo:`, `"RV sales up 4% in Q3"`, a field name
+called `undid`, and ordinary prose — are **all still excluded**. That list is now a
+test rather than a one-off check, so a future pattern cannot quietly reintroduce any of
+them.
+
+**What is still open.** §6.2.7's Zipf(s=1.1) over 30 languages still does not match
+reality: patterns now exist for en/de/fr/es/it/pt/ru/ja/zh, which is more than before,
+but the languages that produce a large share of traffic and have no pattern are not all
+covered by what a 20-minute sample happened to contain. Arabic, Hebrew, Persian, Polish,
+Dutch, Swedish, Czech, Romanian, Finnish and Vietnamese were all *present* in this
+capture with 20–130 edits each and **zero** matched — which is uninformative, because
+with no pattern a language cannot match anything. Only English has a rate that measures
+something.

@@ -119,26 +119,68 @@ describe("normalize — fixtures", () => {
     });
 
     it.each([
-      ["/* Clarification Regarding Reverted Edits to the Hastinapur Article */ Reply", "talks about reverts; is not one"],
-      ["/* Clarification Regarding Reverted Edits to the Hastinapur Article */", "the same, without the reply tag"],
-      ["RV sales up 4% in Q3", "starts with the two letters, is not a revert"],
-      ["The undid count field was empty", "a field name, not a past-tense verb"],
-      ["Rückgängig machen mit dem Layout", "must keep matching — German is already un-anchored"],
-    ])("does not match %s (%s)", (summary) => {
-      // The first two are the reason the new patterns are anchored. The German one
-      // is the known false-positive risk §6.2.6's un-anchored /Rückgängig/ carries.
-      if (summary.startsWith("Rückgängig")) {
-        expect(matches(summary)).toBe(true);
-      } else {
-        expect(matches(summary)).toBe(false);
-      }
+      [
+        "[[Special:Contributions/~2026-43205-14|~2026-43205-14]] ([[User talk:~2026-43205-14|会話]])さんによる1版を差し戻し: [[WP:REF]] ([[Help:Twinkle|Twinkle]]使用)",
+        "ja — Twinkle's revert",
+      ],
+      [
+        "[[Special:Contributions/~2026-55118-67|~2026-55118-67]] ([[User talk:~2026-55118-67|会話]]) による ID:111372436 の版を[[H:RV|取り消し]]",
+        "ja — MediaWiki's own RV shape",
+      ],
+      [
+        "回退[[Special:Contributions/Bndsijr|Bndsijr]]（[[User talk:Bndsijr|讨论]]）做出的1次编辑",
+        "zh — the standard revert summary",
+      ],
+      [
+        "Bot : Annulation des modifications de [[Special:Contributions/Niggbabynski|Niggbabynski]], retour à la version de [[Special:Contributions/R3L3ct3ur49|R3L3ct3ur49]] : Modification non-constructive détectée",
+        "fr — LiveRC, which signs with a space before the colon",
+      ],
+      ["Avviso di annullamento automatico su [[Piede]]", "it — LiveRC announcing, not acting"],
+      [
+        "Annullata la modifica [[Special:Diff/152888334|152888334]] di [[Special:Contributions/~2026-54876-96|~2026-54876-96]] ([[User talk:~2026-54876-96|discussione]]), errore",
+        "it — the singular §6.2.6 already had",
+      ],
+    ])("matches %s (%s)", (summary) => {
+      expect(matches(summary)).toBe(true);
     });
 
-    it("keeps every new pattern anchored to the start of the summary", () => {
-      // If a future edit relaxes an anchor, this fails — which is the point. The
-      // German pattern is exempt: §6.2.6 ships it un-anchored and that is a
-      // recorded, separate question.
-      const exempt = /Rückgängig/;
+    it.each([
+      [
+        "ボットによる: 1件のスレッドを「[[ノート:ウルトラマン]]」より過去ログ化",
+        "ja — 'by bot: archived thread'. Uses による, the token shared with every real revert",
+      ],
+      [
+        "ボットによる: 1件のスレッド (366日以上経過) を「[[ノート:ウルトラマン/過去ログ1]]」へ過去ログ化",
+        "ja — the same housekeeping shape",
+      ],
+      [
+        "Bot : Avertissement 2 sur [[Joseph Babinski]]",
+        "fr — a warning, not an Annulation",
+      ],
+      [
+        "[[WP:LRC|LiveRC]] : Annullamento del servizio di manutenzione",
+        "it — a service maintenance notice, where the noun follows the bot signature",
+      ],
+      [
+        "Annullo: non trovo alcun riscontro, men che meno nel sito ufficiale.",
+        "it — genuinely ambiguous: 'I cancel', which may be removing content rather than reverting an edit",
+      ],
+    ])("does not match %s (%s)", (summary) => {
+      expect(matches(summary)).toBe(false);
+    });
+
+    it("keeps every pattern anchored, except where the language cannot be", () => {
+      // If a future edit relaxes an anchor, this fails — which is the point. Two
+      // exemptions, each for a stated linguistic reason rather than convenience:
+      //
+      //  - German: §6.2.6 ships /Rückgängig/ un-anchored. Recorded, separate question.
+      //  - Japanese: no spaces between words, so `^` would demand the revert verb be
+      //    the first *character*, and every summary of this shape opens with a
+      //    [[Special:Contributions/…]] link. Anchoring would guarantee a miss, so the
+      //    Japanese patterns key on the revert verb instead — and the two
+      //    `ボットによる` housekeeping summaries in the table above are what that
+      //    decision has to survive.
+      const exempt = /Rückgängig|差し戻し|取り消し/;
       for (const p of REVERT_PATTERNS) {
         if (exempt.test(p.source)) continue;
         expect(p.source.startsWith("^") || p.source.startsWith("\\b")).toBe(true);
