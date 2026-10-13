@@ -47,6 +47,18 @@ const PORT = Number(process.env.SOK_PORT ?? 4319);
 /** §11.3's `?quality=` override — lets us inspect a tier the machine wouldn't pick. */
 const QUALITY = args.includes("--quality") ? String(args[args.indexOf("--quality") + 1]) : null;
 
+/**
+ * Magnification of the centre crop written alongside each capture.
+ *
+ * `--zoom 6` takes the middle 1/6 of the canvas and writes it at 4× nearest-
+ * neighbour. Per-pixel defects — a dither lattice, banding, a one-pixel seam —
+ * are invisible at 1:1 and are precisely what a human review is for.
+ */
+const ZOOM = args.includes("--zoom") ? Number(args[args.indexOf("--zoom") + 1]) || 1 : 1;
+
+/** Keeps captures from different tiers from overwriting one another. */
+const suffix = QUALITY ? QUALITY : "";
+
 /** T4.2's acceptance threshold, centre region. */
 export const CENTRE_STDDEV_MIN = 5;
 /** §13.4 item 2 — the scene must change between two captures. */
@@ -109,7 +121,26 @@ interface ShotStats {
  * Returns base64 PNG plus the numbers, so one round trip yields both the file
  * and the measurements.
  */
-async function capture(page: Page, timeSec: number, errors: string[]): Promise<ShotStats> {
+/** What one capture yields: the numbers, and the two PNGs. */
+interface FrameSample {
+  mean: number;
+  stdDev: number;
+  brightFraction: number;
+  backgroundFraction: number;
+  grid: number[];
+  /** full-frame PNG */
+  png: string;
+  /** magnified centre crop; "" when `--zoom` is not in play */
+  zoomPng: string;
+}
+
+async function capture(
+  page: Page,
+  timeSec: number,
+  errors: string[],
+  zoom: number,
+  suffix: string,
+): Promise<ShotStats> {
   // Wait on the engine's own clock, Node-side. The two clocks diverge under
   // swiftshader — a frame can take 50 ms — so a wall-clock wait would capture a
   // different point in the piece than the one requested.
@@ -167,119 +198,219 @@ async function capture(page: Page, timeSec: number, errors: string[]): Promise<S
   );
 
   const shot = await page.evaluate(
-    async (): Promise<{
+    async (
+      zoom,
+    ): Promise<{
       png: string;
+      zoomPng: string;
       mean: number;
       stdDev: number;
       brightFraction: number;
       backgroundFraction: number;
       grid: number[];
     } | null> => {
-      // Read inside a rAF so the drawing buffer has not been composited away.
-      //
       // Note there are no named function bindings in this callback — no
       // `const f = () => {}`. esbuild's keepNames (on by default under tsx)
       // rewrites those into `__name(...)` wrappers, and Playwright ships this
       // function's *source text* to the browser, where `__name` does not exist.
       // Waiting for the clock is done Node-side via `waitForFunction` for the
       // same reason.
-      const stats = await new Promise<{
-        mean: number;
-        stdDev: number;
-        brightFraction: number;
-        backgroundFraction: number;
-        grid: number[];
-      } | null>((done) => {
+      const raw = await new Promise<FrameSample | { reason: string }>((done) => {
+        // A capture that never resolves is far worse than one that fails: the
+        // run hangs until CI's job timeout with no indication of where. So the
+        // settle logic is inlined rather than factored into a `finish` helper —
+        // a named `const finish = () => {}` here would be rewritten by esbuild's
+        // keepNames into `__name(...)`, which does not exist in the page. Same
+        // reason there are no other named function bindings in this callback.
+        let settled = false;
+        const guard = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          done({ reason: "capture timed out after 30 s" });
+        }, 30_000);
         requestAnimationFrame(() => {
-          const c = document.querySelector(
-            "canvas[data-testid='visual-canvas']",
-          ) as HTMLCanvasElement | null;
-          const gl = c?.getContext("webgl2");
-          if (!c || !gl) return done(null);
+          // Any throw here would otherwise surface as a bare "could not capture",
+          // which says nothing about why. §12's rule about silent failures applies
+          // to harnesses too.
+          try {
+            // Inside the rAF: the drawing buffer is still live here, and `px` is
+            // in scope. Both matter — see the magnified-crop comment below.
+            const canvas = document.querySelector(
+              "canvas[data-testid='visual-canvas']",
+            ) as HTMLCanvasElement | null;
+            const gl = canvas?.getContext("webgl2");
+            if (!canvas || !gl) {
+              settled = true;
+              clearTimeout(guard);
+              return done({ reason: "no canvas or no webgl2 context in the page" });
+            }
 
-          // Middle 50 % in device pixels.
-          const w = gl.drawingBufferWidth;
-          const h = gl.drawingBufferHeight;
-          const x0 = Math.floor(w * 0.25);
-          const y0 = Math.floor(h * 0.25);
-          const rw = Math.max(1, Math.floor(w * 0.5));
-          const rh = Math.max(1, Math.floor(h * 0.5));
+            // Middle 50 % in device pixels.
+            const w = gl.drawingBufferWidth;
+            const h = gl.drawingBufferHeight;
+            const x0 = Math.floor(w * 0.25);
+            const y0 = Math.floor(h * 0.25);
+            const rw = Math.max(1, Math.floor(w * 0.5));
+            const rh = Math.max(1, Math.floor(h * 0.5));
 
-          const px = new Uint8Array(rw * rh * 4);
-          gl.readPixels(x0, y0, rw, rh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            const px = new Uint8Array(rw * rh * 4);
+            gl.readPixels(x0, y0, rw, rh, gl.RGBA, gl.UNSIGNED_BYTE, px);
 
-          let sum = 0;
-          let sumSq = 0;
-          let bright = 0;
-          let background = 0;
-          const n = rw * rh;
-          for (let i = 0; i < n; i++) {
-            const r = px[i * 4] ?? 0;
-            const g = px[i * 4 + 1] ?? 0;
-            const b = px[i * 4 + 2] ?? 0;
-            // Rec. 709 luma on sRGB-encoded values, which is what the PNG stores.
-            // Left on the 0-255 scale so §13.4's thresholds apply directly.
-            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            sum += lum;
-            sumSq += lum * lum;
-            if (lum > 230) bright++;
-            if (r + g + b === 0) background++;
+            let sum = 0;
+            let sumSq = 0;
+            let bright = 0;
+            let background = 0;
+            const n = rw * rh;
+            for (let i = 0; i < n; i++) {
+              const r = px[i * 4] ?? 0;
+              const g = px[i * 4 + 1] ?? 0;
+              const b = px[i * 4 + 2] ?? 0;
+              // Rec. 709 luma on sRGB-encoded values, which is what the PNG stores.
+              // Left on the 0-255 scale so §13.4's thresholds apply directly.
+              const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+              sum += lum;
+              sumSq += lum * lum;
+              if (lum > 230) bright++;
+              if (r + g + b === 0) background++;
+            }
+            const mean = sum / n;
+            const variance = Math.max(0, sumSq / n - mean * mean);
+
+            // A coarse luminance grid, so §13.4's "mean absolute pixel difference
+            // between the two" can be measured from the real pixels rather than
+            // from differences of summary statistics — which a scene can satisfy
+            // by drifting uniformly.
+            const G = 32;
+            const grid: number[] = new Array(G * G).fill(0);
+            const counts = new Array(G * G).fill(0);
+            for (let i = 0; i < n; i++) {
+              const gx = Math.min(G - 1, Math.floor(((i % rw) / rw) * G));
+              const gy = Math.min(G - 1, Math.floor((Math.floor(i / rw) / rh) * G));
+              const r = px[i * 4] ?? 0;
+              const gg = px[i * 4 + 1] ?? 0;
+              const b = px[i * 4 + 2] ?? 0;
+              const idx = gy * G + gx;
+              grid[idx] = (grid[idx] ?? 0) + 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+              counts[idx] = (counts[idx] ?? 0) + 1;
+            }
+            for (let i = 0; i < grid.length; i++) {
+              grid[i] = counts[i] ? (grid[i] ?? 0) / (counts[i] ?? 1) : 0;
+            }
+
+            // Magnified centre crop. Per-pixel artefacts — a dither lattice,
+            // banding, a one-pixel seam — are invisible at 1:1 and are exactly
+            // what a human review is for.
+            //
+            // It must be built from `px`, never from `drawImage(canvas, …)`:
+            // the WebGL drawing buffer is discarded once the frame is composited,
+            // so outside this rAF the canvas reads as blank and the crop comes
+            // out white. `px` is ordinary JS memory and still holds exactly what
+            // the GPU produced. Nearest-neighbour by construction, because
+            // smoothing would average the artefact away.
+            // Always build the crop, even when --zoom is off: one code path is
+            // worth more here than the few milliseconds it costs, and a second
+            // path is a second place for the drawing buffer to be read too late.
+            const side = Math.max(8, Math.floor(Math.min(rw, rh) / Math.max(1, zoom)));
+            const scale = 4;
+            const z = document.createElement("canvas");
+            z.width = side * scale;
+            z.height = side * scale;
+            const zctx = z.getContext("2d");
+            if (!zctx) {
+              settled = true;
+              clearTimeout(guard);
+              return done({ reason: "could not get a 2d context for the crop" });
+            }
+
+            const img = zctx.createImageData(z.width, z.height);
+            // Centre square of the readPixels region, which is stored bottom-up.
+            const rx0 = Math.floor((rw - side) / 2);
+            const ry0 = Math.floor((rh - side) / 2);
+            for (let y = 0; y < z.height; y++) {
+              // ImageData row 0 is the top; readPixels row 0 is the bottom.
+              const srcY = ry0 + Math.floor((z.height - 1 - y) / scale);
+              for (let x = 0; x < z.width; x++) {
+                const srcX = rx0 + Math.floor(x / scale);
+                const si = (srcY * rw + srcX) * 4;
+                const di = (y * z.width + x) * 4;
+                img.data[di] = px[si] ?? 0;
+                img.data[di + 1] = px[si + 1] ?? 0;
+                img.data[di + 2] = px[si + 2] ?? 0;
+                img.data[di + 3] = 255;
+              }
+            }
+            zctx.putImageData(img, 0, 0);
+
+            void Promise.all([
+              new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png")),
+              new Promise<Blob | null>((r) => z.toBlob(r, "image/png")),
+            ]).then(async ([full, crop]) => {
+              if (!full || !crop) {
+                settled = true;
+                clearTimeout(guard);
+                return done({
+                  reason:
+                    "toBlob returned null — full frame " +
+                    (full ? "ok" : "null") +
+                    ", crop " +
+                    (crop ? "ok" : "null"),
+                });
+              }
+              // Base64 inlined rather than factored into a helper: esbuild keeps
+              // names, and a `const toB64 = () => {}` inside page.evaluate becomes
+              // __name(...) in a context where __name does not exist.
+              const out = [
+                new Uint8Array(await full.arrayBuffer()),
+                new Uint8Array(await crop.arrayBuffer()),
+              ];
+              const b64 = ["", ""];
+              for (let k = 0; k < 2; k++) {
+                const b = out[k];
+                if (!b) continue;
+                let acc = "";
+                const CHUNK = 0x8000;
+                for (let i = 0; i < b.length; i += CHUNK) {
+                  acc += String.fromCharCode(...b.subarray(i, i + CHUNK));
+                }
+                b64[k] = btoa(acc);
+              }
+              settled = true;
+              clearTimeout(guard);
+              done({
+                mean,
+                stdDev: Math.sqrt(variance),
+                brightFraction: bright / n,
+                backgroundFraction: background / n,
+                grid,
+                png: b64[0] ?? "",
+                zoomPng: zoom > 1 ? (b64[1] ?? "") : "",
+              });
+            });
+          } catch (e) {
+            settled = true;
+            clearTimeout(guard);
+            done({ reason: e instanceof Error ? e.message : String(e) });
+            // Rethrow on a microtask so the page reports it in the console too.
+            setTimeout(() => {
+              throw e instanceof Error ? e : new Error(String(e));
+            }, 0);
           }
-          const mean = sum / n;
-          const variance = Math.max(0, sumSq / n - mean * mean);
-
-          // A coarse luminance grid, so §13.4's "mean absolute pixel difference
-          // between the two" can be measured from the real pixels rather than
-          // from differences of summary statistics — which a scene can satisfy
-          // by drifting uniformly.
-          const G = 32;
-          const grid: number[] = new Array(G * G).fill(0);
-          const counts = new Array(G * G).fill(0);
-          for (let i = 0; i < n; i++) {
-            const gx = Math.min(G - 1, Math.floor(((i % rw) / rw) * G));
-            const gy = Math.min(G - 1, Math.floor((Math.floor(i / rw) / rh) * G));
-            const r = px[i * 4] ?? 0;
-            const gg = px[i * 4 + 1] ?? 0;
-            const b = px[i * 4 + 2] ?? 0;
-            const idx = gy * G + gx;
-            grid[idx] = (grid[idx] ?? 0) + 0.2126 * r + 0.7152 * gg + 0.0722 * b;
-            counts[idx] = (counts[idx] ?? 0) + 1;
-          }
-          for (let i = 0; i < grid.length; i++)
-            grid[i] = counts[i] ? (grid[i] ?? 0) / (counts[i] ?? 1) : 0;
-
-          done({
-            mean,
-            stdDev: Math.sqrt(variance),
-            brightFraction: bright / n,
-            backgroundFraction: background / n,
-            grid,
-          });
         });
       });
-      if (!stats) return null;
-
-      const canvas = document.querySelector(
-        "canvas[data-testid='visual-canvas']",
-      ) as HTMLCanvasElement | null;
-      if (!canvas) return null;
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
-      if (!blob) return null;
-      const buf = new Uint8Array(await blob.arrayBuffer());
-      let bin = "";
-      const CHUNK = 0x8000;
-      for (let i = 0; i < buf.length; i += CHUNK) {
-        bin += String.fromCharCode(...buf.subarray(i, i + CHUNK));
-      }
-      return { ...stats, png: btoa(bin) };
+      if ("reason" in raw) throw new Error("shot: " + raw.reason);
+      return raw;
     },
+    zoom,
   );
-
   if (!shot) throw new Error(`could not capture the canvas at t=${timeSec}s`);
 
   const png = Buffer.from(shot.png, "base64");
-  const name = `t${String(timeSec).replace(".", "_")}s.png`;
-  writeFileSync(resolve(SHOTS, name), png);
+  const tag = suffix === "" ? "" : `-${suffix}`;
+  const stem = `t${String(timeSec).replace(".", "_")}s${tag}`;
+  writeFileSync(resolve(SHOTS, `${stem}.png`), png);
+  if (shot.zoomPng !== "") {
+    writeFileSync(resolve(SHOTS, `${stem}-zoom.png`), Buffer.from(shot.zoomPng, "base64"));
+  }
 
   return {
     timeSec,
@@ -345,7 +476,9 @@ async function ensureServer(port: number): Promise<() => void> {
 async function main(): Promise<void> {
   mkdirSync(SHOTS, { recursive: true });
   console.log(`shots → ${SHOTS}`);
-  console.log(`capture times: ${TIMES.join(", ")} s (engine clock)\n`);
+  console.log(
+    `capture times: ${TIMES.join(", ")} s (engine clock)${ZOOM > 1 ? `; centre crop 1/${ZOOM} at 4× nearest` : ""}\n`,
+  );
 
   const stop = await ensureServer(PORT);
   const browser = await chromium.launch({
@@ -389,7 +522,7 @@ async function main(): Promise<void> {
     });
 
     const shots: ShotStats[] = [];
-    for (const t of TIMES) shots.push(await capture(page, t, errors));
+    for (const t of TIMES) shots.push(await capture(page, t, errors, ZOOM, suffix));
 
     console.log(
       "  t       mean    stddev   bright>230   background   rAF ema   synced    L  scale    png",

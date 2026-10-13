@@ -1423,3 +1423,38 @@ palette drives it (the clear colour drifts through a harmony change and the orb'
 interior hue follows), §9.4's impact ripples put structure on the surface, and the
 whole scene is **fragment-bound and comfortably inside budget** at the tier CI runs —
 11.3 ms in the probe, 10.5 ms in the shipped engine, against a 16.7 ms frame.
+
+---
+
+## 2026-10-12 · T4.2 · `shot.ts` grows `--zoom`, and a magnified crop finds what 1:1 could not
+
+`npm run shot.ts --zoom 4` now writes a `-zoom.png` alongside each capture: the
+middle 1/4 of the canvas, upscaled 4× with nearest-neighbour sampling.
+
+**Why nearest-neighbour.** A dither lattice, banding gradient, or one-pixel seam is
+invisible at 1:1 and is destroyed by any smoothing — a bilinear upscale averages the
+artefact into the very noise it was hiding. The crop is therefore built by integer
+pixel replication, from the `readPixels` buffer, not by letting an image scaler
+decide.
+
+**Built from `px`, never from `drawImage(canvas, …)`.** The first attempt drew the
+crop from the live canvas and produced a pure-white image: the WebGL drawing buffer
+is discarded once the frame is composited, and the crop code ran in an outer
+`await`, by which point the buffer was gone. `px` is ordinary JS memory and still
+holds exactly what the GPU produced. This is the same lesson as the earlier
+`readPixels`-outside-rAF failure in the e2e suite — now it is a comment in the file
+rather than a scar.
+
+**Result at 4×, both tiers.** The IGN weave is not a subtle artefact. At the low tier
+(3 march steps) it is a strong, regular diagonal lattice across the whole interior,
+strongest where emission is brightest. At the **high** tier (8 steps, 3 octaves) it is
+no better — if anything denser, because there is more noise for the dither to break
+up and more samples landing between the lattice's own period. That settles the open
+question in the T4.2 entry above: it is not a low-tier degradation, it is §9.4's
+arithmetic as written, at every quality setting.
+
+It also reframes the brightness question. At 4× the core is not uniformly dark — it
+is a dense lattice of bright dots on a dark field, which averages down to the 13.5/255
+the harness reports. So "the core is dark" and "the core is dithered" are partly the
+same observation: a chunk of that mean is the lattice's dark cells. Fixing the weave
+would raise the mean, and C9 should be re-judged after that rather than before.
