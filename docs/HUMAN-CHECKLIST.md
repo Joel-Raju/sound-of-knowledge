@@ -125,13 +125,22 @@ float stereo, ~46 MB):
       HTTP 200, 0 parse errors over a 120 s capture. **No proxy needed.**
 - [x] **E2.** Real throughput measured: Wikipedias + `edit|new` = mean 5.9/s,
       p95 10/s → `EPS_REF = 15`. Bot ratio 18.8 % (spec model 20 % ✓).
-- [ ] **E3.** Revert heuristic visibly fires on real traffic — **measured 0.2 %,
-      well under the 3 % model.** `REVERT_PATTERNS` may need to match reverts
-      not anchored at the start of the comment (e.g. `/* Foo */ Reverted …`,
-      `Rv` from the rollback tool).
+- [x] **E3.** ✅ **Diagnosed with live data — the English patterns are fine; the
+      Russian ones are structurally broken.** `scripts/probe-reverts.ts` recorded 180 s
+      of the real stream (844 Wikipedia edits, 402 distinct summaries, 5 matched =
+      0.59 %) and listed anything revert-shaped that did not match. Every English and
+      German revert matched. All three misses were **Russian**: `отмена` / `отменена`
+      are a verbal noun and a passive participle, so they cannot open a sentence the
+      way "Reverted" can, and `/^Отмена/i` is anchored. Catching them would take
+      0.59 % → ~1.07 %. **The fix is deliberately not applied** — matching the stem
+      `отмен` un-anchored also catches "отменить созданное" (an admin action, not a
+      revert), and that false-positive trade-off is the human's to make. Full
+      reasoning in `DECISIONS.md`.
 - [ ] **E4.** Bot ratio in the HUD looks plausible on live traffic.
 - [ ] **E5.** Article titles seen in the wild match the §6.1 shape, including
       temporary accounts `~YYYY-N` and `server_name` (not just `server_url`).
+      _Partly confirmed: the E3 capture shows temporary accounts (`~2026-54929-97`)
+      appearing **inside real edit summaries**, not only as `server_url`._
 
 ## F. Browser / device matrix
 

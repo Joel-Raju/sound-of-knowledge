@@ -1578,3 +1578,58 @@ which is the correct shape for the test to have.
 **F6 closes.** The rest of the browser matrix (F1–F5) needs browsers and hardware
 this environment does not have: only Chromium is installed, and Safari/iOS/Android
 are devices rather than engines.
+
+---
+
+## 2026-10-12 · T4.2 pause · E3: the heuristic is not missing English reverts — it is missing *Russian* ones
+
+E3 recorded a 0.2 % hit rate against a 3 % model. Two explanations fit that number
+equally well: the patterns miss reverts, or real traffic has fewer than the model. A
+rate cannot distinguish them, so `scripts/probe-reverts.ts` records the **summaries
+themselves** from the live stream and lists anything that looks like a revert but
+did not match.
+
+**Measured** — 180 s of `recentchange`, Wikipedia family only, 844 edits, 402 distinct
+summaries, **5 matched (0.59 %)**.
+
+**English is fine.** Every English revert in the sample matched:
+
+    Reverted 3 edits by [[Special:Contributions/~2026-54929-97|~2026-54929-97]] …
+    Reverted 1 edit by [[Special:Contribs/DonavonA|DonavonA]] … to last revision by …
+
+These also confirm **E5**: temporary accounts (`~2026-54929-97`) appear in real
+summaries, not only as `server_url`.
+
+**German is fine** — "Revert auf Version von …" matches `/^Revert(ed)?\b/i`.
+
+**Russian is systematically missed**, and the reason is structural rather than a
+missing vocabulary item:
+
+    Правка … была автоматически отменена
+    автоматическая отмена правки участника [[special:contribs/~2026-54882-20|…]] - R:1B …
+    [[ВП:×|отмена]] правки 155580301 участника …
+
+The Russian patterns are `/^Откат/i` and `/^Отмена/i` — **anchored**. But `отмена` is a
+verbal noun and `отменена` a passive participle, so in Russian they cannot readily
+open a sentence the way English "Reverted" can; they appear mid-summary. The anchor,
+harmless in English, makes the pattern structurally wrong for an inflected language.
+
+The heuristic also correctly *rejected* one near-miss: "Отчёт об автоматических
+отменах" ("report about automatic reverts") is a report, not a revert.
+
+**Effect size, measured rather than guessed:** 5 matches becomes roughly 9 if the
+Russian reverts are caught — 0.59 % → ~1.07 %. Real progress, still short of a 3 %
+model, and the residual gap may be that the model is wrong rather than the code.
+
+**Not changed here.** Matching the stem `отмен` un-anchored would catch all three, but
+`отмен` also appears in admin actions that are not reverts ("отменить созданное" —
+cancel a created template). That is a false-positive trade-off about what the piece
+*does* with a genuine ambiguity, so it is put to the human rather than decided here.
+
+**The probe's first version recorded nothing and said so confidently.** It filtered on
+`wiki.endsWith("wikipedia.org")`; the stream's `wiki` field is the MediaWiki
+*database name* (`enwiki`, `commonswiki`), not a hostname. It ran the full 180 s,
+reported `0 edits, 0.00 %`, and would have been filed as "reverts are rarer than the
+model says" — the exact conclusion E3 was asking to test. It now filters through the
+shipped `parseHost`, and prints the suspected misses so the next reader can check
+the filter itself.
