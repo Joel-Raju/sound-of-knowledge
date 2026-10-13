@@ -125,22 +125,40 @@ float stereo, ~46 MB):
       HTTP 200, 0 parse errors over a 120 s capture. **No proxy needed.**
 - [x] **E2.** Real throughput measured: Wikipedias + `edit|new` = mean 5.9/s,
       p95 10/s → `EPS_REF = 15`. Bot ratio 18.8 % (spec model 20 % ✓).
-- [x] **E3.** ✅ **Diagnosed with live data — the English patterns are fine; the
-      Russian ones are structurally broken.** `scripts/probe-reverts.ts` recorded 180 s
-      of the real stream (844 Wikipedia edits, 402 distinct summaries, 5 matched =
-      0.59 %) and listed anything revert-shaped that did not match. Every English and
-      German revert matched. All three misses were **Russian**: `отмена` / `отменена`
-      are a verbal noun and a passive participle, so they cannot open a sentence the
-      way "Reverted" can, and `/^Отмена/i` is anchored. Catching them would take
-      0.59 % → ~1.07 %. **The fix is deliberately not applied** — matching the stem
-      `отмен` un-anchored also catches "отменить созданное" (an admin action, not a
-      revert), and that false-positive trade-off is the human's to make. Full
-      reasoning in `DECISIONS.md`.
+- [ ] **E3.** ⏳ **Measured over 20 minutes and the "English is fine" note was wrong.**
+      `scripts/probe-reverts.ts` recorded 1 200 s of the real stream: **6 428 edits,
+      2 659 distinct summaries, 51 matched**, with three reconnects handled cleanly.
+      **English 29 / 1 483 = 1.96 %** (95 % CI 1.25 % – 2.66 %); covered languages
+      combined 48 / 2 993 = 1.60 %. §6.2's **3 % model is not supported** — even the
+      upper bound sits below it.
+
+      But detection is incomplete, and the residual is now *enumerated*, not suspected.
+      A second pass over all 2 659 summaries finds **18** revert-shaped ones the
+      patterns miss — **8 of them English**: `Reverting edit(s) by …` ×3 (the `\b` in
+      `/^Revert(ed)?\b/` defeats `Reverting`), `Bot: Undo …`, `S-revert:`, `partial
+      revert …`, `rv, …`. Also Italian `Annullate` (plural vs `/^Annullata/`),
+      French `Bot : Annulation`, Japanese `… による ID`.
+
+      Counting all of them: English **2.49 %** (CI ≈ 1.76 % – 3.22 %), which puts 3 %
+      back *inside* the interval. **Both** the model and the patterns are off; the
+      patterns are the smaller half.
+
+      The sample also settles the false-positive question that was left open: two of
+      the eighteen are *not* reverts — `/* Clarification Regarding Reverted Edits to the
+      Hastinapur Article */ Reply`. So un-anchoring `Reverted` demonstrably costs
+      false positives; widening by **shape** (`Reverting`, `Bot: Undo`) rather than by
+      **position** does not.
+
+      **Decision needed: which classes to widen.** Two are arguably bugs rather than
+      taste — `Reverting` missing, and `Bot:` defeating an otherwise-unambiguous
+      anchored stem. The rest (`S-revert`, `rv`, `partial revert`, `Annullate`,
+      Japanese) widen what counts as a revert. Reasoning and tables in `DECISIONS.md`.
 - [ ] **E4.** Bot ratio in the HUD looks plausible on live traffic.
 - [ ] **E5.** Article titles seen in the wild match the §6.1 shape, including
       temporary accounts `~YYYY-N` and `server_name` (not just `server_url`).
-      _Partly confirmed: the E3 capture shows temporary accounts (`~2026-54929-97`)
-      appearing **inside real edit summaries**, not only as `server_url`._
+      _Partly confirmed: the E3 captures show temporary accounts (`~2026-54929-97`,
+      `~2026-55118-67`, `~2026-55219-42`) appearing **inside real edit summaries**,
+      not only as `server_url`._
 
 ## F. Browser / device matrix
 

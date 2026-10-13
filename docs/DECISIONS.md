@@ -1737,3 +1737,74 @@ Russian-only problem and the "English detection is known-good" note is wrong.
 Not changed here. Both would widen what counts as a revert — `/^Rv\b/i` is short enough
 to need checking against real summaries, and the plural fix is narrower but still a
 call about false positives. E3 goes to the human with the rate first.
+
+## E3 measured properly — 20 minutes, 6 428 edits, English 1.96 % (CI 1.25–2.66 %)
+
+The re-run kept its whole output. Headline:
+
+```
+Wikipedia edits seen : 6428
+matched as revert    : 51  (0.79 %)
+distinct summaries   : 2659
+connection(s)        : 4, 682s + 45s + 56s + 409s   (three "stream: terminated")
+
+  en     1483      29  1.96%  yes     de   546   3  0.55%  yes
+  fr      409      10  2.44%  yes     it   151   4  2.65%  yes
+  ru      231       0  0.00%  yes     es   119   2  1.68%  yes
+  pt       54       0  0.00%  yes
+
+  covered languages combined: 48 / 2993 = 1.60 %
+```
+
+The stream dropped three times in 20 minutes and reconnected cleanly — the fix from
+the first run earning its place.
+
+**English: 29 / 1483 = 1.96 %, 95 % CI 1.25 % – 2.66 %.** The 3 % model is not
+supported by this sample; even the upper bound sits below it.
+
+**But detection is not complete, and the residual is now enumerated rather than
+suspected.** A second pass over all 2 659 distinct summaries — scanning for
+revert-*shaped* words the patterns miss, rather than trusting the probe's own
+heuristic — finds **18** such summaries, all occurring once. Broken down:
+
+| language | example | why it misses |
+|---|---|---|
+| **en** | `Reverting edit(s) by [[Special:Contributions/…]]` ×3 | `/^Revert(ed)?\b/` needs a word boundary; `Reverting` has none after `Revert` |
+| **en** | `Reverting possible vandalism by … to version by …` | same |
+| **en** | `Bot: Undo 1379821109, …` | `/^Undo\b/` is anchored; `Bot: ` precedes it |
+| **en** | `S-revert:2-0.2.09` | bot-specific token |
+| **en** | `partial revert seemingly bold edits…` | `revert` appears mid-summary |
+| **en** | `rv, [[WP:NOTFORUM|…]]` | no `Rv` pattern at all |
+| it | `[[WP:LRC|LiveRC]] : Annullate le modifiche …` ×3 | `/^Annullata/` is singular; the plural `Annullate` misses |
+| it | `Avviso di annullamento automatico su …` | anchored, and `annullamento` is mid-sentence |
+| fr | `Bot : Annulation des modifications de …` | `/^Annulation/` anchored; `Bot : ` precedes it |
+| ja | `[[Special:Contributions/…]] (…) による ID…` ×2 | no Japanese pattern at all |
+
+**Eight of the eighteen are English.** With all of them counted, English becomes
+37 / 1483 = **2.49 %** (95 % CI ≈ 1.76 % – 3.22 %) — which moves 3 % from *refuted* to
+*consistent with the sample*. So the earlier reading ("the model, not the pattern, is
+what is wrong") was premature: **both** are true, and fixing detection is what
+determines which dominates.
+
+**And the sample contains the false-positive case, which settles a trade-off that had
+been left open.** Two of the eighteen are *not* reverts:
+
+```
+/* Clarification Regarding Reverted Edits to the Hastinapur Article */ Reply
+/* Clarification Regarding Reverted Edits to the Hastinapur Article */
+```
+
+Both contain the literal string `Reverted Edits` and are user-talk replies *about*
+reverts. Any fix that un-anchors `Reverted` will match these. That is concrete
+evidence for keeping the anchors on the English patterns and instead widening by
+**shape** (`Reverting`, `Bot: Undo`, `S-revert`) rather than by **position**.
+
+Two findings here are plain bugs rather than taste, and are called out as such:
+`/^Revert(ed)?\b/` missing `Reverting` — the pattern's evident intent is to catch
+revert announcements and the `\b` defeats it — and the `Bot:` prefix defeating two
+anchored patterns whose stem is otherwise unambiguous.
+
+**Not applied.** Which of these to widen is a decision about what a false positive
+costs in a piece that *sonifies* reverts, so it goes to the human. What is settled is
+the measurement: reverts are ~2–2.5 % of English edits by these patterns, not 3 %, and
+the gap is detection, not the model.
