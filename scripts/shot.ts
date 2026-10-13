@@ -90,7 +90,37 @@ const NO_SPARKS = args.includes("--no-sparks");
  * quality suffix is the only thing distinguishing runs and it is empty at the
  * default tier.
  */
-const variant = NO_SPARKS ? "nosparks" : SPAWN > 0 ? `spawn${SPAWN}` : "";
+/**
+ * `--sweep` — capture every layer/composer combination against **one** server.
+ *
+ * This exists because the alternative produced a wrong answer. `ensureServer` reuses
+ * whatever is listening on the port, so a shell loop that kills the port and
+ * re-launches per variant does not reliably get a fresh server: the next run can find
+ * the previous one still listening and attach to it. Four A/B rows came back with the
+ * combinations mislabelled — a `--no-sparks --no-post` run reported post-processing
+ * on — and the giveaway was only that no output file with the expected suffix
+ * appeared. Every variant differs solely by URL parameter, so one server and one
+ * browser can serve all of them, and nothing is left to race.
+ */
+const SWEEP = args.includes("--sweep");
+
+/**
+ * `--no-post` — skip §9.8's composer, drawing straight to the canvas.
+ *
+ * Needed for the T4.4 A/B: without it there is no way to attribute a change in the
+ * capture to the composer rather than to the layers. Suppressed under `--sweep`,
+ * which drives the four combinations itself from the URL.
+ */
+const NO_POST = args.includes("--no-post") && !SWEEP;
+
+/**
+ * What this run is measuring, for the filename and the printed header. Without it a
+ * variant capture overwrites the real one: the quality suffix is the only thing
+ * distinguishing runs, and it is empty at the default tier.
+ */
+const variant = [NO_SPARKS ? "nosparks" : "", NO_POST ? "nopost" : "", SPAWN > 0 ? `spawn${SPAWN}` : ""]
+  .filter((s) => s !== "")
+  .join("-");
 
 /** Keeps captures from different tiers and variants from overwriting one another. */
 const suffix = [QUALITY, variant].filter((s) => s !== "").join("-");
@@ -109,6 +139,19 @@ export const SPARK_DELTA_MIN = 1.0;
 
 /** T4.2's acceptance threshold, centre region. */
 export const CENTRE_STDDEV_MIN = 5;
+
+/**
+ * T4.4 — the corner patch must show *some* variation, and not be noise.
+ *
+ * Spec §13.4 asks for "soft glow and non-banded dark gradient", and this is its
+ * numeric form: a std-dev of exactly 0 means a perfectly flat gradient, which is
+ * what banding looks like before it is visible; above 6 means the patch is grain
+ * rather than a gradient. The floor is deliberately 0 and the ceiling deliberately
+ * generous — the test is "is there structure here, and is it a gradient rather than
+ * static", not a judgement about the grain's strength.
+ */
+export const CORNER_STDDEV_MIN = 0;
+export const CORNER_STDDEV_MAX = 6;
 /** §13.4 item 2 — the scene must change between two captures. */
 export const MIN_TEMPORAL_DIFF = 1.0;
 
@@ -124,6 +167,7 @@ interface ShotStats {
    */
   mean: number;
   stdDev: number;
+  cornerStdDev: number;
   /** fraction of centre pixels with luminance > 0.9 — bloom headroom check */
   brightFraction: number;
   /** fraction of centre pixels that are exactly the clear colour — emptiness */
@@ -187,6 +231,7 @@ interface ShotStats {
 /** What one capture yields: the numbers, and the two PNGs. */
 interface FrameSample {
   mean: number;
+  cornerStdDev: number;
   stdDev: number;
   brightFraction: number;
   backgroundFraction: number;
@@ -378,6 +423,7 @@ async function capture(
     ): Promise<{
       png: string;
       zoomPng: string;
+  cornerStdDev: number;
       mean: number;
       stdDev: number;
       brightFraction: number;
@@ -448,6 +494,29 @@ async function capture(
               if (lum > 230) bright++;
               if (r + g + b === 0) background++;
             }
+
+            // T4.4 — a std-dev over a **corner** patch of the centre region, which
+            // is where banding shows first. The orb's core is far too structured to
+            // serve as a banding witness: its own contrast dominates any quantisation
+            // step. The corner is background, dust and vignette only.
+            const cw = Math.max(2, Math.floor(rw / 8));
+            const chh = Math.max(2, Math.floor(rh / 8));
+            let cSum = 0;
+            let cSumSq = 0;
+            let cn = 0;
+            for (let y = 0; y < chh; y++) {
+              for (let x = 0; x < cw; x++) {
+                const i = ((y * rw) + x) * 4;
+                const lum = 0.2126 * (px[i] ?? 0) + 0.7152 * (px[i + 1] ?? 0) + 0.0722 * (px[i + 2] ?? 0);
+                cSum += lum;
+                cSumSq += lum * lum;
+                cn++;
+              }
+            }
+            const cMean = cSum / Math.max(1, cn);
+            const cornerStdDev = Math.sqrt(
+              Math.max(0, cSumSq / Math.max(1, cn) - cMean * cMean),
+            );
             const mean = sum / n;
             const variance = Math.max(0, sumSq / n - mean * mean);
 
@@ -554,6 +623,7 @@ async function capture(
               done({
                 mean,
                 stdDev: Math.sqrt(variance),
+                cornerStdDev,
                 brightFraction: bright / n,
                 backgroundFraction: background / n,
                 grid,
@@ -591,6 +661,7 @@ async function capture(
     timeSec,
     mean: shot.mean,
     stdDev: shot.stdDev,
+    cornerStdDev: shot.cornerStdDev,
     brightFraction: shot.brightFraction,
     backgroundFraction: shot.backgroundFraction,
     grid: Float32Array.from(shot.grid),
@@ -697,7 +768,8 @@ async function main(): Promise<void> {
       `http://127.0.0.1:${PORT}/?debug=1` +
       (QUALITY ? `&quality=${QUALITY}` : "") +
       (JITTER !== null ? `&jitter=${JITTER}` : "") +
-      (NO_SPARKS ? "&nosparks=1" : "");
+      (NO_SPARKS ? "&nosparks=1" : "") +
+      (NO_POST ? "&nopost=1" : "");
     await page.goto(url);
     await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 60_000 });
     const tier = await page.evaluate(() => window.__sok?.visual?.stats()?.tier ?? "unknown");
@@ -713,7 +785,8 @@ async function main(): Promise<void> {
       return typeof v === "number" ? v : -1;
     });
     console.log(`tier: ${tier}${QUALITY ? ` (forced via ?quality=${QUALITY})` : ""}`);
-    if (NO_SPARKS) console.log("sparks/rings: NOT MOUNTED (--no-sparks)");
+    if (NO_SPARKS) console.log("sparks/rings/dust: NOT MOUNTED (--no-sparks)");
+    console.log(`post: ${NO_POST ? "DISABLED (--no-post)" : tier === "low" ? "none — low tier" : "attached"}`);
     console.log(
       `jitter: ${jitterInUse}${JITTER !== null ? " (forced via ?jitter=)" : " (default)"}\n`,
     );
@@ -728,6 +801,56 @@ async function main(): Promise<void> {
       v.__sok?.visual?.addImpacts(6, 0.7, "push");
       v.__sok?.visual?.addImpacts(3, 0.9, "dent");
     });
+
+    // --sweep: capture all four layer/composer combinations against this one server.
+    // Each is a fresh page load, since ?nosparks and ?nopost are read at mount time
+    // and nothing removes a layer once it is attached.
+    if (SWEEP) {
+      const COMBOS: [string, string][] = [
+        ["nosparks-nopost", "&nosparks=1&nopost=1"],
+        ["nosparks", "&nosparks=1"],
+        ["nopost", "&nopost=1"],
+        ["full", ""],
+      ];
+      console.log("\n=== sweep: one server, four variants ===");
+      for (const [name, qs] of COMBOS) {
+        await page.goto(`http://127.0.0.1:${PORT}/?debug=1${QUALITY ? `&quality=${QUALITY}` : ""}${qs}`);
+        await page.waitForFunction(() => window.__sokVisualReady === true, null, {
+          timeout: 60_000,
+        });
+        const mounted = await page.evaluate(() => {
+          const v = window.__sok?.visual as
+            | { post?: unknown; sparks?: unknown; rings?: unknown; dust?: unknown }
+            | undefined;
+          return {
+            post: v?.post != null,
+            sparks: v?.sparks != null,
+            dust: v?.dust != null,
+          };
+        });
+        const rows: ShotStats[] = [];
+        for (const t of TIMES) {
+          rows.push(await capture(page, t, errors, ZOOM, `${QUALITY ? `${QUALITY}-` : ""}${name}`, 0));
+        }
+        const r = rows[rows.length - 1]!;
+        console.log(
+          `${name.padEnd(18)} post=${String(mounted.post).padEnd(5)} ` +
+            `sparks=${String(mounted.sparks).padEnd(5)} dust=${String(mounted.dust).padEnd(5)}  ` +
+            `mean=${r.mean.toFixed(2).padStart(6)}  stddev=${r.stdDev.toFixed(2).padStart(6)}  ` +
+            `corner=${r.cornerStdDev.toFixed(2).padStart(5)}  bright=${(r.brightFraction * 100)
+              .toFixed(2)
+              .padStart(6)}%  synced=${r.syncedFrameMs.toFixed(1).padStart(6)} ms`,
+        );
+      }
+      if (errors.length > 0) {
+        console.log(`\n✗ ${errors.length} console/page error(s):`);
+        for (const e of errors) console.log(`   ${e}`);
+        failed = true;
+      } else {
+        console.log("✓ no console or page errors");
+      }
+      return;
+    }
 
     const shots: ShotStats[] = [];
     for (const t of TIMES) shots.push(await capture(page, t, errors, ZOOM, suffix, SPAWN));
@@ -788,6 +911,27 @@ async function main(): Promise<void> {
     if (centre.backgroundFraction > 0.98) {
       console.log(
         `✗ centre is ${(centre.backgroundFraction * 100).toFixed(1)}% background — the orb is not drawing`,
+      );
+      failed = true;
+    }
+
+    // T4.4 acceptance — the corner patch is the banding witness. The centre region
+    // cannot serve: the orb's core is bright and structured, so its std-dev is
+    // dominated by the subject rather than by quantisation, and a banded
+    // background behind it would pass unnoticed.
+    console.log(`\n--- T4.4 acceptance (non-banded dark gradient) ---`);
+    const cornerOk =
+      centre.cornerStdDev > CORNER_STDDEV_MIN && centre.cornerStdDev < CORNER_STDDEV_MAX;
+    console.log(
+      `${cornerOk ? "✓" : "✗"} corner-patch luminance std-dev ${centre.cornerStdDev.toFixed(2)} ` +
+        `is in (${CORNER_STDDEV_MIN}, ${CORNER_STDDEV_MAX}) at t=${centre.timeSec}s`,
+    );
+    if (!cornerOk) {
+      console.log(
+        centre.cornerStdDev <= CORNER_STDDEV_MIN
+          ? "   Exactly flat: a dead-flat patch is what banding looks like before it is\n" +
+            "   visible. The grain in §9.8 is what dithers it — check NoiseEffect is on."
+          : "   Above the ceiling: the patch is grain rather than a gradient.",
       );
       failed = true;
     }

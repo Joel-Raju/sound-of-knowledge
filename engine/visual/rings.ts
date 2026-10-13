@@ -53,12 +53,14 @@ export class Rings {
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       glslVersion: THREE.GLSL3,
     });
 
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
+    // §9.2 draw order — dust 0, orb 1, sparks 2, rings 3.
+    this.mesh.renderOrder = 3;
     this.mesh.name = "sok-rings";
   }
 

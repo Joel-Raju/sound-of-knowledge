@@ -23,6 +23,8 @@ export interface VisualHandle {
   orb: import("@/engine/visual/orb").Orb | null;
   sparks: import("@/engine/visual/sparks").Sparks | null;
   rings: import("@/engine/visual/rings").Rings | null;
+  dust: import("@/engine/visual/dust").Dust | null;
+  post: import("@/engine/visual/post").Post | null;
   /** "loading" | "ready" | "unsupported" | "error" */
   status: "loading" | "ready" | "unsupported" | "error";
   message?: string;
@@ -153,6 +155,8 @@ export function VisualHarness(): React.JSX.Element {
       orb: null,
       sparks: null,
       rings: null,
+      dust: null,
+      post: null,
       status: "loading",
       stats: () => handle.engine?.getStats() ?? null,
       addImpacts: (n = 6, magnitude = 0.6, kind = "push") => {
@@ -274,25 +278,37 @@ export function VisualHarness(): React.JSX.Element {
         if (params.get("nosparks") !== "1") {
           const sparksMod = await import("@/engine/visual/sparks");
           const ringsMod = await import("@/engine/visual/rings");
+          const dustMod = await import("@/engine/visual/dust");
           const sparks = new sparksMod.Sparks({ tier: engine.tier });
           const rings = new ringsMod.Rings();
+          // T4.4 — §9.7's ambient dust, behind everything per §9.2's order.
+          const dust = new dustMod.Dust({ tier: engine.tier });
 
           engine.addLayer({
             attach: (scene) => {
+              scene.add(dust.points);
               scene.add(sparks.mesh);
               scene.add(rings.mesh);
             },
             update: (_dt, time) => {
+              dust.update(
+                time,
+                engine.renderScale,
+                DEMO_FEATURES.high,
+                engine.palette.current.dust,
+              );
               sparks.update(time);
               rings.update(time);
             },
             dispose: () => {
+              dust.dispose();
               sparks.dispose();
               rings.dispose();
             },
           });
           handle.sparks = sparks;
           handle.rings = rings;
+          handle.dust = dust;
 
           // Scratch objects for `debugSpawn`. Preallocated here rather than inside
           // the spawn path so firing n particles allocates nothing (§9.5, §12.1).
@@ -314,7 +330,11 @@ export function VisualHarness(): React.JSX.Element {
         engine.start();
         handle.engine = engine;
         handle.orb = orb;
-        // `handle.sparks` / `handle.rings` are set above, inside the
+        // T4.4 — §9.8's composer. Attached before `start()` so no frame is ever drawn
+        // directly and then composited; `?nopost=1` forces the direct path, which is
+        // how the A/B against the previous T4.3 captures is taken.
+        handle.post = params.get("nopost") === "1" ? null : engine.attachPost();
+        // `handle.sparks` / `handle.rings` / `handle.dust` are set above, inside the
         // `?nosparks` guard — they stay null when the layers are not mounted.
         handle.status = "ready";
         setError(null);
@@ -339,6 +359,7 @@ export function VisualHarness(): React.JSX.Element {
       handle.orb = null;
       handle.sparks = null;
       handle.rings = null;
+      handle.dust = null;
       handle.three = null;
       handle.status = "loading";
       if (w.__sok?.visual === handle) delete w.__sok.visual;

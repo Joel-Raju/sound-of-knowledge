@@ -119,12 +119,14 @@ export class Sparks {
       blending: THREE.AdditiveBlending,
       // Additive (§9.2); sparks never occlude the orb or each other.
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       glslVersion: THREE.GLSL3,
     });
 
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
+    // §9.2 draw order — dust 0, orb 1, sparks 2, rings 3.
+    this.mesh.renderOrder = 2;
     this.mesh.name = "sok-sparks";
   }
 

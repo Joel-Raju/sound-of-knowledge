@@ -2093,3 +2093,100 @@ Dutch, Swedish, Czech, Romanian, Finnish and Vietnamese were all *present* in th
 capture with 20–130 edits each and **zero** matched — which is uninformative, because
 with no pattern a language cannot match anything. Only English has a rate that measures
 something.
+
+## T4.4 — dust and post-processing. Implemented per §9.7/§9.8; **acceptance does not pass.**
+
+### What is built
+
+`visual/dust.ts` (§9.7) — `THREE.Points`, 30 000 / 15 000 / 6 000 by tier, positions
+generated once with a seeded PRNG, `aSeed` per point, drift and twinkle computed in the
+vertex shader as pure functions of `uTime`. Point size clamped to [1, 6] px per §9.7,
+governor L4 halves the draw range.
+
+`visual/post.ts` (§9.8) — `EffectComposer` with `HalfFloatType`, `RenderPass`, then
+**two** `EffectPass`es (§9.8 targets ≤ 3): chromatic aberration + vignette + noise merged
+into one, and `ToneMappingEffect` last because it converts working space and so cannot be
+merged with anything ordered after it. §9.11's photosensitivity limits are implemented:
+bloom low-passed at τ = 0.15 s and clamped to ±35 % **around §9.8's own baseline of 0.8**
+(capping the *ratio* instead would allow 0.8 → 1.08, which is ±19 % of the signal and
+±35 % of nothing in particular), CA kick decaying at τ = 0.35 s, reduced-motion bloom
+cap 0.7 and CA removal.
+
+**AgX is available**, so §9.8's ACES fallback is a guard rather than the expected path:
+`postprocessing@6.39.5` exports `ToneMappingMode.AGX` and three 0.186 exports
+`AgXToneMapping`. Checked rather than assumed.
+
+Also: §9.2's draw order is now pinned via `renderOrder` (dust 0 → orb 1 → sparks 2 →
+rings 3). With additive blending the order is not cosmetic — each layer's blend against
+the framebuffer is not commutative — so it is explicit rather than left to scene
+insertion. `depthTest` moved from `false` to §9.2's `true`; since no layer writes depth
+the two are behaviourally identical, and §9.2's is the specified one.
+
+### Three bugs, two of which I introduced
+
+**Invented `ToneMappingEffect` parameters.** Setting `whitePoint/middleGrey/minLuminance/…
+` by hand — §9.8 specifies none of them — lifted the near-black clear colour to a visible
+**navy across the entire frame**. It read as a palette bug and would have been misfiled as
+one. Removing them for the library defaults took the corner patch from **7.04 → 5.02**.
+Now only `mode` is set.
+
+**`--no-post` was never plumbed through `shot.ts`'s URL**, only handled in the harness.
+The A/B it was added for silently measured nothing — and looked like it worked.
+
+**A four-row A/B came back mislabelled.** `ensureServer` reuses whatever is listening on
+the port, so a shell loop that kills the port and relaunches per variant does not
+reliably get a fresh server; one `--no-sparks --no-post` run reported post-processing
+*on*. The only tell was that no output file with the expected suffix appeared. Fixed by
+`--sweep`, which captures all four combinations against **one** server in one process —
+every variant differs only by URL parameter, so there is nothing to race. The sweep also
+prints each variant's mounted state, so a flag that fails to take effect is visible in the
+table instead of silently producing a plausible wrong number.
+
+### The clean isolation, from `--sweep`
+
+```
+variant            post   sparks dust    mean   stddev  corner  bright   synced
+nosparks-nopost    false  false  false   53.50   85.36   0.00    9.73%   15.8 ms
+nosparks           true   false  false   79.66   66.68   0.34    0.00%   80.9 ms
+nopost             false  true   true    54.12   85.56   4.14    9.89%  533.9 ms
+full               true   true   true    80.46   66.78   5.02    0.00%  414.2 ms
+```
+
+**`corner = 0.00` on the first row is precisely the banding case T4.4's check exists to
+catch** — the orb alone, no post, is a dead-flat gradient. Adding grain lifts it to 0.34,
+dust alone to 4.14, both to ~5–6. The metric works; the ceiling does not hold for the
+shipped scene.
+
+### Acceptance: does not pass, and why that is the honest answer
+
+T4.4 asks for std-dev `> 0` but `< 6`. Measured on the full scene:
+
+| renderScale | corner std-dev |
+|---|---|
+| 0.60 | 6.12, 6.12, 6.14 |
+| 0.70 | 7.06, 7.19 |
+| sweep (its own scale) | 5.02 |
+
+The spread is **not random** — it tracks `renderScale`, because §9.7 multiplies
+`gl_PointSize` by the pixel ratio and the governor moves that scale. At 0.60 the reading
+is a consistent ~6.1, just above the ceiling.
+
+**Looking at the capture, the failure is real and not a threshold artefact.** The scene
+reads as a **dense starfield on a navy background** — not "soft glow and non-banded dark
+gradient". Two causes, both traceable to §9.7's own numbers:
+
+- **30 000 points at an alpha reaching 1.0, additive, is not "ambient dust".** §9.7's
+  twinkle formula spans [0.25, 1.0] and specifies no base opacity, so motes render at
+  full strength. On a dark background that is a starfield.
+- **The background is not dark.** AgX lifts the near-black clear colour.
+
+**Not adjusted to fit.** Widening the ceiling to 8, or adding a base opacity §9.7 does
+not specify, would make the check pass without making the picture better. Both are visual
+and specification judgements, and C11 already parks the bloom thresholds on human eyes
+for the same reason.
+
+**T4.4 is therefore implemented but not ticked.** The open question is a human one: §9.7's
+dust density and alpha, and whether the corner-std-dev ceiling of 6 is meant to bound
+grain — in which case the shipped scene is over-budget by a small margin and the dust
+needs thinning — or to bound *banding*, in which case it cannot distinguish "grainy and
+correct" from "broken" and the ceiling needs rethinking.

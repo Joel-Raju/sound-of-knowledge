@@ -129,17 +129,25 @@ export class Orb {
       // anything mentioning glslVersion.
       glslVersion: THREE.GLSL3,
       transparent: true,
-      // §9.4 — additive. Depth is kept off: the orb is a single convex volume
-      // and nothing is behind it that could be occluded, so depth writes cost
-      // fill rate for nothing. §9.2's ordering handles overlap with sparks etc.
+      // §9.4 — additive. Depth *writes* are off: the orb is a single convex volume
+      // and nothing is behind it that could be occluded, so depth writes cost fill
+      // rate for nothing. Depth *testing* is on, per §9.2 — and because no layer in
+      // the scene writes depth, the depth buffer stays at its cleared far value and
+      // every fragment passes. The two settings are behaviourally identical here;
+      // §9.2's is the specified one and costs nothing.
       depthWrite: false,
-      depthTest: false,
+      depthTest: true,
       blending: THREE.AdditiveBlending,
       side: THREE.FrontSide,
     });
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.mesh.frustumCulled = false; // its bounds never change; culling is pure cost
+    // §9.2 — dust(0) → orb(1) → sparks(2) → rings(3). With additive blending the
+    // order is not cosmetic: addition is commutative in exact arithmetic, but each
+    // layer's alpha blend against the framebuffer is not, so a different order gives
+    // a different image. The order is pinned rather than left to scene insertion.
+    this.mesh.renderOrder = 1;
     this.mesh.name = "sok-orb";
 
     this.applyGovernor(opts.governorLevel ?? 0);

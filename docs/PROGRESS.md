@@ -199,7 +199,7 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 ## Status
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.3) —
-**19 of 31 tasks**. 719 unit tests, 18 Chromium e2e, all gates green.
+**19 of 31 tasks** (T4.4 built, acceptance unresolved). 719 unit tests, 18 Chromium e2e, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
@@ -265,3 +265,22 @@ shell — so the first debug pattern put ~19 of 24 sparks outside the frustum an
 a screenshot with none visible. All three are in `DECISIONS.md`.
 
 Next: **T4.4**, dust and post-processing.
+
+## T4.4 — implemented, acceptance not met
+
+`engine/visual/dust.ts` (§9.7) and `engine/visual/post.ts` (§9.8) are built and wired:
+the composer is the only thing that draws to screen, §9.2's draw order is pinned via
+`renderOrder`, §9.11's bloom low-pass and ±35 % clamp are implemented, and AgX turned
+out to be available so §9.8's ACES fallback is only a guard.
+
+**T4.4 is not ticked.** Its criterion — corner-patch std-dev `> 0` but `< 6` — reads
+**6.12** consistently at the governor's 0.60 render scale (7.06–7.19 at 0.70; the spread
+tracks the scale because §9.7 scales point size by pixel ratio). And looking at the
+capture, the failure is real: §9.7's 30 000 points at an alpha reaching 1.0, additive on
+a dark background, render as a **dense starfield**, not ambient dust.
+
+`--sweep` (new) captures all four layer/composer combinations against one server, which
+is how the attribution was established; the first attempt at that A/B returned
+mislabelled rows because `ensureServer` reuses whatever is listening. Full analysis,
+including two bugs of my own, in `DECISIONS.md`. Parked as C11b in
+`HUMAN-CHECKLIST.md`.

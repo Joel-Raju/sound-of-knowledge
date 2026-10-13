@@ -74,6 +74,29 @@ This file is the authoritative list. It is populated as the build progresses.
       high-tier centre sits above luminance 230. §9.1 defers tone mapping to post and
       §9.2 wants HDR for bloom, so this may be correct — but T4.4 owns the answer and
       nobody has looked at it with bloom on.)_
+- [ ] **C11b.** ⏳ **T4.4's dust reads as a starfield, and its acceptance ceiling does
+      not hold for the shipped scene.** _(T4.4. Corner-patch std-dev reads **6.12**
+      consistently at renderScale 0.60 against a `< 6` ceiling, and **7.06–7.19** at
+      0.70.)_
+
+      Looking at `artifacts/shots/t6s-high.png`: the background is a **dense starfield on
+      a navy field**, not "soft glow and non-banded dark gradient". §9.7 gives 30 000
+      points whose twinkle spans [0.25, 1.0] with no base opacity, additive on a dark
+      background — that is a starfield by construction. AgX additionally lifts the
+      near-black clear colour.
+
+      Two questions, both human:
+      1. **Should §9.7's dust be thinner or dimmer than specified?** Adding a base
+         opacity the spec does not give, or cutting the count, would make it ambient.
+      2. **Is the `< 6` ceiling meant to bound grain or banding?** If grain, the shipped
+         scene is marginally over and the dust should thin. If banding, it cannot
+         distinguish "grainy and correct" from "broken", and the check needs rethinking —
+         `shot.ts --sweep` shows the orb alone scores **0.00** (a true banding failure)
+         and adding grain moves it to 0.34, so it discriminates those two well.
+
+      Not adjusted to fit: widening the ceiling to 8 would pass the check without
+      improving the picture. Full numbers and the three bugs found on the way in
+      (`DECISIONS.md`).
 
 ## D. Audio listen files
 

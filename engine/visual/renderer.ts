@@ -24,6 +24,7 @@ import { THREE_MAX_DT_MS } from "../config";
 import { FrameStats } from "../util/perf";
 import { CameraRig, CAMERA } from "./camera-rig";
 import { Governor, GOVERNOR } from "./governor";
+import { Post } from "./post";
 import { Palette } from "./palette";
 import {
   detectTier,
@@ -150,6 +151,21 @@ export class VisualEngine {
   private frameCount = 0;
   /** most recent synchronised frame cost in ms; exposed for the HUD and stats */
   private lastSyncedMs = 0;
+  /**
+   * §9.8's composer, or `null` when post-processing is off.
+   *
+   * Nullable rather than optional-by-default because the low tier is explicitly
+   * allowed to skip it (§12.2's whole point is that a software rasteriser should not
+   * be handed a full post stack), and the frame loop must work either way.
+   */
+  post: Post | null = null;
+  /**
+   * Smoothed RMS in 0–1, driving §9.8's `intensity = 0.8 + 0.6 * rmsSmooth`.
+   * Fed by `setEnergy`'s caller via `setRms`; kept separate from `energy` because
+   * §9.3's camera pull and §9.8's bloom are different signals with different
+   * smoothing, and conflating them would make the bloom follow the camera.
+   */
+  private rmsSmooth = 0;
   private time = 0;
   private layers: RenderLayer[] = [];
 
@@ -356,6 +372,11 @@ export class VisualEngine {
 
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+
+    // §9.8 — the composer's targets follow the same size, on every resize and on
+    // every governor scale change. Called after `renderer.setSize` so the composer
+    // reads the already-updated drawing buffer.
+    this.post?.setSize(w, h);
   }
 
   addLayer(layer: RenderLayer): void {
@@ -408,17 +429,32 @@ export class VisualEngine {
     const hidden = typeof document !== "undefined" && document.hidden;
     const syncedMs = this.takeSyncedSample(frameStart);
     const g = this.governor.update(dtMs, now, hidden, syncedMs);
-    if (g.changed) this.resize();
+    if (g.changed) {
+      // §9.10 / §9.8 — a level change sheds effects, and a scale change resizes the
+      // composer's targets. Both live on the same event, so neither can be missed.
+      this.post?.setGovernorLevel(this.governor.currentLevel);
+      this.resize();
+    }
 
     this.rig.update(dtSec, this.energy);
     this.applyRig();
 
     for (const layer of this.layers) layer.update?.(dtSec, this.time, this.camera);
 
-    this.renderer.render(this.scene, this.camera);
+    // §9.8 — the composer is the only thing that draws to screen. When post is off
+    // (the low tier's own budget, or an explicit opt-out) the renderer's direct
+    // draw is used instead, so nothing depends on the composer existing.
+    if (this.post) {
+      this.post.update(dtSec, this.rmsSmooth);
+      this.post.render(dtSec);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
 
-    // Measured *after* the draw and before the rAF callback returns, so the number
-    // covers both the CPU work above and the GPU executing what it just issued.
+    // `syncedMs` was sampled *above*, before this frame's draw — which is the point:
+    // the readback there waits on the previous frame's commands, so under a saturated
+    // pipeline it reports the real backlog rather than an idle GPU. Storing it after
+    // the draw keeps the assignment next to the work it describes.
     if (syncedMs !== null) this.lastSyncedMs = syncedMs;
   }
 
@@ -449,9 +485,54 @@ export class VisualEngine {
     return performance.now() - frameStart;
   }
 
+  /**
+   * The drawing-buffer pixel ratio actually applied, after the governor's scale and
+   * the tier ceiling. §9.7's point sizing needs it. A getter rather than a public
+   * field so nothing can set it behind `resize`'s back.
+   */
+  get renderScale(): number {
+    return this.appliedScale;
+  }
+
   /** Feed global energy; the camera pulls in as traffic rises (§9.1). */
   setEnergy(energy: number): void {
     this.energy = clamp(energy, 0, 1);
+  }
+
+  /**
+   * Feed the smoothed RMS that §9.8's bloom intensity follows.
+   *
+   * §9.11 requires this to be low-passed at τ ≥ 0.15 s, and that filtering lives in
+   * `Post.update` — the value handed in is already the engine's smoothed RMS, and
+   * applying a second filter here would double the lag for no benefit.
+   */
+  setRms(rms: number): void {
+    this.rmsSmooth = clamp(rms, 0, 1);
+  }
+
+  /**
+   * Attach §9.8's composer. Called once, after construction.
+   *
+   * The tier comes from the engine rather than from the caller so `Post` cannot be
+   * built at a tier the governor is not actually running — a mismatch there shows up
+   * as a composer whose bloom levels and grain opacity do not match the rest of the
+   * scene, which is very hard to read as a tier bug.
+   */
+  attachPost(): Post | null {
+    if (this.post) return this.post;
+    // The low tier does not get a post stack by default: §12.2 pins software
+    // rendering to low precisely because it cannot afford full-screen passes.
+    if (this.tier === "low") return null;
+    this.post = new Post({
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+      tier: this.tier,
+    });
+    // `resize()` sizes the composer from the same CSS box it just gave the renderer,
+    // so the two cannot disagree about the drawing buffer.
+    this.resize();
+    return this.post;
   }
 
   /** Retarget the palette — call on harmony events (§9.3). */
@@ -536,6 +617,8 @@ export class VisualEngine {
     this.stopWatchingMotion();
     for (const layer of this.layers) layer.dispose?.();
     this.layers.length = 0;
+    this.post?.dispose();
+    this.post = null;
 
     this.canvas.removeEventListener("webglcontextlost", this.onLost);
     this.canvas.removeEventListener("webglcontextrestored", this.onRestored);
