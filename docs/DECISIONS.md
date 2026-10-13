@@ -1458,3 +1458,93 @@ is a dense lattice of bright dots on a dark field, which averages down to the 13
 the harness reports. So "the core is dark" and "the core is dithered" are partly the
 same observation: a chunk of that mean is the lattice's dark cells. Fixing the weave
 would raise the mean, and C9 should be re-judged after that rather than before.
+
+---
+
+## 2026-10-12 · T4.2 · §9.4's jitter hides banding that does not exist, and its `smoothstep` window assumes a signal `fbm` never produces
+
+Two changes to §9.4, both found by looking at 3×-magnified captures rather than by
+reading the spec again. Both are deviations from the literal text; both are argued as
+realisations of §9.4's own stated intent.
+
+### 1. March jitter 1.0 → 0.0
+
+§9.4 offsets the march by `ign(gl_FragCoord.xy + uFrame)` and gives the reason: "to
+hide banding". At full amplitude that displacement is a **whole `stepLen`**, and with
+3–8 march steps there is too little averaging per pixel to dissolve it.
+
+Swept at 3× magnification across every tier:
+
+| `uJitter` | result |
+| --------- | ------ |
+| 1.0 (spec) | strong regular diagonal lattice across the whole interior |
+| 0.5       | lattice, slightly softened |
+| 0.35      | lattice still plainly visible |
+| **0.0**   | **no lattice, and no concentric banding either** |
+
+The banding is not there to be hidden. The density term is
+`fbm(p * 1.7 + flow) * (1 - rr*rr)`, and over one `stepLen` the sample point moves far
+enough that the field changes by much more than a quantisation step — so the march
+cannot produce visible rings at all. **The dither was trading an artefact that does not
+occur for one that does, at every quality setting.**
+
+The uniform stays (`?jitter=` on the debug page, `ORB_DEFAULTS.jitter` in code) because
+a future change that made the field smooth across a step would make banding real and
+want the knob back. It is not dead code; it is insurance with a measured reason for
+being off.
+
+### 2. `fbm` normalised to [0,1] before the density `smoothstep`
+
+This one is not a taste call at all — it is arithmetic. §9.4 writes:
+
+```glsl
+float d = fbm(p * 1.7 + flow(uTime)) * (1.0 - rr * rr);
+d = smoothstep(0.15, 0.85, d + 0.25 * uMid);
+```
+
+The `smoothstep(0.15, 0.85, …)` window only means anything against a **[0,1]** signal.
+But §9.4 also mandates Ashima's `snoise`, which is **signed**, ≈[-1,1]. So raw `fbm`
+lands near ±0.4, the `(1 - rr*rr)` factor narrows it further, and almost every fragment
+maps to **0**. The orb was a dark shell with a bright fresnel rim and a handful of
+specks in the middle — mean centre luminance 13.5/255, and `smoothstep` was effectively
+a near-total clip rather than a contrast curve.
+
+Fix: `fbm(...) * 0.5 + 0.5` before the product, so the window operates on the signal
+§9.4 was written as if it had. Mean centre luminance **13.5 → 30.0** at the low tier;
+std-dev **20.3 → 46.5**.
+
+Note this is why the two findings looked like one. The zoom work concluded "the core is
+dark because the dither's dark cells are part of the mean", which was half right — the
+dither was hiding a much larger problem underneath. Fixing the jitter first and
+re-judging the brightness second is what exposed it; fixing both at once would have
+left an unexplained factor-of-two in the numbers.
+
+### High tier now clips, and that is a separate question
+
+At the high tier the normalised field pushes **10.47 %** of the centre above luminance
+230 — a large white-hot core. §9.1 says tone mapping happens in post and §9.2 wants HDR
+values above 1 to drive bloom, so a blown core is arguably what T4.4's bloom and
+tone-mapping pass is for. It is flagged, not tuned: T4.4 is the task that owns the
+answer.
+
+### And a real finding about §9.10, which I had previously dismissed
+
+Earlier in this session I hypothesised that rAF deltas would hide GPU load from the
+governor, then dismissed it because the low tier's synchronised cost (10.5 ms) came out
+*below* the rAF EMA (16.7 ms). At the **high** tier it is real:
+
+```
+low  tier   rAF ema 16.7 ms   synced 10.2 ms   → rAF-bound, governor sees the truth
+high tier   rAF ema 16.7 ms   synced 41.1 ms   → GPU-bound, governor sees 16.7
+```
+
+When the GPU is the bottleneck, Chromium keeps rAF at the vsync interval and the
+governor — which §9.10 feeds from rAF deltas — **never degrades**, because every frame
+it is handed says 16.7 ms. It would sit at level 0 while the piece runs at 24 fps.
+
+This is observable here only because swiftshader's high tier is GPU-bound, but the
+mechanism is not software-specific: any device whose fragment load exceeds its frame
+budget has this shape. `shot.ts` now prints both numbers side by side and warns when
+they disagree by more than 1.5×. **Not fixed here** — it is a §9.10 design question,
+and the options (a `gl.finish()`-based probe, an `EXT_disjoint_timer_query`, or
+accepting main-thread-bound as the only governor input) are a decision, not a bugfix.

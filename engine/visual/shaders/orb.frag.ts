@@ -36,6 +36,14 @@ uniform float uHigh;
 uniform float uFlux;
 uniform int uSteps;
 uniform int uOctaves;
+// March-jitter amplitude, as a fraction of one stepLen. Spec §9.4 is 1.0.
+//
+// §9.4's own words are that the offset exists "to hide banding". At full
+// amplitude, with only 3–8 march steps, there is too little averaging per pixel
+// to dissolve a one-step displacement, so the dither is itself plainly visible
+// as a diagonal lattice — the banding is traded for noise rather than hidden.
+// Measurement and rationale in DECISIONS.md.
+uniform float uJitter;
 uniform vec4 uImpactA[${IMPACT_SLOTS}];
 uniform vec4 uImpactB[${IMPACT_SLOTS}];
 
@@ -64,8 +72,10 @@ void main() {
   float stepLen = (t1 - t0) / float(${MAX_STEPS});
 
   // Per-pixel jitter (§9.4). uFrame moves it each frame so the dither pattern
-  // does not sit still and read as texture.
-  float jitter = ign(gl_FragCoord.xy + uFrame);
+  // does not sit still and read as texture. Scaled by uJitter — see its
+  // declaration for why the spec's 1.0 reads as a lattice rather than as
+  // dissolved banding.
+  float jitter = ign(gl_FragCoord.xy + uFrame) * uJitter;
 
   vec3 col = uDeep * 0.5;
   float trans = 1.0;
@@ -76,9 +86,16 @@ void main() {
     vec3 p = ro + rd * t;
     // 0 at the centre of the volume, 1 at its surface.
     float rr = length(p) / R;
+    // snoise is signed, about [-1,1], so raw fbm lands near ±0.4 and the
+    // (1 - rr*rr) factor narrows it further. §9.4's smoothstep(0.15, 0.85, …)
+    // window only makes sense against a [0,1] signal, so the field is normalised
+    // into one first — otherwise nearly every fragment maps to 0 and the orb
+    // renders as a dark shell with a bright rim. Deviation and measurement in
+    // DECISIONS.md.
+    float n = fbm(p * 1.7 + flow(uTime), uOctaves) * 0.5 + 0.5;
     // Denser toward the core — the orb reads as a luminous heart rather than a
     // hollow shell.
-    float d = fbm(p * 1.7 + flow(uTime), uOctaves) * (1.0 - rr * rr);
+    float d = n * (1.0 - rr * rr);
     d = smoothstep(0.15, 0.85, d + 0.25 * uMid);
     vec3 emit = mix(uCoreColor, uAccentColor,
       smoothstep(0.2, 0.9, rr + 0.3 * snoise(p * 3.0 + uTime * 0.2)));

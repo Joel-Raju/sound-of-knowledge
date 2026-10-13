@@ -40,9 +40,38 @@ export interface OrbOptions {
   tier?: Tier;
   /** governor level, §9.10 — L3 forces 2 octaves. */
   governorLevel?: number;
+  /**
+   * March-jitter amplitude, as a fraction of a step. §9.4 is 1.0; see
+   * `ORB_DEFAULTS.jitter`. Exposed so the screenshot harness can sweep it.
+   */
+  jitter?: number;
   /** deterministic, for tests and the screenshot harness. */
   seed?: number;
 }
+
+/**
+ * Defaults that differ from §9.4's literal values, each with its reason here and
+ * in DECISIONS.md. Kept together so a reader can see every departure from the
+ * spec in one place rather than discovering them one `uniform` at a time.
+ */
+export const ORB_DEFAULTS = {
+  /**
+   * §9.4 says 1.0 — the jitter displaces the march by a full `stepLen`, and is
+   * given there as being there "to hide banding".
+   *
+   * Measured at 3× magnification, across every tier: 1.0 and 0.35 produce a
+   * plainly visible diagonal lattice; **0.0 produces no lattice and no
+   * concentric banding either**. The banding is not there to be hidden — the
+   * field varies by more than a step length over each step, so quantisation
+   * cannot produce visible rings.
+   *
+   * So the dither was trading an artefact that does not occur for one that
+   * does, at every quality setting. The uniform stays, because a future change
+   * that made the field smooth across a step would make banding real and want
+   * the knob back.
+   */
+  jitter: 0,
+} as const;
 
 export class Orb {
   readonly mesh: THREE.Mesh;
@@ -82,6 +111,7 @@ export class Orb {
       uFlux: { value: 0 },
       uSteps: { value: params.orbSteps },
       uOctaves: { value: params.orbOctaves },
+      uJitter: { value: clamp(opts.jitter ?? ORB_DEFAULTS.jitter, 0, 1) },
       uImpactA: { value: this.impactA },
       uImpactB: { value: this.impactB },
     };

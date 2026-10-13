@@ -56,16 +56,24 @@ This file is the authoritative list. It is populated as the build progresses.
       _(Regression risk: LEGACY-NOTES §3.2 found `AdditiveBlending` washed the orb
       out, but spec §9.2 mandates additive. Verify and report.)_
 - [ ] **C8.** Clicking a label opens the correct article in a new tab.
-- [ ] **C9.** The orb reads as a **luminous core**, not a dark sphere with bright
-      patches. _(T4.2. From `artifacts/shots/`: mean centre luminance is 13.5/255.
-      §9.4's `smoothstep(0.15, 0.85, …)` clips the low-density outer volume to
-      nothing, so "denser toward the core" does not survive the threshold. Needs an
-      eye, not a std-dev.)_
-- [ ] **C10.** The orb's interior has **no visible screen-door weave**. _(T4.2.
-      §9.4's IGN jitter displaces the march by a full `stepLen`, and at 3–8 steps
-      there is little averaging left — a regular diagonal lattice shows over the
-      bright regions, at both tiers. Two candidate fixes recorded in `DECISIONS.md`;
-      neither applied.)_
+- [x] **C9.** ✅ **Resolved — the orb now reads as a luminous core.** _(T4.2. Not a
+      taste call after all: §9.4's `smoothstep(0.15, 0.85, …)` window only makes sense
+      against a [0,1] signal, but §9.4 also mandates Ashima's *signed* `snoise`, so raw
+      `fbm` landed near ±0.4 and nearly every fragment mapped to 0. The `smoothstep`
+      was a near-total clip, not a contrast curve. Normalising `fbm` to [0,1] first
+      took mean centre luminance 13.5 → 30.0 and std-dev 20.3 → 46.5. See
+      `DECISIONS.md`.)_
+- [x] **C10.** ✅ **Resolved — the weave is gone at every tier.** _(T4.2. Swept
+      §9.4's IGN jitter at 3× magnification: 1.0 / 0.5 / 0.35 all show a strong
+      diagonal lattice, and **0.0 shows neither the lattice nor any concentric
+      banding** — the banding the jitter exists to hide does not occur, because the
+      density field varies by more than a `stepLen` across each step. Set to 0;
+      the uniform is retained as insurance with a measured reason for being off.)_
+- [ ] **C11.** The orb's high-tier core is **not a blown-out white blob** once §9.8's
+      bloom and tone mapping land. _(T4.2. After the `fbm` normalisation, 10.5 % of the
+      high-tier centre sits above luminance 230. §9.1 defers tone mapping to post and
+      §9.2 wants HDR for bloom, so this may be correct — but T4.4 owns the answer and
+      nobody has looked at it with bloom on.)_
 
 ## D. Audio listen files
 

@@ -59,6 +59,9 @@ const ZOOM = args.includes("--zoom") ? Number(args[args.indexOf("--zoom") + 1]) 
 /** Keeps captures from different tiers from overwriting one another. */
 const suffix = QUALITY ? QUALITY : "";
 
+/** `?jitter=` — the orb's march-jitter amplitude, for sweeping. */
+const JITTER = args.includes("--jitter") ? String(args[args.indexOf("--jitter") + 1]) : null;
+
 /** T4.2's acceptance threshold, centre region. */
 export const CENTRE_STDDEV_MIN = 5;
 /** §13.4 item 2 — the scene must change between two captures. */
@@ -503,12 +506,28 @@ async function main(): Promise<void> {
       if (!isExpectedLocalNoise(e.message)) errors.push(e.message);
     });
 
-    const url = `http://127.0.0.1:${PORT}/?debug=1${QUALITY ? `&quality=${QUALITY}` : ""}`;
+    const url =
+      `http://127.0.0.1:${PORT}/?debug=1` +
+      (QUALITY ? `&quality=${QUALITY}` : "") +
+      (JITTER !== null ? `&jitter=${JITTER}` : "");
     await page.goto(url);
     await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 60_000 });
-
     const tier = await page.evaluate(() => window.__sok?.visual?.stats()?.tier ?? "unknown");
-    console.log(`tier: ${tier}${QUALITY ? ` (forced via ?quality=${QUALITY})` : ""}\n`);
+    const jitterInUse = await page.evaluate(() => {
+      const orb = (
+        window as unknown as {
+          __sok?: {
+            visual?: { orb?: { material: { uniforms: Record<string, { value: unknown }> } } };
+          };
+        }
+      ).__sok?.visual?.orb;
+      const v = orb?.material.uniforms.uJitter?.value;
+      return typeof v === "number" ? v : -1;
+    });
+    console.log(`tier: ${tier}${QUALITY ? ` (forced via ?quality=${QUALITY})` : ""}`);
+    console.log(
+      `jitter: ${jitterInUse}${JITTER !== null ? " (forced via ?jitter=)" : " (default)"}\n`,
+    );
 
     // Put the orb's ripples on screen before the first capture. A screenshot of
     // an orb with no impacts would pass a std-dev check while proving nothing

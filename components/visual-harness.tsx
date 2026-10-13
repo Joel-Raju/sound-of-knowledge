@@ -110,7 +110,14 @@ export function VisualHarness(): React.JSX.Element {
         // side arrives as `features`; with no stream attached, a fixed set stands
         // in so the orb is not a flat grey sphere in every screenshot.
         const orbModule = await import("@/engine/visual/orb");
-        const orb = new orbModule.Orb({ tier: engine.tier });
+        // `?jitter=` sweeps the march-jitter amplitude, so the screenshot
+        // harness can compare settings without a rebuild per data point.
+        const jitterArg = params.get("jitter");
+        const jitter =
+          jitterArg !== null && Number.isFinite(Number(jitterArg))
+            ? Math.max(0, Math.min(1, Number(jitterArg)))
+            : undefined;
+        const orb = new orbModule.Orb({ tier: engine.tier, jitter });
 
         engine.addLayer({
           attach: (scene) => {
