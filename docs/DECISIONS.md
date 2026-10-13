@@ -1937,3 +1937,65 @@ number needs hardware, which is `HUMAN-CHECKLIST.md` C1–C8.
 pool that shrinks when idle — change behaviour the spec pins. §9.10's governor design and
 §9.5's `instanceCount = CAP` are both the human's to change, and this measurement is the
 input to that decision rather than an argument for a particular answer.
+
+### §9.10 governor — fixed, and a correction to what I claimed above
+
+The human chose: **the governor reads a periodically-synchronised sample as well as the
+rAF delta, and acts on the worse of the two.**
+
+Implementation, all additive to §9.10 — behaviour with no samples is byte-identical:
+
+- `VisualEngine.takeSyncedSample()` times a frame end to end every
+  `GOVERNOR.syncedStrideFrames` (30), forcing completion with a **1×1 `readPixels`**.
+  `gl.finish()` is not usable: measured, it does not block under Chromium's
+  command-buffer WebGL (a 400-iteration control shader timed 0.0 ms through it).
+- The sample is taken **after** `renderer.render()`, inside the same rAF. Outside one,
+  the drawing buffer may already be composited and discarded.
+- `Governor.update(dtMs, now, hidden, syncedMs)` keeps a second EMA and acts on
+  `max(emaRaf, emaSynced)`. A sample can only ever make the governor *more* cautious,
+  which is the only direction that matters for a blind spot.
+
+**Two details that were not obvious, and one of them was a bug I introduced and my own
+test caught.**
+
+**`spikeMs: 250` would have discarded the fix.** The governor ignores rAF deltas over
+250 ms as tab switches and GC pauses. A synchronised 550 ms frame is not an artefact —
+it is the entire condition. Reusing that ceiling would have thrown away precisely the
+measurements the change exists to take. Hence `syncedSpikeMs: 2000`, a separate ceiling.
+
+**The synced EMA could not be seeded or eased like the rAF one.** §9.10's `emaAlpha` is
+*per frame*. Applied *per sample* it stretches the channel's time constant 30-fold, and
+two things break: seeding from 0 takes ~10 s to reach a true value (longer than every
+cooldown the governor has), and recovery from a slow GPU takes ~20 s — long enough that
+the piece looks stuck. My first implementation did exactly this, and the test "improves
+again once the GPU recovers" failed at 0.85 having started from 1.9. Fixed by seeding on
+the first sample and deriving the factor from the stride:
+`1 − exp(−(stride/fps)/tau)` with `tau = 1/(0.05·60) ≈ 0.33 s`, so both channels settle
+in the same wall-clock time.
+
+**Verification.** 10 new governor tests, including the motivating case — rAF pinned at
+16.7 ms against a synced 550 ms must degrade. End to end in Chromium the engine's own
+sample tracks an independent readback and the governor now acts:
+
+| scene | rAF ema | synced (script) | **engine's own** | level | scale |
+|---|---|---|---|---|---|
+| orb only | 16.7 ms | 13.5 ms | 1.3 ms | 0 | 0.90 |
+| orb + sparks | 81.9 ms | 609.1 ms | 464.1 ms | 0 → **2** | 0.70 → **0.55** |
+
+### Correction — the blind spot is NOT reproducible on swiftshader, and my claim above overstated it
+
+The "improves as the scene gets worse" line above is **cross-tier**: 47 ms at low against
+86 ms at high. That mixes tier with load, and it is not evidence of rAF saturating
+*within* a session. The honest reading, from the two rows just measured:
+
+- **rAF does saturate** — 16.7 ms exactly in the fast scene, pinned at vsync.
+- **but the slow scene's rAF is 81.9 ms, not 16.7 ms.** swiftshader is a software
+  rasteriser: it makes the *main thread* slow as well as the GPU, so rAF tracks real
+  cost instead of pinning. The failure needs a **fast main thread with a slow GPU** —
+  i.e. real hardware running a heavy scene — which is precisely what this machine is not.
+
+So: the fix is sound in principle and the logic is unit-tested against the pure
+vsync-pinned case, but **the end-to-end demonstration needs a GPU** (`HUMAN-CHECKLIST.md`
+C1–C8). It cannot be demonstrated here, and claiming otherwise from a software
+rasteriser would be the seventh instance of a confident number from an instrument that
+was not measuring the thing asked about.

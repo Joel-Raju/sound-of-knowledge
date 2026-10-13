@@ -39,6 +39,8 @@ declare global {
           scale: number;
           drawCalls: number;
           triangles: number;
+          /** Real GPU frame cost from the last synchronised sample (see DECISIONS.md). */
+          syncedMs: number;
         } | null;
       };
     };

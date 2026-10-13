@@ -78,6 +78,38 @@ export const GOVERNOR = {
   settleFrames: 3,
   /** ms — ignore anything above this, i.e. a tab switch or a GC pause */
   spikeMs: 250,
+
+  /**
+   * ms — ceiling for a *synchronised* sample, which is a different measurement.
+   *
+   * `spikeMs` is sized for rAF deltas, where anything past a quarter-second is a tab
+   * switch or a GC pause. A synced sample is the real GPU cost of a frame, and a frame
+   * that genuinely takes 550 ms is not an artefact — it is exactly the condition the
+   * governor exists to notice. Reusing `spikeMs` here would discard the measurements
+   * that matter most, which is how the blind spot would survive the fix for it.
+   */
+  syncedSpikeMs: 2000,
+
+  /**
+   * How many frames between synchronised samples.
+   *
+   * The sample forces completion with a 1×1 `readPixels`, which is a pipeline stall:
+   * cheap as a rule, but not free, and taking it every frame would make the governor's
+   * own measurement part of the load it is measuring. Every 30 frames is ~0.5 s at
+   * 60 fps — inside §9.10's 1000 ms `slowHoldMs`, so a genuinely slow scene still
+   * accumulates enough synced evidence to degrade, while a fast one pays 3 % overhead.
+   */
+  syncedStrideFrames: 30,
+  /**
+   * Seconds — the smoothing time constant the synced channel is normalised to.
+   *
+   * §9.10's `emaAlpha` of 0.05 is *per frame*, which at 60 fps is a ~0.33 s constant.
+   * Reusing it per-sample would stretch the synced channel's constant 30-fold, since
+   * it only receives a sample every `syncedStrideFrames` frames — recovery from a slow
+   * GPU would then take ~20 s, long enough that the piece looks stuck. Deriving the
+   * factor from the stride keeps both channels settling in the same wall-clock time.
+   */
+  emaTauSec: 1 / (0.05 * 60),
   /** ms — ignore the first this long after `start()` */
   warmupMs: 3000,
   /** smoothed frame time above this is "slow" */
@@ -121,6 +153,18 @@ export class Governor {
   private level = 0;
 
   private ema = 0;
+  /**
+   * EMA of the *synchronised* samples — the real GPU cost of a frame.
+   *
+   * Kept separate from `ema` rather than folded in, for two reasons. The spike
+   * ceilings differ (`spikeMs` 250 for rAF deltas, `syncedSpikeMs` 2000 for these),
+   * because a 550 ms frame is an artefact when it is a GC pause and the whole point
+   * when it is the GPU. And the channels are sampled at different rates — every frame
+   * versus every `syncedStrideFrames` — so they cannot share a recurrence.
+   */
+  private emaSynced = 0;
+  /** true once at least one synced sample has landed; gates the max() below. */
+  private hasSynced = false;
   /** frames seen since the last resize/visibility change; used as a settle gate */
   private settle = GOVERNOR.settleFrames;
   private slowSince = 0;
@@ -170,11 +214,22 @@ export class Governor {
   /**
    * Feed one frame.
    *
-   * @param dtMs frame delta in milliseconds
+   * @param dtMs frame delta in milliseconds, from rAF
    * @param now  clock in ms
    * @param hidden whether the document is hidden
+   * @param syncedMs cost of the last synchronised frame in ms, or `null` on frames
+   *   where no sample was taken. See `GOVERNOR.syncedStrideFrames`.
+   *
+   * **Two channels, acted on as their maximum.** rAF deltas report how fast the main
+   * thread issues commands; under a GPU-bound load Chromium keeps rAF at the vsync
+   * interval anyway, so that number stops moving while the real frame cost climbs. The
+   * measurement in `DECISIONS.md` shows the consequence at high tier: rAF reads 86 ms
+   * while a synchronised frame costs 550 ms — and because vsync pins rAF, the figure
+   * the governor sees *improves* as the scene gets worse, 86 ms at high tier against
+   * 47 ms at low. Taking the max of the two removes the blind spot in the only
+   * direction that matters: a sample can only ever make the governor more cautious.
    */
-  update(dtMs: number, now: number, hidden = false): GovernorFrame {
+  update(dtMs: number, now: number, hidden = false, syncedMs: number | null = null): GovernorFrame {
     if (!this.started) {
       this.started = true;
       this.startedAt = now;
@@ -182,17 +237,45 @@ export class Governor {
 
     // Ignored frames: tab switches, GC pauses, and the first frames after a
     // resize. Each of these is a measurement artefact, not a frame budget.
-    if (dtMs > GOVERNOR.spikeMs || hidden || this.settle > 0) {
+    const ignoreThisFrame = dtMs > GOVERNOR.spikeMs || hidden || this.settle > 0;
+    if (ignoreThisFrame) {
       if (this.settle > 0) this.settle--;
       return this.frame(false);
     }
 
     this.ema += GOVERNOR.emaAlpha * (dtMs - this.ema);
 
+    // The synced channel is gated independently: its own (much higher) spike
+    // ceiling, and it does not consume a settle frame when it is dropped, because
+    // a spike-sized rAF delta says nothing about whether the synced sample is sound.
+    if (
+      syncedMs !== null &&
+      Number.isFinite(syncedMs) &&
+      syncedMs <= GOVERNOR.syncedSpikeMs &&
+      !hidden &&
+      !ignoreThisFrame
+    ) {
+      // Seed on the first sample rather than easing up from 0. An EMA seeded at 0
+      // needs ~20 samples to reach its true value, which at a 30-frame stride is
+      // 10 seconds — longer than the governor's own cooldowns, so the first real
+      // signal would arrive after it had already been ignored.
+      //
+      // The factor is scaled by the stride rather than reused from `emaAlpha`:
+      // that one is per-frame, and applying it per-sample would make this channel
+      // 30× slower to settle than the rAF channel it is compared against.
+      const alpha = 1 - Math.exp(-(GOVERNOR.syncedStrideFrames / 60) / GOVERNOR.emaTauSec);
+      this.emaSynced = this.hasSynced
+        ? this.emaSynced + alpha * (syncedMs - this.emaSynced)
+        : syncedMs;
+      this.hasSynced = true;
+    }
+
+    const ema = this.effectiveEma();
+
     if (now - this.startedAt < GOVERNOR.warmupMs) return this.frame(false);
 
     let changed = false;
-    if (this.ema > GOVERNOR.slowMs) {
+    if (ema > GOVERNOR.slowMs) {
       this.fastSince = 0;
       if (this.slowSince === 0) this.slowSince = now;
       if (
@@ -204,7 +287,7 @@ export class Governor {
         this.lastChange = now;
         changed = true;
       }
-    } else if (this.ema < GOVERNOR.fastMs) {
+    } else if (ema < GOVERNOR.fastMs) {
       this.slowSince = 0;
       if (this.fastSince === 0) this.fastSince = now;
       if (
@@ -226,8 +309,19 @@ export class Governor {
     return this.frame(changed);
   }
 
+  /**
+   * The frame time the governor actually acts on: the worse of the two channels.
+   *
+   * Before any synced sample has landed this is just the rAF EMA, so behaviour with
+   * `syncedMs` never passed is exactly what §9.10 specifies — the channel is additive,
+   * not a replacement.
+   */
+  private effectiveEma(): number {
+    return this.hasSynced ? Math.max(this.ema, this.emaSynced) : this.ema;
+  }
+
   private frame(changed: boolean): GovernorFrame {
-    return { ema: this.ema, scale: this.scale, level: this.level, changed };
+    return { ema: this.effectiveEma(), scale: this.scale, level: this.level, changed };
   }
 
   /**

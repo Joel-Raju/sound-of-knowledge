@@ -150,6 +150,12 @@ interface ShotStats {
    * Comparing the two is the only way to see the difference.
    */
   syncedFrameMs: number;
+  /**
+   * The engine's own synchronised sample — the one §9.10's governor now acts on.
+   * Reported next to `syncedFrameMs` (this script's independent readback) so the
+   * shipped measurement is checked against an external one, not trusted.
+   */
+  engineSyncedMs: number;
   governorLevel: number;
   renderScale: number;
   /**
@@ -330,6 +336,13 @@ async function capture(
         level: number;
         scale: number;
         syncedFrameMs: number;
+        /**
+         * The engine's *own* synced sample — the one §9.10's governor now acts on.
+         * Reported separately from `syncedFrameMs` (this script's independent
+         * readback) so the shipped measurement can be checked against an external
+         * one rather than trusted.
+         */
+        engineSyncedMs: number;
       }>((done) => {
         // One sample is enough, and re-registering an rAF callback from inside
         // itself would need a *named* function binding — which esbuild's
@@ -353,6 +366,7 @@ async function capture(
             level: s?.level ?? -1,
             scale: s?.scale ?? -1,
             syncedFrameMs: synced,
+            engineSyncedMs: s?.syncedMs ?? -1,
           });
         });
       }),
@@ -583,6 +597,7 @@ async function capture(
     emaMs: live.emaMs,
     p95Ms: live.p95Ms,
     syncedFrameMs: live.syncedFrameMs,
+    engineSyncedMs: live.engineSyncedMs,
     governorLevel: live.level,
     renderScale: live.scale,
     spawnDelta:
@@ -718,14 +733,14 @@ async function main(): Promise<void> {
     for (const t of TIMES) shots.push(await capture(page, t, errors, ZOOM, suffix, SPAWN));
 
     console.log(
-      "  t       mean    stddev   bright>230   background   rAF ema   synced    L  scale    png",
+      "  t       mean    stddev   bright>230   background   rAF ema   synced   engine    L  scale    png",
     );
     for (const s of shots) {
       console.log(
         `${String(s.timeSec).padStart(4)}s  ${s.mean.toFixed(2).padStart(6)}  ` +
           `${s.stdDev.toFixed(2).padStart(7)}  ${(s.brightFraction * 100).toFixed(2).padStart(10)}%  ` +
           `${(s.backgroundFraction * 100).toFixed(2).padStart(10)}%  ` +
-          `${s.emaMs.toFixed(1).padStart(7)} ms  ${s.syncedFrameMs.toFixed(1).padStart(6)} ms  ` +
+          `${s.emaMs.toFixed(1).padStart(7)} ms  ${s.syncedFrameMs.toFixed(1).padStart(6)} ms  ${s.engineSyncedMs.toFixed(1).padStart(6)} ms  ` +
           `${String(s.governorLevel).padStart(2)}  ${s.renderScale.toFixed(2).padStart(5)}   ` +
           `${(s.bytes / 1024).toFixed(0)} KB`,
       );

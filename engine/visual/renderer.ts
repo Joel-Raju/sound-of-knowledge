@@ -81,6 +81,15 @@ export class WebGL2Unavailable extends Error {
 }
 
 /**
+ * Reused 1×1 readback target for the governor's synchronised sample.
+ *
+ * Module scope rather than per-frame: `readPixels` is called inside the hot loop and
+ * §12.1 forbids per-frame allocation in hot paths. The value read is discarded —
+ * only the elapsed time matters — but the buffer must exist.
+ */
+const SYNCED_PIXEL = new Uint8Array(4);
+
+/**
  * §9.1 / T4.1 — assert a WebGL2 context can be created on this canvas.
  *
  * The probe context is created with `failIfMajorPerformanceCaveat: true` so a
@@ -113,6 +122,12 @@ export interface RendererStats {
   scale: number;
   drawCalls: number;
   triangles: number;
+  /**
+   * Real GPU frame cost from the last synchronised sample, or 0 before the first
+   * one lands. `emaMs` is rAF-derived and pinned at vsync under GPU load; this is
+   * the number that does not flatter the scene. See `DECISIONS.md`.
+   */
+  syncedMs: number;
 }
 
 export class VisualEngine {
@@ -131,6 +146,10 @@ export class VisualEngine {
   private raf = 0;
   private running = false;
   private lastFrame = 0;
+  /** frames since start, for the synced-sample stride */
+  private frameCount = 0;
+  /** most recent synchronised frame cost in ms; exposed for the HUD and stats */
+  private lastSyncedMs = 0;
   private time = 0;
   private layers: RenderLayer[] = [];
 
@@ -376,6 +395,7 @@ export class VisualEngine {
     const dtMs = Math.min(rawDtMs, THREE_MAX_DT_MS);
     const dtSec = dtMs / 1000;
     this.time += dtSec;
+    const frameStart = now;
 
     this.frames.push(dtMs, now);
     this.palette.update(dtSec);
@@ -386,7 +406,8 @@ export class VisualEngine {
     if (!this.palette.isSettled) this.applyClearColor();
 
     const hidden = typeof document !== "undefined" && document.hidden;
-    const g = this.governor.update(dtMs, now, hidden);
+    const syncedMs = this.takeSyncedSample(frameStart);
+    const g = this.governor.update(dtMs, now, hidden, syncedMs);
     if (g.changed) this.resize();
 
     this.rig.update(dtSec, this.energy);
@@ -395,6 +416,37 @@ export class VisualEngine {
     for (const layer of this.layers) layer.update?.(dtSec, this.time, this.camera);
 
     this.renderer.render(this.scene, this.camera);
+
+    // Measured *after* the draw and before the rAF callback returns, so the number
+    // covers both the CPU work above and the GPU executing what it just issued.
+    if (syncedMs !== null) this.lastSyncedMs = syncedMs;
+  }
+
+  /**
+   * Every `GOVERNOR.syncedStrideFrames`, time this frame end to end with the GPU
+   * forced to finish. Returns `null` on the frames in between.
+   *
+   * **Why `readPixels` and not `gl.finish()`.** Measured, not assumed: under
+   * Chromium's command-buffer WebGL `gl.finish()` does not block — a 400-iteration
+   * control shader timed 0.0 ms through it. A 1×1 `readPixels` is the readback that
+   * actually forces completion. The pixel *value* is discarded; only the elapsed time
+   * is wanted, and reading the centre of the frame keeps the read inside the live
+   * drawing buffer rather than depending on anything the scene drew there.
+   *
+   * **Why a stride.** The readback is a pipeline stall. Taking it every frame would
+   * make the governor's own measurement a permanent part of the load it measures.
+   *
+   * Called after `renderer.render()`, inside the same rAF — outside one, the drawing
+   * buffer may already have been composited and discarded.
+   */
+  private takeSyncedSample(frameStart: number): number | null {
+    this.frameCount++;
+    if (this.frameCount % GOVERNOR.syncedStrideFrames !== 0) return null;
+    const gl = this.renderer.getContext();
+    if (!gl) return null;
+    const px = SYNCED_PIXEL;
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return performance.now() - frameStart;
   }
 
   /** Feed global energy; the camera pulls in as traffic rises (§9.1). */
@@ -475,6 +527,7 @@ export class VisualEngine {
       scale: this.appliedScale,
       drawCalls: info.render.calls,
       triangles: info.render.triangles,
+      syncedMs: this.lastSyncedMs,
     };
   }
 
