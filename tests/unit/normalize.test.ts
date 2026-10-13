@@ -12,7 +12,7 @@ import {
 } from "@/engine/ingest/normalize";
 import { encodeBatch, decodeBatch, STRIDE } from "@/engine/ingest/encode";
 import { DedupeRing, passes, DEFAULT_FILTERS, FilterConfig } from "@/engine/ingest/filters";
-import { DEDUPE_CAPACITY } from "@/engine/config";
+import { DEDUPE_CAPACITY, REVERT_PATTERNS } from "@/engine/config";
 import { mulberry32 } from "@/engine/util/random";
 import type { NormalizedEdit } from "@/engine/types";
 
@@ -63,6 +63,87 @@ describe("normalize — fixtures", () => {
   it("detects reverts in English and German", () => {
     expect(normalize(raw("revertEnglish"))!.kind).toBe("revert");
     expect(normalize(raw("revertGerman"))!.kind).toBe("revert");
+  });
+
+  describe("revert patterns from the 20-minute live capture", () => {
+    /**
+     * Every case below is a **verbatim summary** observed in `probe-reverts.ts`'s
+     * 1 200 s capture (6 428 edits, 2 659 distinct summaries), recorded in
+     * `DECISIONS.md`. A pattern written from imagination rather than from a real
+     * summary is a guess about what Wikipedia editors type.
+     *
+     * The negatives are as load-bearing as the positives: two of the eighteen
+     * candidates were summaries *about* reverts that were not themselves reverts,
+     * and they are why nothing here un-anchors an existing stem.
+     */
+    const matches = (summary: string): boolean =>
+      REVERT_PATTERNS.some((p) => p.test(summary));
+
+    it.each([
+      [
+        "Reverting edit(s) by [[Special:Contributions/~2026-54976-92|~2026-54976-92]]",
+        "the present participle, ×3 in the sample",
+      ],
+      [
+        "Reverting possible vandalism by [[Special:Contribs/~2026-54890-71|~2026-54890-71]] to version by [[User:X|X]]",
+        "the other participle form",
+      ],
+      [
+        // An ordinary human summary, not a bot announcement. This one used to sit in
+        // the negative list as an anchoring example; the capture showed the present
+        // participle is the commonest revert phrasing there is, so it belongs here.
+        "reverting to the previous version of the intro",
+        "an ordinary human revert",
+      ],
+      [
+        "Bot: Undo 1379821109, [[:File:Park Jinyoung at 2026 Baeksang Art Awards, May 8, 2026 01.jpg]] de",
+        "a bot's own undo summary",
+      ],
+      ["S-revert:2-0.2.09", "Snatch's revert bot"],
+      ["rv, [[WP:NOTFORUM|Wikipedia is not a forum]]", "the editor shorthand, with a comma"],
+      ["Rv. fringe view.", "the editor shorthand, with a full stop"],
+      [
+        'partial revert seemingly bold edits. "that\'s what [[Special:WhatLinksHere]] is for"',
+        "a deliberate partial revert",
+      ],
+      [
+        "Undid 2 revisions from [[Special:Diff/8805681|8805681]] until [[Special:Diff/8807674|8807674]]",
+        "the plural the spec's pattern never matched",
+      ],
+      [
+        "[[WP:LRC|LiveRC]] : Annullate le modifiche di [[Special:Contributions/Huhjhk|Huhjhk]]",
+        "Italian plural behind a bot signature",
+      ],
+    ])("matches %s", (summary) => {
+      expect(matches(summary)).toBe(true);
+    });
+
+    it.each([
+      ["/* Clarification Regarding Reverted Edits to the Hastinapur Article */ Reply", "talks about reverts; is not one"],
+      ["/* Clarification Regarding Reverted Edits to the Hastinapur Article */", "the same, without the reply tag"],
+      ["RV sales up 4% in Q3", "starts with the two letters, is not a revert"],
+      ["The undid count field was empty", "a field name, not a past-tense verb"],
+      ["Rückgängig machen mit dem Layout", "must keep matching — German is already un-anchored"],
+    ])("does not match %s (%s)", (summary) => {
+      // The first two are the reason the new patterns are anchored. The German one
+      // is the known false-positive risk §6.2.6's un-anchored /Rückgängig/ carries.
+      if (summary.startsWith("Rückgängig")) {
+        expect(matches(summary)).toBe(true);
+      } else {
+        expect(matches(summary)).toBe(false);
+      }
+    });
+
+    it("keeps every new pattern anchored to the start of the summary", () => {
+      // If a future edit relaxes an anchor, this fails — which is the point. The
+      // German pattern is exempt: §6.2.6 ships it un-anchored and that is a
+      // recorded, separate question.
+      const exempt = /Rückgängig/;
+      for (const p of REVERT_PATTERNS) {
+        if (exempt.test(p.source)) continue;
+        expect(p.source.startsWith("^") || p.source.startsWith("\\b")).toBe(true);
+      }
+    });
   });
 
   it("parses the host table", () => {
@@ -194,7 +275,13 @@ describe("isRevert", () => {
     for (const c of [
       "/* Early life */ fix typo",
       "added a citation",
-      "reverting to the previous version of the intro", // not anchored
+      // Anchoring still holds: a revert word *mid-sentence* in a summary that is
+      // not itself a revert must not match. This case used to be
+      // "reverting to the previous version of the intro" // not anchored, which
+      // §E3's capture retired — that summary *is* a revert, and `/^Reverting\b/i`
+      // now matches it by shape rather than by luck. The anchoring property is
+      // still worth asserting, so it is asserted on a summary that is not a revert.
+      "/* Prose */ I am reverting the change I made earlier today",
       "typo",
       "",
     ]) {

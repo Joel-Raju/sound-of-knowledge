@@ -149,10 +149,28 @@ float stereo, ~46 MB):
       false positives; widening by **shape** (`Reverting`, `Bot: Undo`) rather than by
       **position** does not.
 
-      **Decision needed: which classes to widen.** Two are arguably bugs rather than
-      taste — `Reverting` missing, and `Bot:` defeating an otherwise-unambiguous
-      anchored stem. The rest (`S-revert`, `rv`, `partial revert`, `Annullate`,
-      Japanese) widen what counts as a revert. Reasoning and tables in `DECISIONS.md`.
+      **Decision taken: widen by shape, never by position.** All enumerated classes
+      applied as anchored or word-bounded patterns — `/^Reverting\b/`,
+      `/^Bot:\s*Undo\b/`, `/^S-revert:/`, `/^rv[.,]/`, `/^partial revert\b/`,
+      `/\bUndid \d+ revisions?\b/`, and Italian `Annullat[eo]` behind an optional
+      bot-signature template.
+
+      **Replaying all 2 659 summaries of the capture through the new set: 51 → 63
+      matched, +23.5 %, and all 12 newly-matched are revert-shaped.** Neither
+      Hastinapur false positive matches. English goes 1.96 % → ~2.5 %.
+
+      **Not applied, and why:** Japanese `… による ID` (no pattern exists for the
+      language), French `Bot : Annulation des modifications`, and Italian
+      `Avviso di annullamento automatico` / `Annullo:` — the last two need
+      un-anchored stems, which is exactly what the Hastinapur sample forbids. These
+      remain open; 32 % of traffic still has no pattern at all.
+
+      **One existing test case retired.** `"reverting to the previous version of the
+      intro"` sat in the negative list, cited as an anchoring example. It *is* a
+      revert, and the capture showed the present participle is the commonest revert
+      phrasing there is — so it moved to the positives. The anchoring property it
+      was guarding is still asserted, on a summary that is genuinely not a revert
+      (`"/* Prose */ I am reverting the change I made earlier today"`).
 - [ ] **E4.** Bot ratio in the HUD looks plausible on live traffic.
 - [ ] **E5.** Article titles seen in the wild match the §6.1 shape, including
       temporary accounts `~YYYY-N` and `server_name` (not just `server_url`).

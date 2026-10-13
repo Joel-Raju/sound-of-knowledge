@@ -1808,3 +1808,72 @@ anchored patterns whose stem is otherwise unambiguous.
 costs in a piece that *sonifies* reverts, so it goes to the human. What is settled is
 the measurement: reverts are ~2–2.5 % of English edits by these patterns, not 3 %, and
 the gap is detection, not the model.
+
+### E3 applied — widened by shape, never by position
+
+The human chose to fix all enumerated classes. The governing constraint is the one the
+capture supplied: **nothing un-anchors an existing stem**, because the two Hastinapur
+summaries prove that is what costs false positives.
+
+```
+/^Reverting\b/i                       Reverting edit(s) by …            ×3
+/^Bot:\s*Undo\b/i                     Bot: Undo 1379821109, …
+/^S-revert:/i                         S-revert:2-0.2.09
+/^rv[.,]/i                            rv, …   /  Rv. fringe view.
+/^partial revert\b/i                  partial revert seemingly bold edits…
+/\bUndid \d+ revisions?\b/i           Undid 2 revisions from … until …
+/^(?:\[\[[^\]]+\]\]\s*:?\s*)?Annullat[eo]\b/i   [[WP:LRC|LiveRC]] : Annullate le modifiche
+```
+
+Three details that are the pattern doing its job rather than luck:
+
+- **`/^rv[.,]/` — the trailing punctuation is load-bearing.** `/^rv\b/i` alone would
+  match "RV sales up 4 % in Q3", a summary that merely begins with the two letters.
+- **Italian needs the optional leading template.** `Annullate` appears in the wild only
+  behind LiveRC's `[[WP:LRC|LiveRC]] :` signature, so a plain `/^Annullat[ae]/` — which
+  is what the decision named — would have fixed nothing. The template is optional
+  rather than required so the un-prefixed form still matches, and the verb is still the
+  first *word* after it, so "Annullamento del servizio" cannot slip in ahead of it.
+- **`\bUndid \d+ revisions?\b` requires the count.** Without `\d+`, "undid revision
+  quality" matches.
+
+**Verified by replay, not by assertion.** Re-running all 2 659 summaries of the capture
+through old and new sets:
+
+```
+matched by §6.2.6 as shipped    : 51
+matched with the E3 additions   : 63
+newly matched                   : 12 (+23.5%)
+```
+
+All 12 newly-matched are revert-shaped on inspection; **neither Hastinapur false
+positive matches**. English moves 1.96 % → ~2.5 %. This is a check against the same
+samples the patterns were written from, not an independent measurement — the honest
+next step is a fresh capture, which would be the first one not reusing its own samples.
+
+**One existing test case retired, and it was wrong rather than outdated.**
+`"reverting to the previous version of the intro"` was in the negative list, annotated
+`// not anchored` — it had been used to show that a *lowercase, mid-summary* "reverting"
+did not match. But that summary **is a revert**, and the capture shows the present
+participle is the commonest revert phrasing in the corpus. It moved to the positives.
+The anchoring property it was incidentally guarding is now asserted explicitly, on a
+summary that genuinely is not a revert: `"/* Prose */ I am reverting the change I made
+earlier today"`.
+
+**Still not covered, and the honest list of it:**
+
+| language | sample | why not |
+|---|---|---|
+| ja | `… による ID:111372459 の版を…` | §6.2.6 has no Japanese pattern at all |
+| fr | `Bot : Annulation des modifications de …` | needs `/^Bot\s*:/` allowed, or an un-anchored `Annulation` |
+| it | `Avviso di annullamento automatico su …` | `annullamento` is mid-sentence |
+| it | `Annullo: non trovo alcun riscontro…` | ambiguous — could be a revert, could be an editor cancelling content |
+
+The last is genuinely uncertain and is not resolvable from the summary alone. The
+first three are mechanical. Together they are a handful of edits, but each widens a
+stem or opens a language, so they are logged rather than folded in here.
+
+**The structural number is unchanged and worth restating:** §6.2.7's Zipf(s=1.1) over
+30 languages assumes patterns for all of them. Patterns exist for en/de/fr/es/it/pt/ru =
+**67.8 % of traffic. The other 32.2 % has no revert pattern at all**, so on those
+languages the piece is silent about reverts — not merely less accurate about them.

@@ -96,24 +96,81 @@ export const TITLE_MAX_CHARS = 80;
  *
  * Case-insensitive. Edit entries when tuning this list.
  */
+/**
+ * Spec §6.2.6 — revert detection, by summary text.
+ *
+ * **Every pattern is anchored or otherwise position-constrained.** The 20-minute
+ * capture in `DECISIONS.md` (6 428 edits, 2 659 distinct summaries) found two
+ * summaries containing the literal string "Reverted Edits" that are *not* reverts:
+ *
+ *     /* Clarification Regarding Reverted Edits to the Hastinapur Article *\/
+ *
+ * Un-anchoring a stem catches those. So the patterns below widen by **shape** — a
+ * new prefix or a plural ending — never by **position**. That distinction is the
+ * whole reason `Reverting` was added as its own pattern rather than by loosening
+ * `/^Revert(ed)?\b/`.
+ *
+ * The eight English patterns added after the capture are each pinned to a verbatim
+ * summary it was written for, quoted in the comment, and each has a case in
+ * `normalize.test.ts`. A pattern with no live example behind it is a guess.
+ */
 export const REVERT_PATTERNS: readonly RegExp[] = [
+  // --- English (§6.2.6 originals) ---
   /^Reverted\b/i,
   /^Revert(ed)?\b/i,
   /^Undid revision/i,
   /^Undo\b/i,
   /\bmw-rollback\b/i,
   /^Rollback/i,
-  // Localized prefixes (spec §6.2.6).
+
+  // --- English, from the 20-minute capture ---
+  // "/^Revert(ed)?\b/" requires a word boundary after "Revert", so the commonest
+  // revert phrasing in the wild — the present participle — matched nothing. This is
+  // a defect in the original, not a widening.
+  //   "Reverting edit(s) by [[Special:Contributions/~2026-54976-92|~2026-54976-92]]"
+  //   "Reverting possible vandalism by [[Special:Contribs/…]] to version by …"
+  /^Reverting\b/i,
+  // A bot's own summary. Anchored after an optional "Bot:" signature, so the word
+  // "Undo" must still open the summary — "undone" in prose does not match.
+  //   "Bot: Undo 1379821109, [[:File:Park Jinyoung at 2026 Baeksang Art Awards…]]"
+  /^Bot:\s*Undo\b/i,
+  // Snatch's revert bot. Anchored on the hyphen, so a mid-sentence "s-revert" in
+  // ordinary prose cannot match.
+  //   "S-revert:2-0.2.09"
+  /^S-revert:/i,
+  // The shorthand editors actually type, always followed by punctuation.
+  //   "rv, [[WP:NOTFORUM|Wikipedia is not a forum]]"
+  // The trailing [.,] is load-bearing: it is what keeps "RV sales up 4%" — a summary
+  // starting with the two letters — from matching.
+  /^rv[.,]/i,
+  // A revert that deliberately undid only part of an edit.
+  //   "partial revert seemingly bold edits. \"that's what …\""
+  /^partial revert\b/i,
+  // The plural. §6.2.6's /^Undid revision/ never matched "Undid 2 revisions" because
+  // the number sits between the verb and the noun. Word-bounded and case-insensitive;
+  // the count is required so "undid revision quality" does not match.
+  /\bUndid \d+ revisions?\b/i,
+
+  // --- Localized prefixes (spec §6.2.6) ---
   /^Revertidos?/i, // es
-  /Rückgängig/i, // de
+  /Rückgängig/i, // de — un-anchored in the spec; this is its own false-positive risk
   /^Révocation/i, // fr
   /^Annulation/i, // fr
-  /^Annullata/i, // it
+  /^Annullata/i, // it — singular only; see below
   /^Ripristino/i, // it
   /^Revertido/i, // pt
   /^Desfeita/i, // pt
   /^Откат/i, // ru
-  /^Отмена/i, // ru
+  /^Отмена/i, // ru — anchored; structurally wrong for an inflected language, see DECISIONS.md
+
+  // --- Italian, from the capture ---
+  // §6.2.6's /^Annullata/ is singular, so the plural that LiveRC actually writes
+  // matched nothing:
+  //   "[[WP:LRC|LiveRC]] : Annullate le modifiche di [[Special:Contributions/Huhjhk|Huhjhk]]"
+  // The optional leading template is the bot's signature — the revert verb is still
+  // the first *word* of what follows it, so "Annullamento del servizio" (a service
+  // cancellation notice) cannot slip in ahead of it.
+  /^(?:\[\[[^\]]+\]\]\s*:?\s*)?Annullat[eo]\b/i,
 ] as const;
 
 /** spec §6.2.7 — host patterns for the Wikipedia family projects. */
