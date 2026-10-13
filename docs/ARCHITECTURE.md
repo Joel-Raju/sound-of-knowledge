@@ -106,3 +106,24 @@ unit tests cannot reach — that an `AudioContext` boots and the worklet loads
 (`audio-boot.spec.ts`), and that a real WebGL2 context renders, sizes and
 disposes cleanly (`visual-boot.spec.ts`). Offline audio renders (`npm run
 audio:check`) for §8.4's mix targets.
+
+## 7. Running the tests
+
+```bash
+npx playwright install chromium firefox webkit   # once — matches what CI installs
+npm run test:e2e
+```
+
+**All three browsers are required for `npm run test:e2e`.** `playwright.config.ts`
+defines `firefox-smoke` and `webkit-smoke` alongside `chromium`, and those projects
+`grep` for `@crossbrowser`. They are not optional extras: `ci.yml` installs all
+three, so a machine with only Chromium will report eight failures that CI never
+sees. `npm run check:projects` (run automatically by `test:e2e`) verifies that every
+grepped project has at least one matching test — Playwright reports an empty
+selection as success, so a project with no tests is indistinguishable from a passing
+one without that check.
+
+The cross-browser tests are **smoke**, not parity. Each asserts something that must
+hold on any engine (a WebGL2 context exists, the orb rasterises, `AudioContext`
+reaches `running`, reduced motion is honoured) and none assert something that
+legitimately varies between them.
