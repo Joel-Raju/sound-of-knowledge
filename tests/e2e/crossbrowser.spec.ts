@@ -19,9 +19,7 @@ import { recordErrors } from "./helpers";
  */
 
 test.describe("cross-browser smoke", () => {
-  test("boots, gets a WebGL2 context, and rasterises something @crossbrowser", async ({
-    page,
-  }) => {
+  test("boots, gets a WebGL2 context, and rasterises something @crossbrowser", async ({ page }) => {
     const errors = recordErrors(page);
     await page.goto("/?debug=1");
     await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 60_000 });

@@ -1581,7 +1581,7 @@ are devices rather than engines.
 
 ---
 
-## 2026-10-12 · T4.2 pause · E3: the heuristic is not missing English reverts — it is missing *Russian* ones
+## 2026-10-12 · T4.2 pause · E3: the heuristic is not missing English reverts — it is missing _Russian_ ones
 
 E3 recorded a 0.2 % hit rate against a 3 % model. Two explanations fit that number
 equally well: the patterns miss reverts, or real traffic has fewer than the model. A
@@ -1614,7 +1614,7 @@ verbal noun and `отменена` a passive participle, so in Russian they cann
 open a sentence the way English "Reverted" can; they appear mid-summary. The anchor,
 harmless in English, makes the pattern structurally wrong for an inflected language.
 
-The heuristic also correctly *rejected* one near-miss: "Отчёт об автоматических
+The heuristic also correctly _rejected_ one near-miss: "Отчёт об автоматических
 отменах" ("report about automatic reverts") is a report, not a revert.
 
 **Effect size, measured rather than guessed:** 5 matches becomes roughly 9 if the
@@ -1624,11 +1624,11 @@ model, and the residual gap may be that the model is wrong rather than the code.
 **Not changed here.** Matching the stem `отмен` un-anchored would catch all three, but
 `отмен` also appears in admin actions that are not reverts ("отменить созданное" —
 cancel a created template). That is a false-positive trade-off about what the piece
-*does* with a genuine ambiguity, so it is put to the human rather than decided here.
+_does_ with a genuine ambiguity, so it is put to the human rather than decided here.
 
 **The probe's first version recorded nothing and said so confidently.** It filtered on
 `wiki.endsWith("wikipedia.org")`; the stream's `wiki` field is the MediaWiki
-*database name* (`enwiki`, `commonswiki`), not a hostname. It ran the full 180 s,
+_database name_ (`enwiki`, `commonswiki`), not a hostname. It ran the full 180 s,
 reported `0 edits, 0.00 %`, and would have been filed as "reverts are rarer than the
 model says" — the exact conclusion E3 was asking to test. It now filters through the
 shipped `parseHost`, and prints the suspected misses so the next reader can check
