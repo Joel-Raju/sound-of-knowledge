@@ -144,9 +144,19 @@ float stereo, ~46 MB):
 
 ## F. Browser / device matrix
 
-- [ ] **F1.** Chrome desktop — full experience.
+- [ ] **F1.** Chrome desktop — full experience. _What CI already covers: the whole
+      Playwright suite runs on Chromium (18 tests)._
 - [ ] **F2.** Safari 16.4+ desktop — `AudioContext` unlock, `interrupted` handling.
+      _**Partial automated coverage:** `crossbrowser.spec.ts` asserts `AudioContext`
+      reaches `running` and that `outputLatency` falls back to `baseLatency` (§8.2).
+      Runs in CI via the `webkit-smoke` project. **Not yet run** — browsers are not
+      installed locally, by choice. The `interrupted` state handling is still
+      unverified, and that is the real F2 risk._
 - [ ] **F3.** Firefox desktop — `EventSource` in worker, `outputLatency` absence.
+      _**Partial automated coverage**, same file, same status. Firefox's lack of
+      `outputLatency` is exactly what the fallback assertion targets. `EventSource`
+      in a worker is still untested — that is the substantive half of F3 and it
+      needs a live-stream test._
 - [ ] **F4.** iOS Safari — `Enter`-tap unlock, safe-area HUD, touch drag to look.
 - [ ] **F5.** Android Chrome — touch drag, tier detection → low/medium.
 - [x] **F6.** ✅ **Verified in CI** — `tests/e2e/reduced-motion.spec.ts`, 5 tests. §9.11's
