@@ -1633,3 +1633,107 @@ reported `0 edits, 0.00 %`, and would have been filed as "reverts are rarer than
 model says" — the exact conclusion E3 was asking to test. It now filters through the
 shipped `parseHost`, and prints the suspected misses so the next reader can check
 the filter itself.
+
+## T4.3 — sparks and rings, and three things that were wrong before they were right
+
+**Sparks and rings are implemented to §9.5 / §9.6 as specified.** Ring-buffer wraparound
+maths is a pure helper (`ring-buffer-ranges.ts`) returning up-to-two spans, the three
+spawn kinds have §9.5's counts, `Rings` has §9.6's capacity of 24 and 2.2 s duration,
+and no per-frame simulation or ping-pong buffer exists — a particle's position is a
+pure function of `uTime − spawnTime` evaluated in the vertex shader.
+
+### The spec's `addUpdateRange` usage needed one correction the spec does not state
+
+§9.5 says a spawn writes K instances at `head` "wrapping with up to two contiguous
+ranges". That is right for `K ≤ CAP`. For `K > CAP` the spawn laps the ring, and the
+first lap is overwritten by the spawn itself — so the spans must describe only the
+**final** `CAP` items, starting at `(head + K − CAP) mod CAP`. The straightforward
+reading returns overlapping spans, which three.js merges into one oversized upload.
+
+No real configuration reaches this (`CAP` is 6 144 at the smallest and the largest
+spawn is 48), so it is a robustness property rather than a live bug. The test
+exhaustively checks that no slot appears in two spans.
+
+### three.js declares `position` and `uv` for you
+
+Both shaders initially declared the unit quad's `position`/`uv` themselves. three.js's
+vertex prefix supplies both (`WebGLProgram.js:625`), and under GLSL3 its
+`#define attribute in` makes them `in` declarations — so redeclaring is a
+**redefinition error** and the shader silently fails to link. `orb.vert.ts` already
+documented this; the new shaders did not read it.
+
+`half` is also a GLSL reserved word. Both were caught only by the screenshot harness
+reporting the compile error — no unit test touches GLSL compilation.
+
+### §9.1 puts the camera *inside* the spawn shell, so most of a sphere is off screen
+
+This is the one that mattered. Edits spawn on a shell of radius 7–13; the camera orbits
+at 5.5 with a 58° FOV, **inside** that cloud. A spawn pattern spread over the whole
+sphere puts roughly 19 of 24 sparks behind the viewer or outside the frustum.
+
+The first debug pattern did exactly that and produced a screenshot with **zero visible
+sparks** — and a *passing* acceptance result, because of the next point.
+
+`debugSpawn` now spawns into a 70° cone centred on the point diametrically opposite the
+camera. Wide rather than tight, because sparks converge on the orb: a narrow cone puts
+every particle on top of the core, which is the one part of the frame bright enough to
+swallow an additive sprite.
+
+This is a property of the scene design, not a defect — §9.1's framing is deliberate and
+the sparks that matter (those arcing in across the dark background) are the visible ones.
+But it means any future visual harness that spawns uniformly over a sphere will look
+empty, and conclude the feature is broken when it is not.
+
+### T4.3's stated acceptance criterion cannot fail, so it was replaced
+
+T4.3 asks for "bright pixels ratio > 0.2 %" with `debugSpawn`. Measured:
+
+| run | bright-pixel ratio |
+|---|---|
+| `--spawn 24` | 9.88 % |
+| `--spawn 40` | 9.97 % |
+| **no spawn at all** | **9.87 %** |
+
+The orb's own core is ~9.9 % of the centre region above the threshold. The criterion
+passes identically with an empty pool, so it tests the orb, not the sparks — and it
+would have passed on the run that produced a screenshot with nothing in it.
+
+Replaced with a differential: `shot.ts --spawn N` reads a baseline grid from the frame
+**immediately before** spawning, then measures `mean |Δpixel|` against the capture.
+Measured **1.18** (threshold 1.0). That number fails when the pool is empty, fails when
+the particles are off screen, and passes when light is genuinely added — which is the
+question T4.3 was asking. The original criterion is still printed, labelled
+informational, with the reason it cannot discriminate.
+
+The 0.2 % threshold and its "bright pixels" wording stay in the spec and in `PROGRESS.md`;
+`SPARK_BRIGHT_MIN` is unchanged. What changed is that it is no longer the thing that
+decides whether T4.3 passed.
+
+### The first 20-minute revert capture's headline was destroyed by my own command
+
+The capture ran to completion, but the command piped it through `tail -32`, so only the
+tail survived — the English revert rate and its 95 % interval, the entire point of the
+run, were gone. This is the sixth time this session that a measurement was lost or
+misreported by the path it travelled, and the fix is the same as the other five: verify
+the output survives before trusting a long run. Re-running without the pipe.
+
+The tail that did survive contains a finding that changes E3's scope:
+
+```
+--- look like reverts but did NOT match: 6 distinct ---
+    1  Rv. fringe view.
+    1  Undid 2 revisions from [[Special:Diff/8805681|8805681]] until ...
+    1  Rv. biased agenda.
+    1  rv hoax troll
+    1  rv, eston kiertoa (WPK)
+    1  [[WP:UNDO|撤销]]...（[[User talk:...
+```
+
+**Four of the six are English** — the language recorded as known-good. `REVERT_PATTERNS`
+has no `Rv` variant at all, and `/^Undid revision/i` requires the *singular* immediately
+after "Undid", so `Undid 2 revisions` does not match. E3 is therefore not a
+Russian-only problem and the "English detection is known-good" note is wrong.
+
+Not changed here. Both would widen what counts as a revert — `/^Rv\b/i` is short enough
+to need checking against real summaries, and the plural fix is narrower but still a
+call about false positives. E3 goes to the human with the rate first.

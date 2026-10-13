@@ -154,7 +154,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 
 - [x] **T4.1** Renderer bootstrap, camera rig, palette, governor, tiers
 - [x] **T4.2** Core orb
-- [ ] **T4.3** Sparks and rings
+- [x] **T4.3** Sparks and rings
 - [ ] **T4.4** Dust and post-processing
 - [ ] **T4.5** Visual queue, event firing, labels, audio coupling
 
@@ -198,8 +198,8 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.2) —
-**18 of 31 tasks**. 673 unit tests, 9 e2e tests, all gates green.
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.3) —
+**19 of 31 tasks**. 719 unit tests, 18 Chromium e2e, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
@@ -245,4 +245,23 @@ projection filling ~81 % of the frame where §9.1's camera puts the orb at ~13 %
 is what produced the wrong 50.7 ms figure. It now agrees with the shipped engine to
 within 8 % (11.3 ms vs 10.5 ms).
 
-Next: **T4.3**, sparks and rings.
+**T4.3** adds sparks and rings: §9.5's stateless GPU particles (24 576 / 12 288 / 6 144
+instanced quads, state a pure function of `uTime − spawnTime`, ring-buffer spawn with
+`addUpdateRange`), §9.6's 24 shockwave rings, and `__sok.debugSpawn(n)`.
+
+46 new unit tests — ring-buffer wraparound maths exhaustively, spawn counts per tier.
+
+**T4.3's stated acceptance criterion could not fail and was replaced.** It asks for
+"bright pixels > 0.2 %"; the orb's own core reads 9.87 % with an empty pool, 9.97 % with
+800 particles. `shot.ts --spawn` now differences a baseline frame taken immediately
+before spawning, and asserts on `mean |Δpixel| = 1.18 > 1.0` — which fails when the pool
+is empty and when the particles are off screen. The original threshold is still printed,
+labelled informational.
+
+Three defects surfaced only by looking at the captures: both shaders redeclared
+`position`/`uv`, which three.js already supplies (a silent link failure), `half` is a
+reserved GLSL word, and §9.1 puts the camera at radius 5.5 **inside** the 7–13 spawn
+shell — so the first debug pattern put ~19 of 24 sparks outside the frustum and produced
+a screenshot with none visible. All three are in `DECISIONS.md`.
+
+Next: **T4.4**, dust and post-processing.

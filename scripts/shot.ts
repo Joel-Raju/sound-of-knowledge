@@ -62,6 +62,31 @@ const suffix = QUALITY ? QUALITY : "";
 /** `?jitter=` — the orb's march-jitter amplitude, for sweeping. */
 const JITTER = args.includes("--jitter") ? String(args[args.indexOf("--jitter") + 1]) : null;
 
+/**
+ * `--spawn N` — fire `N` synthetic spark/burst/pulse events, T4.3's debug pattern.
+ *
+ * Spawns are **re-armed before every capture**, not once at load. §9.5 gives a
+ * streak 1.1–1.8 s and a ring 2.2 s, so a single spawn fired at t=0 has been dead
+ * for several seconds by the default t=6 s capture and the acceptance check would
+ * measure an empty pool.
+ *
+ * Re-arming immediately before the capture means the spawns are between 0 and a
+ * frame old, which is exactly the window where they are brightest.
+ */
+const SPAWN = args.includes("--spawn") ? Number(args[args.indexOf("--spawn") + 1]) || 0 : 0;
+
+/** T4.3's stated acceptance threshold — bright pixels as a fraction of the frame. */
+export const SPARK_BRIGHT_MIN = 0.002;
+
+/**
+ * T4.3's *discriminating* threshold: mean |Δpixel| a spawn must add.
+ *
+ * Same value as `MIN_TEMPORAL_DIFF` (§13.4's animating check) because it answers
+ * the same question — did anything change on screen — just against a frame that
+ * is known to be identical apart from the spawn.
+ */
+export const SPARK_DELTA_MIN = 1.0;
+
 /** T4.2's acceptance threshold, centre region. */
 export const CENTRE_STDDEV_MIN = 5;
 /** §13.4 item 2 — the scene must change between two captures. */
@@ -107,6 +132,15 @@ interface ShotStats {
   syncedFrameMs: number;
   governorLevel: number;
   renderScale: number;
+  /**
+   * T4.3: mean |Δpixel| between this capture and the immediately preceding
+   * empty-pool frame. `null` when `--spawn` was not in play.
+   *
+   * This, not `brightFraction`, is the discriminating signal — the orb's own
+   * core is ~9.9 % "bright", so T4.3's stated "> 0.2 % bright pixels" passes
+   * identically with and without sparks.
+   */
+  spawnDelta: number | null;
   /** PNG bytes, for the artefact on disk. */
   bytes: number;
   /** any shader/WebGL errors seen in the page up to this point */
@@ -137,12 +171,83 @@ interface FrameSample {
   zoomPng: string;
 }
 
+/**
+ * Read the same 32×32 centre luminance grid `capture` builds, without spawning.
+ *
+ * Used as T4.3's baseline. Kept as its own `page.evaluate` rather than folded
+ * into the capture callback because the baseline must be a *separate frame* —
+ * reading and spawning in one rAF would put the new particles in the baseline.
+ */
+async function readCentreGrid(page: Page): Promise<Float32Array> {
+  const raw = await page.evaluate(
+    (): Promise<number[] | null> =>
+      new Promise<number[] | null>((done) => {
+        let settled = false;
+        const guard = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          done(null);
+        }, 30_000);
+        requestAnimationFrame(() => {
+          try {
+            const canvas = document.querySelector(
+              "canvas[data-testid='visual-canvas']",
+            ) as HTMLCanvasElement | null;
+            const gl = canvas?.getContext("webgl2");
+            if (!canvas || !gl) {
+              settled = true;
+              clearTimeout(guard);
+              return done(null);
+            }
+            const w = gl.drawingBufferWidth;
+            const h = gl.drawingBufferHeight;
+            const x0 = Math.floor(w * 0.25);
+            const y0 = Math.floor(h * 0.25);
+            const rw = Math.max(1, Math.floor(w * 0.5));
+            const rh = Math.max(1, Math.floor(h * 0.5));
+            const px = new Uint8Array(rw * rh * 4);
+            gl.readPixels(x0, y0, rw, rh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+
+            const G = 32;
+            const sum = new Float64Array(G * G);
+            const counts = new Float64Array(G * G);
+            for (let y = 0; y < rh; y++) {
+              const gy = Math.min(G - 1, Math.floor((y * G) / rh));
+              for (let x = 0; x < rw; x++) {
+                const gx = Math.min(G - 1, Math.floor((x * G) / rw));
+                const i = (y * rw + x) * 4;
+                const lum =
+                  0.2126 * (px[i] ?? 0) + 0.7152 * (px[i + 1] ?? 0) + 0.0722 * (px[i + 2] ?? 0);
+                sum[gy * G + gx] = (sum[gy * G + gx] ?? 0) + lum;
+                counts[gy * G + gx] = (counts[gy * G + gx] ?? 0) + 1;
+              }
+            }
+            const grid: number[] = new Array(G * G);
+            for (let i = 0; i < G * G; i++) {
+              const n = counts[i] ?? 0;
+              grid[i] = n > 0 ? (sum[i] ?? 0) / n : 0;
+            }
+            settled = true;
+            clearTimeout(guard);
+            done(grid);
+          } catch {
+            settled = true;
+            clearTimeout(guard);
+            done(null);
+          }
+        });
+      }),
+  );
+  return raw === null ? new Float32Array(0) : Float32Array.from(raw);
+}
+
 async function capture(
   page: Page,
   timeSec: number,
   errors: string[],
   zoom: number,
   suffix: string,
+  spawn = 0,
 ): Promise<ShotStats> {
   // Wait on the engine's own clock, Node-side. The two clocks diverge under
   // swiftshader — a frame can take 50 ms — so a wall-clock wait would capture a
@@ -156,6 +261,39 @@ async function capture(
     timeSec,
     { timeout: 120_000, polling: "raf" },
   );
+
+  // Re-arm the pool at the capture instant, not at load. See `SPAWN`.
+  //
+  // First take a baseline grid with the pool *empty*. T4.3's stated criterion —
+  // "bright pixels ratio > 0.2 %" — is satisfied by the orb alone (measured at
+  // 9.87 % with an empty pool), so it cannot tell sparks from no sparks. What
+  // discriminates is how much light the spawns *add*, so the baseline is read
+  // immediately before and differenced against the capture below.
+  let baselineGrid: Float32Array | null = null;
+  if (spawn > 0) {
+    baselineGrid = await readCentreGrid(page);
+  }
+
+  if (spawn > 0) {
+    await page.evaluate((n) => {
+      const v = window as unknown as {
+        __sok?: { visual?: { debugSpawn(n?: number): void } };
+      };
+      v.__sok?.visual?.debugSpawn(n);
+    }, spawn);
+    // Let the spawned particles reach the frame — a spawn stamped at `uTime` is
+    // drawn on the *next* tick, and at age 0 a streak's alpha is still 0
+    // (§9.5's `smoothstep(0.0, 0.1, u)`). One frame is enough to get past that.
+    await page.waitForFunction(
+      (t) => {
+        const v = (window as unknown as { __sok?: { visual?: { engine?: { clockNow: number } } } })
+          .__sok?.visual;
+        return (v?.engine?.clockNow ?? 0) > t;
+      },
+      timeSec,
+      { timeout: 30_000, polling: "raf" },
+    );
+  }
 
   // Read the live engine's own frame stats, so the capture is annotated with what
   // the shipped code is actually costing — no stand-in geometry involved.
@@ -427,6 +565,10 @@ async function capture(
     syncedFrameMs: live.syncedFrameMs,
     governorLevel: live.level,
     renderScale: live.scale,
+    spawnDelta:
+      baselineGrid && baselineGrid.length > 0
+        ? meanAbsDiffGrid(baselineGrid, Float32Array.from(shot.grid))
+        : null,
     bytes: png.length,
     errors: [...errors],
   };
@@ -441,10 +583,20 @@ async function capture(
  * the "not blank but not animating" failure this check exists to catch.
  */
 export function meanAbsDiff(a: ShotStats, b: ShotStats): number {
-  if (a.grid.length !== b.grid.length || a.grid.length === 0) return 0;
+  return meanAbsDiffGrid(a.grid, b.grid);
+}
+
+/**
+ * Mean absolute difference between two luminance grids.
+ *
+ * Split out from `meanAbsDiff` so T4.3's baseline can be differenced against a
+ * bare grid, before there is a `ShotStats` to wrap it in.
+ */
+export function meanAbsDiffGrid(a: Float32Array, b: Float32Array): number {
+  if (a.length !== b.length || a.length === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < a.grid.length; i++) sum += Math.abs(a.grid[i]! - b.grid[i]!);
-  return sum / a.grid.length;
+  for (let i = 0; i < a.length; i++) sum += Math.abs((a[i] ?? 0) - (b[i] ?? 0));
+  return sum / a.length;
 }
 
 async function isUp(port: number): Promise<boolean> {
@@ -541,7 +693,7 @@ async function main(): Promise<void> {
     });
 
     const shots: ShotStats[] = [];
-    for (const t of TIMES) shots.push(await capture(page, t, errors, ZOOM, suffix));
+    for (const t of TIMES) shots.push(await capture(page, t, errors, ZOOM, suffix, SPAWN));
 
     console.log(
       "  t       mean    stddev   bright>230   background   rAF ema   synced    L  scale    png",
@@ -609,6 +761,35 @@ async function main(): Promise<void> {
       failed = true;
     } else {
       console.log("✓ no console or page errors");
+    }
+
+    // T4.3 acceptance. Only meaningful with `--spawn`: a run without it has an
+    // empty pool by construction, and "bright pixels" would be measuring the orb.
+    if (SPAWN > 0) {
+      console.log(`\n--- T4.3 acceptance (--spawn ${SPAWN}) ---`);
+      // The stated criterion, kept because T4.3 asks for it — but reported as
+      // informational, since the orb's own core clears it with an empty pool.
+      console.log(
+        `· bright-pixel ratio ${(centre.brightFraction * 100).toFixed(3)}% ` +
+          `(T4.3 asks > ${(SPARK_BRIGHT_MIN * 100).toFixed(1)}%, but the orb alone reads ~9.9%,` +
+          `\n  so this number cannot distinguish sparks from no sparks)`,
+      );
+
+      // The discriminating check: light the spawns added over the empty-pool frame.
+      const d = centre.spawnDelta ?? 0;
+      const sparkOk = d > SPARK_DELTA_MIN;
+      console.log(
+        `${sparkOk ? "✓" : "✗"} sparks add light: mean |Δpixel| ${d.toFixed(2)} > ${SPARK_DELTA_MIN} ` +
+          `vs the empty-pool frame at t=${centre.timeSec}s`,
+      );
+      if (!sparkOk) {
+        console.log(
+          "   The pool is empty or the particles are off screen. §9.1 puts the camera at\n" +
+            "   radius 5.5 inside the 7–13 spawn shell, so a pattern spread over the whole\n" +
+            "   sphere is mostly outside the 58° FOV.",
+        );
+        failed = true;
+      }
     }
 
     console.log(

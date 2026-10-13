@@ -124,3 +124,26 @@ float ign(vec2 xy) {
 export const FLOW_GLSL = /* glsl */ `
 vec3 flow(float t) { return vec3(0.0, t * 0.05, t * 0.03); }
 `;
+
+/**
+ * Cheap deterministic hashes, used by §9.5's spark vertex shader.
+ *
+ * Separate from `snoise` on purpose: a spark needs an uncorrelated random
+ * *value* per particle, not a smooth field. Running simplex noise for that would
+ * cost far more than the hash and correlate neighbouring particles, which would
+ * make every streak follow the same curve.
+ */
+export const HASH_GLSL = /* glsl */ `
+float hash11(float p) {
+  p = fract(p * 0.1031);
+  p *= p + 33.33;
+  p *= p + p;
+  return fract(p);
+}
+
+vec3 hashVec3(float p) {
+  vec3 p3 = fract(vec3(p) * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yxz + 33.33);
+  return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+`;
