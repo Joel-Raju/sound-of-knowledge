@@ -1877,3 +1877,63 @@ stem or opens a language, so they are logged rather than folded in here.
 30 languages assumes patterns for all of them. Patterns exist for en/de/fr/es/it/pt/ru =
 **67.8 % of traffic. The other 32.2 % has no revert pattern at all**, so on those
 languages the piece is silent about reverts — not merely less accurate about them.
+
+## Spark cost measured — the pool is not free when empty
+
+`shot.ts --no-sparks` mounts the orb alone. `--spawn` **cannot** measure this: §9.5 sets
+`instanceCount = CAP` unconditionally and clips dead particles in the vertex shader, so
+the draw already happens whether or not anything has ever been spawned. The only way to
+get the marginal cost is a scene without the layers.
+
+`syncedFrameMs` (a synchronised frame, forced with `readPixels` inside a rAF), per tier:
+
+| tier | CAP | orb alone | orb + sparks + rings | **spark cost** | per instance |
+|---|---|---|---|---|---|
+| low | 6 144 | 10.4 ms | 112.8 ms | **102.4 ms** | 16.7 µs |
+| medium | 12 288 | 11.5 ms | 269.4 ms | **257.9 ms** | 21.0 µs |
+| high | 24 576 | 16.2 ms | 550.2 ms | **534.0 ms** | 21.7 µs |
+
+Stable: two runs × three capture times at high tier spanned 481–555 ms.
+
+**Three findings.**
+
+**1. Cost is linear — mildly superlinear — in `CAP`.** 4× the instances costs 5.2×. The
+per-instance cost rises 16.7 → 21.7 µs, which is what a working set exceeding cache
+would look like: at high tier the five instanced attributes are 24 576 × 18 floats ≈
+1.8 MB, past L2 on most machines. §9.5's "no ping-pong buffers, evaluate everything
+every frame" buys its simplicity at a cost that grows exactly with the capacity it was
+given.
+
+**2. The pool costs full price when empty.** This is §9.5's explicit choice and it is
+worth stating plainly: before the first edit of a session, and whenever the stream goes
+quiet, every frame pays for 24 576 dead instances. A dead particle is cheap — a few ALU
+ops and one clipped vertex — but "cheap" × 24 576 every frame is not free.
+
+**3. This quantifies the §9.10 governor blind spot, at last.** With the layers mounted:
+
+| tier | rAF ema | synced frame | governor under-reads by |
+|---|---|---|---|
+| low | 47.6 ms | 112.8 ms | 2.4× |
+| medium | 63.1 ms | 269.4 ms | 4.3× |
+| high | 86.3 ms | 550.2 ms | 6.4× |
+
+rAF is pinned at vsync while the GPU falls further behind, so the number the governor
+sees **improves as the scene gets worse** — 86 ms at high tier looks better than 47 ms at
+low tier, while the real frame cost went 113 → 550 ms. That is the specific failure
+`gl.finish()` was being considered to fix, now with numbers attached.
+
+**The honest caveat, and it is a large one.** These are **swiftshader** figures — a
+software rasteriser running vertex shaders on the CPU. §12.1's budget is a 2020-class
+integrated GPU at p95 ≤ 18 ms, and §12.2 assigns swiftshader to the low tier precisely
+because it is not one. **The absolute numbers do not transfer and must not be compared to
+§12.1.** A real GPU executes 98 304 vertices of a trivial shader in well under a
+millisecond; that is not in question.
+
+What does transfer is the *shape*: linear in `CAP`, superlinear per instance, paid in full
+when idle, and invisible to a governor fed rAF deltas. Converting any of it to a GPU
+number needs hardware, which is `HUMAN-CHECKLIST.md` C1–C8.
+
+**Not fixed.** Both candidate remedies — a governor that measures real frame cost, and a
+pool that shrinks when idle — change behaviour the spec pins. §9.10's governor design and
+§9.5's `instanceCount = CAP` are both the human's to change, and this measurement is the
+input to that decision rather than an argument for a particular answer.

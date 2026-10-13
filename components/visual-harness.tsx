@@ -266,47 +266,56 @@ export function VisualHarness(): React.JSX.Element {
         // T4.3 — sparks and rings, as their own layers so each owns its update
         // (they share only `uTime`). Sparks sit above the orb in draw order and
         // are additive, so the scene needs no sorting between them.
-        const sparksMod = await import("@/engine/visual/sparks");
-        const ringsMod = await import("@/engine/visual/rings");
-        const sparks = new sparksMod.Sparks({ tier: engine.tier });
-        const rings = new ringsMod.Rings();
+        //
+        // `?nosparks=1` omits both layers entirely. §9.5 draws every instance every
+        // frame, so the pool costs the same whether or not anything is alive — the
+        // only way to measure what the instanced draw actually costs is to compare
+        // against a scene that does not have it.
+        if (params.get("nosparks") !== "1") {
+          const sparksMod = await import("@/engine/visual/sparks");
+          const ringsMod = await import("@/engine/visual/rings");
+          const sparks = new sparksMod.Sparks({ tier: engine.tier });
+          const rings = new ringsMod.Rings();
 
-        engine.addLayer({
-          attach: (scene) => {
-            scene.add(sparks.mesh);
-            scene.add(rings.mesh);
-          },
-          update: (_dt, time) => {
-            sparks.update(time);
-            rings.update(time);
-          },
-          dispose: () => {
-            sparks.dispose();
-            rings.dispose();
-          },
-        });
+          engine.addLayer({
+            attach: (scene) => {
+              scene.add(sparks.mesh);
+              scene.add(rings.mesh);
+            },
+            update: (_dt, time) => {
+              sparks.update(time);
+              rings.update(time);
+            },
+            dispose: () => {
+              sparks.dispose();
+              rings.dispose();
+            },
+          });
+          handle.sparks = sparks;
+          handle.rings = rings;
 
-        // Scratch objects for `debugSpawn`. Preallocated here rather than inside
-        // the spawn path so firing n particles allocates nothing (§9.5, §12.1).
-        const THREE = await import("three");
-        const pal = engine.palette.current;
-        handle.three = {
-          dir: new THREE.Vector3(),
-          origin: new THREE.Vector3(),
-          toCore: new THREE.Vector3(),
-          base: new THREE.Vector3(),
-          auxA: new THREE.Vector3(),
-          auxB: new THREE.Vector3(),
-          // `Palette` speaks `Rgb`; the spark attributes take `THREE.Color`.
-          accent: new THREE.Color(pal.accent.r, pal.accent.g, pal.accent.b),
-          core: new THREE.Color(pal.core.r, pal.core.g, pal.core.b),
-        };
+          // Scratch objects for `debugSpawn`. Preallocated here rather than inside
+          // the spawn path so firing n particles allocates nothing (§9.5, §12.1).
+          const THREE = await import("three");
+          const pal = engine.palette.current;
+          handle.three = {
+            dir: new THREE.Vector3(),
+            origin: new THREE.Vector3(),
+            toCore: new THREE.Vector3(),
+            base: new THREE.Vector3(),
+            auxA: new THREE.Vector3(),
+            auxB: new THREE.Vector3(),
+            // `Palette` speaks `Rgb`; the spark attributes take `THREE.Color`.
+            accent: new THREE.Color(pal.accent.r, pal.accent.g, pal.accent.b),
+            core: new THREE.Color(pal.core.r, pal.core.g, pal.core.b),
+          };
+        }
 
         engine.start();
         handle.engine = engine;
         handle.orb = orb;
-        handle.sparks = sparks;
-        handle.rings = rings;
+        // `handle.sparks` / `handle.rings` are set above, inside the
+        // `?nosparks` guard — they stay null when the layers are not mounted.
         handle.status = "ready";
         setError(null);
       } catch (err) {

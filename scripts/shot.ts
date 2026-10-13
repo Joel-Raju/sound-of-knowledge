@@ -56,9 +56,6 @@ const QUALITY = args.includes("--quality") ? String(args[args.indexOf("--quality
  */
 const ZOOM = args.includes("--zoom") ? Number(args[args.indexOf("--zoom") + 1]) || 1 : 1;
 
-/** Keeps captures from different tiers from overwriting one another. */
-const suffix = QUALITY ? QUALITY : "";
-
 /** `?jitter=` — the orb's march-jitter amplitude, for sweeping. */
 const JITTER = args.includes("--jitter") ? String(args[args.indexOf("--jitter") + 1]) : null;
 
@@ -74,6 +71,29 @@ const JITTER = args.includes("--jitter") ? String(args[args.indexOf("--jitter") 
  * frame old, which is exactly the window where they are brightest.
  */
 const SPAWN = args.includes("--spawn") ? Number(args[args.indexOf("--spawn") + 1]) || 0 : 0;
+
+/**
+ * `--no-sparks` — mount the orb alone, without the spark and ring layers.
+ *
+ * §9.5 draws every instance every frame (`instanceCount = CAP`, dead particles
+ * clipped in the vertex shader), so the pool costs the same whether or not
+ * anything has been spawned. `--spawn` therefore cannot measure spark cost —
+ * the draw is already happening. Measuring the marginal cost needs the layers
+ * absent, which is what this does.
+ */
+const NO_SPARKS = args.includes("--no-sparks");
+
+/**
+ * What a scene is measuring, for the file name and the printed header.
+ *
+ * Without this a `--no-sparks` capture overwrites the real one, because the
+ * quality suffix is the only thing distinguishing runs and it is empty at the
+ * default tier.
+ */
+const variant = NO_SPARKS ? "nosparks" : SPAWN > 0 ? `spawn${SPAWN}` : "";
+
+/** Keeps captures from different tiers and variants from overwriting one another. */
+const suffix = [QUALITY, variant].filter((s) => s !== "").join("-");
 
 /** T4.3's stated acceptance threshold — bright pixels as a fraction of the frame. */
 export const SPARK_BRIGHT_MIN = 0.002;
@@ -661,7 +681,8 @@ async function main(): Promise<void> {
     const url =
       `http://127.0.0.1:${PORT}/?debug=1` +
       (QUALITY ? `&quality=${QUALITY}` : "") +
-      (JITTER !== null ? `&jitter=${JITTER}` : "");
+      (JITTER !== null ? `&jitter=${JITTER}` : "") +
+      (NO_SPARKS ? "&nosparks=1" : "");
     await page.goto(url);
     await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 60_000 });
     const tier = await page.evaluate(() => window.__sok?.visual?.stats()?.tier ?? "unknown");
@@ -677,6 +698,7 @@ async function main(): Promise<void> {
       return typeof v === "number" ? v : -1;
     });
     console.log(`tier: ${tier}${QUALITY ? ` (forced via ?quality=${QUALITY})` : ""}`);
+    if (NO_SPARKS) console.log("sparks/rings: NOT MOUNTED (--no-sparks)");
     console.log(
       `jitter: ${jitterInUse}${JITTER !== null ? " (forced via ?jitter=)" : " (default)"}\n`,
     );
