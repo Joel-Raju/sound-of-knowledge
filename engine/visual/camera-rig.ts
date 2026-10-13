@@ -168,6 +168,11 @@ export class CameraRig {
     this.position.z = 0;
   }
 
+  /** §9.11 — whether the reduced-motion preference is currently in force. */
+  get reduceMotionEnabled(): boolean {
+    return this.reduceMotion;
+  }
+
   setReduceMotion(on: boolean): void {
     this.reduceMotion = on;
     // §9.11 — no shake at all under reduced motion.

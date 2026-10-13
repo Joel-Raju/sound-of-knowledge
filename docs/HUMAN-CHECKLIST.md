@@ -140,7 +140,12 @@ float stereo, ~46 MB):
 - [ ] **F3.** Firefox desktop — `EventSource` in worker, `outputLatency` absence.
 - [ ] **F4.** iOS Safari — `Enter`-tap unlock, safe-area HUD, touch drag to look.
 - [ ] **F5.** Android Chrome — touch drag, tier detection → low/medium.
-- [ ] **F6.** Reduced-motion OS preference honoured.
+- [x] **F6.** ✅ **Verified in CI** — `tests/e2e/reduced-motion.spec.ts`, 5 tests. §9.11's
+      two halves both asserted: the rig adds no trauma shake at all, and the ambient
+      drift is *reduced rather than removed* so the camera does not freeze. Covers the
+      live mid-session change via `emulateMedia`, mutation-checked (unwiring the
+      listener fails exactly one test). Added at T4.2 pause — T4.1 shipped the feature
+      with no test, which is the mistake this project has now made and caught three times.
 
 ---
 

@@ -1475,12 +1475,12 @@ hide banding". At full amplitude that displacement is a **whole `stepLen`**, and
 
 Swept at 3× magnification across every tier:
 
-| `uJitter` | result |
-| --------- | ------ |
+| `uJitter`  | result                                                    |
+| ---------- | --------------------------------------------------------- |
 | 1.0 (spec) | strong regular diagonal lattice across the whole interior |
-| 0.5       | lattice, slightly softened |
-| 0.35      | lattice still plainly visible |
-| **0.0**   | **no lattice, and no concentric banding either** |
+| 0.5        | lattice, slightly softened                                |
+| 0.35       | lattice still plainly visible                             |
+| **0.0**    | **no lattice, and no concentric banding either**          |
 
 The banding is not there to be hidden. The density term is
 `fbm(p * 1.7 + flow) * (1 - rr*rr)`, and over one `stepLen` the sample point moves far
@@ -1531,7 +1531,7 @@ answer.
 
 Earlier in this session I hypothesised that rAF deltas would hide GPU load from the
 governor, then dismissed it because the low tier's synchronised cost (10.5 ms) came out
-*below* the rAF EMA (16.7 ms). At the **high** tier it is real:
+_below_ the rAF EMA (16.7 ms). At the **high** tier it is real:
 
 ```
 low  tier   rAF ema 16.7 ms   synced 10.2 ms   → rAF-bound, governor sees the truth
@@ -1548,3 +1548,33 @@ budget has this shape. `shot.ts` now prints both numbers side by side and warns 
 they disagree by more than 1.5×. **Not fixed here** — it is a §9.10 design question,
 and the options (a `gl.finish()`-based probe, an `EXT_disjoint_timer_query`, or
 accepting main-thread-bound as the only governor input) are a decision, not a bugfix.
+
+---
+
+## 2026-10-12 · T4.2 pause · §9.11 reduced motion shipped in T4.1 with no test
+
+Pausing Phase 4 for the open backlog surfaced an omission of my own: T4.1 added
+`readReducedMotion()` and `watchReducedMotion()` to `visual/tier.ts` and wired them
+into the renderer, and wrote **no test for either**. That is the project's recurring
+failure — shipping a feature and assuming it works — which this session has now
+watched happen four separate times.
+
+`tests/e2e/reduced-motion.spec.ts` now covers both halves of §9.11, plus the case that
+would otherwise be indistinguishable:
+
+- the rig adds **no** trauma shake under reduced motion, and stays at 0 over time
+  rather than only at the instant of the call;
+- the ambient drift is **reduced, not removed** — §9.11 does not ask for a frozen
+  camera, and a test that only asserted "still moves" would pass a rig that ignored
+  the preference entirely;
+- a **mid-session** change is honoured, in both directions;
+- and the control: with no preference set, trauma still shakes. Without that last
+  one, a rig that never shook would pass everything above.
+
+Mutation-checked: unwiring `watchReducedMotion` fails exactly one test — the live
+change — and restoring it passes. The other three cannot see that particular bug,
+which is the correct shape for the test to have.
+
+**F6 closes.** The rest of the browser matrix (F1–F5) needs browsers and hardware
+this environment does not have: only Chromium is installed, and Safari/iOS/Android
+are devices rather than engines.
