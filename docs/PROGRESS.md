@@ -199,7 +199,7 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 ## Status
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.3) —
-**19 of 31 tasks** (T4.4 built, acceptance unresolved). 719 unit tests, 18 Chromium e2e, all gates green.
+**19 of 31 tasks** (T4.4 built, acceptance unresolved). 787 unit tests, 18 Chromium e2e, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
