@@ -200,7 +200,8 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.4) —
 **20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
-**Human checklist: 10 of 50 closed, 40 open** — see `docs/HUMAN-CHECKLIST.md`.
+**Human checklist: 13 of 51 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
+13 of 52 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, and the 10-minute soak was listened to in full and
@@ -214,17 +215,20 @@ audio that is complete. **D3 matters most**: the scheduler still drops 31.3 % of
 attempted notes at E ≈ 0.9 and whether that reads as texture is now being judged on
 the real thing. The air layer is confirmed inaudible at §8.8's values.
 
-**What is blocked on the human, and on what.** 40 open items break down as:
+**What is blocked on the human, and on what.** 38 open items break down as:
 
 | needs | items | unblocked by |
 |---|---|---|
 | real hardware | C1–C8 | physical devices — cannot be done here |
 | ears on the live piece | A1–A10, B1–B9 | **T5.1**, which is unbuilt |
-| more listening | D4 | a 10-min soak render, not yet generated |
-| eyes | C11, C6 | now answerable — post-processing has landed |
+| eyes | C6, C11 | now answerable — post-processing has landed |
 | eyes, on T5 | E4 | HUD, needs T5 |
+| ears, already actionable | B10, B11, B12 | nothing — these are follow-ups from this session |
 
-So **19 of the 40 are gated on T5.1**, not on the human. That is the single
+**D1–D4 are all closed.** They were re-judged on audio rendered after the
+`WORKLET_QUEUE_CAP` fix, which had been silently discarding 80–95 % of notes.
+
+So **19 of the 38 are gated on T5.1**, not on the human. That is the single
 highest-leverage task left.
 
 Phase 4 opened with T4.1. `engine/visual/` went from 0 lines to the renderer's

@@ -2492,3 +2492,39 @@ was missing most of its notes and has not yet been re-judged on audio that is co
 **All four artefacts are regenerated** in `artifacts/audio/`, and **D1–D4 all need
 re-listening.** The previous verdicts were given on audio with 80–95 % of its notes
 absent.
+
+### D1–D3 re-judged on honest audio, and what the ear found that the numbers could not
+
+All four D-checks are now closed, on renders produced after the queue fix and the
+rebalance.
+
+- **D3 is the verdict that could not previously be given.** 31.3 % of attempted notes
+  are still dropped at E ≈ 0.9 against §8.4's 35 % ceiling. The answer — *"the gaps feel
+  like breathing"* — settles it: no cap change. Raising the ceiling would admit a denser
+  mess for no benefit; lowering it would thin a texture that works.
+- **D1** musical. **D2** judged via the 600 s soak at the same energy rather than the
+  120 s file, and recorded that way so it is not mistaken for a direct listen.
+
+**One thing the numbers could not have found.** At D1 the human noted *"some bell sounds
+are a bit sharper and louder but that's okay"* — and that is worth more than the verdict
+it rode in on. It is the audible edge of a systemic problem: **the per-voice balance was
+tuned by ear against audio that was missing 80–95 % of its notes.** Bells are short and
+high-frequency, so they were masked by the thinned mid before, and every one of them is
+now present and audible. Anything fitted to that reference was fitted to a piece that
+was mostly pad.
+
+Left as-is — the verdict was "okay" and the high band sits at 8.0 % against a 1–25 %
+target — but logged as **B11**. It is the same shape as the Phase 3 caching incident
+that produced the listening protocol: *a mix tuned against a broken render is still a
+mix tuned against something false*, and nothing in the mix report can detect it, because
+the mix report only ever saw the broken render.
+
+### B12 — §8.4's stated ranges are stricter than the enforced ones
+
+E90 reports bass **9.9 %** and mid **66.6 %**, outside the stated 10–40 % and 20–55 %,
+and `checkMixTargets` passes it. So the enforcement has a tolerance the documentation
+does not mention, or the check does not test what it says.
+
+Left unfixed, but it is the kind of mismatch that hides a regression: a reader of §8.4
+would conclude E90 fails while the harness reports a pass. Worth resolving which number
+is authoritative.
