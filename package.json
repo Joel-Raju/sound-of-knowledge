@@ -29,7 +29,9 @@
     "dev:next": "next dev",
     "prebuild": "npm run build:workers",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check:docs": "tsx scripts/check-docs.ts",
+    "check": "npm run typecheck && npm run lint && npm run check:projects && npm run check:docs && npm run test"
   },
   "dependencies": {
     "@vercel/analytics": "1.6.1",

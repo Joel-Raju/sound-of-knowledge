@@ -198,14 +198,31 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.3) —
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.4) —
 **20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
+**Human checklist: 12 of 50 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
 
 Audio is finished and verified end to end: the full graph renders offline at all
-three energies within §8.4, the mix was reviewed by ear, and the air layer is
-confirmed inaudible at §8.8's values. The one thing that went wrong in Phase 3 —
-four rounds of tuning against a cached render — is written up in `DECISIONS.md`
-along with the protocol that prevents a repeat.
+three energies within §8.4, and **D1–D3 were listened to and passed on 2026-10-15**
+(E30 musical · E60 full but not crowded · E90 musical). The E90 verdict is the
+informative one — the scheduler drops **31.3 % of attempted notes** against §8.4's
+35 % ceiling and that reads as texture, not as breakage, so no cap change is
+warranted. The air layer is confirmed inaudible at §8.8's values. The one thing
+that went wrong in Phase 3 — four rounds of tuning against a cached render — is
+written up in `DECISIONS.md` along with the protocol that prevents a repeat.
+
+**What is blocked on the human, and on what.** 38 open items break down as:
+
+| needs | items | unblocked by |
+|---|---|---|
+| real hardware | C1–C8 | physical devices — cannot be done here |
+| ears on the live piece | A1–A10, B1–B9 | **T5.1**, which is unbuilt |
+| more listening | D4 | a 10-min soak render, not yet generated |
+| eyes | C11, C6 | now answerable — post-processing has landed |
+| eyes, on T5 | E4 | HUD, needs T5 |
+
+So **19 of the 38 are gated on T5.1**, not on the human. That is the single
+highest-leverage task left.
 
 Phase 4 opened with T4.1. `engine/visual/` went from 0 lines to the renderer's
 full skeleton: WebGL2 bootstrap, resize/DPR, the rAF loop with its delta clamp,

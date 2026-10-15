@@ -2252,3 +2252,39 @@ and the A/B that came back mislabelled.
 changed nothing audible; and `git log` since the render shows only visual files touched
 (`dust.ts`, `shot.ts`, `visual-harness.tsx`, one test). Both facts were checked rather
 than assumed — a stale artefact is precisely what the caching incident produced.
+
+## The progress docs went stale three times, so now they are checked
+
+Asked whether the progress had been kept current, the honest answer was *partially*:
+the task ticks and test counts were right, but the phase list still read `T4.1–T4.3`
+after T4.4 shipped, and the status line carried no human-checklist figure at all — so
+D1–D3 closing was invisible from `PROGRESS.md` entirely.
+
+That is the third time this session. The earlier two were a stale test count in the
+status line, and the same phase-list omission. Every one was caught by *reading the file
+afterwards*, never by a mechanism — which is the tell that the problem is the absence of
+a check rather than the staleness itself.
+
+**Nothing in a markdown file fails a build when it goes out of date**, so `check:docs` is
+that mechanism. It checks the specific claims that have already drifted rather than
+pretending to prove the documents correct in general:
+
+- the `N of M tasks` status line against the actual tick count,
+- the `Human checklist: N of M closed, K open` line against `HUMAN-CHECKLIST.md`,
+- the parenthetical phase list against the last ticked task.
+
+Wired into `npm run check`, which runs alongside typecheck, lint, the Playwright project
+guard and the tests.
+
+**It caught its own author immediately.** On first run it reported `checklist line claims
+11 closed, file has 12` — I had written 11/39 into `PROGRESS.md` and the file actually
+held 12 closed and 38 open. That is the tenth time this session a number I produced was
+wrong, and the first time a tool caught it at write time rather than after the fact.
+
+**Verified it fails rather than merely passes.** Both drift modes were reintroduced
+deliberately — a task count decremented, and the phase list truncated — and each produced
+the right message and exit 1. A check that has only ever been seen passing is not known
+to work.
+
+Ticked tasks and human items are now different numbers in different files, which is
+precisely the arrangement that let them drift.
