@@ -2224,3 +2224,31 @@ be revisited without a code change. T4.4 acceptance passes: corner std-dev **1.8
 dust — visible in the control, and unaffected by anything decided here. Recorded on C6,
 since "is the background dark enough, and does it band" is one question about the same
 surface. The grain is doing its job; T4.4's corner check passes.
+
+## D1–D3 closed by ear — and D3 answers a question the report could not
+
+All three stress-level renders were listened to and passed: E30 musical, E60 full but
+not crowded, E90 musical.
+
+**E90 is the one that mattered.** §8.4's stress clause allows up to 35 % of attempted
+notes to be dropped, and the render drops **31.3 %** — 425 of 1360. On the report that
+reads as alarming, and it was the single most likely thing to sound like something
+failing rather than like density. It does not. The scheduler's shedding is doing its job
+musically, so **no cap change is warranted**: raising 35 % would admit a denser mess for
+no benefit, and lowering it would thin a texture that works.
+
+**The artefacts were verified before being listened to, and the instrument was wrong
+first.** `report.json` claims RMS −21.9 / −21.0 / −21.6 dBFS. A first check that strided
+the samples read −24.2 / −24.6 / −24.7 — about 3 dB low, and E30 *below* §8.4's −24
+floor, which would have been a finding. A full-rate scan of both channels reproduced the
+report to 0.03 dB (crest 17.08 vs 17.1). The stride aliased against a
+low-frequency-heavy mix, which is the most predictable way to get a confidently wrong
+number from an audio file. Ninth time this session that the *measuring* was wrong rather
+than the thing measured; same lesson as the shader probe, the `probe-reverts` field name,
+and the A/B that came back mislabelled.
+
+**The renders needed no regeneration.** The synthetic generator assigns `kind` directly at
+§13.3's 3 % revert rate rather than routing through `REVERT_PATTERNS`, so E3's widening
+changed nothing audible; and `git log` since the render shows only visual files touched
+(`dust.ts`, `shot.ts`, `visual-harness.tsx`, one test). Both facts were checked rather
+than assumed — a stale artefact is precisely what the caching incident produced.
