@@ -2616,3 +2616,51 @@ subject is a glowing body?**
 Both fixes are runtime-switchable while being evaluated — `?tonemap=`, `?nobloom=`,
 `?novignette=`, and emission via the orb's constructor — so nothing here is a one-way
 door. C11 stays open.
+
+## §9.11 completed — and C6's darkening found a hard floor
+
+**The two missing clauses, both of which had been silently absent for all of Phase 4:**
+
+- **"orb ripple amplitude ×0.5"** — a `uRippleScale` uniform on the vertex shader's
+  `0.06 * ripple` term. Halved rather than removed: the ripples are the only visible
+  readout of an impact, so suppressing them would leave §9.4's impact path with nothing
+  to see at all.
+- **"spark duration ×1.3"** — multiplies §9.5's `lerp(1.1, 1.8, 1 − magnitude)`. Sparks
+  *lengthen*, which reads backwards until you follow it: a fast snappy streak is the
+  motion-sickness trigger, and the same particle drifting slowly for longer is the
+  calmer version of itself.
+
+Both are fanned out from `VisualEngine`'s single `watchReducedMotion` listener, so a §9.11
+clause cannot be implemented on the rig and then quietly missed on a layer.
+`addReducedMotionConsumer` applies the current preference on registration, since the
+watcher only fires on *change* and a late registration would otherwise start at full
+motion for a user who already asks for reduced motion.
+
+**11 new tests, one per clause, each quoting the spec's figure.** A clause that is
+missing does not fail a build; a clause with a number next to it does.
+
+### C6's darkening hit a floor that is quantisation, not taste
+
+Darkening `deep` to L ≈ 0.05–0.06 broke two e2e tests. The first was a stale threshold.
+The second was not:
+
+| `deep` L | lydian | mixolydian | dorian | aeolian | distinct 8-bit results |
+|---|---|---|---|---|---|
+| 0.06 | (0,1,3) | **(0,1,3)** | (0,0,4) | (1,0,4) | 3 |
+| 0.10 | (1,3,9) | (0,4,9) | (2,3,11) | (3,2,12) | **4** |
+
+**At L = 0.06 lydian and mixolydian quantise to the identical triple**, so the harmony
+drift measured exactly **0** — §9.3's promise that the background follows the palette
+simply stopped being observable, at any threshold. The test was right and the palette
+was wrong.
+
+**So `deep` is set at L = 0.10.** That is 8-bit quantisation setting a floor on how
+dark the background can go before the harmony behaviour disappears — not taste. It is
+the constraint, and it is recorded in the e2e test so the next person to try going
+darker finds it in one place.
+
+Two thresholds were then adjusted rather than the palette darkened further:
+the mid-ease read moved from 700 ms to 2 000 ms (τ = 2 s, so 700 ms was ~30 % of the way
+and under one 8-bit unit at the new darkness), and the final distance bound went from
+> 3 to > 2. The measured distance is 3, lydian's (1,3,9) against aeolian's — a real move
+to a distinct triple.

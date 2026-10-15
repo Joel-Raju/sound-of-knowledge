@@ -131,6 +131,8 @@ export class Orb {
       uSteps: { value: params.orbSteps },
       uOctaves: { value: params.orbOctaves },
       uJitter: { value: clamp(opts.jitter ?? ORB_DEFAULTS.jitter, 0, 1) },
+
+      uRippleScale: { value: 1 },
       uAbsorb: { value: clamp(opts.absorb ?? ORB_DEFAULTS.absorb, 0.1, 12) },
       uEmission: { value: clamp(opts.emission ?? ORB_DEFAULTS.emission, 0.05, 4) },
       uImpactA: { value: this.impactA },
@@ -284,6 +286,17 @@ export class Orb {
    * Owns its scratch `Vector3` — the caller has no `three` import and should not
    * need one.
    */
+  /**
+   * §9.11 — "orb ripple amplitude ×0.5" under reduced motion.
+   *
+   * Halved rather than removed: the ripples are the only way an edit becomes
+   * visible on the orb, so suppressing them outright would leave §9.4's impact path
+   * with no readout at all. 0.5 is the spec's figure.
+   */
+  setReducedMotion(on: boolean): void {
+    this.material.uniforms.uRippleScale!.value = on ? 0.5 : 1;
+  }
+
   addSyntheticImpacts(
     count: number,
     magnitude: number,

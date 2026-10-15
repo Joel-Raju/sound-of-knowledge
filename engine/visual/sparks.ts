@@ -78,6 +78,8 @@ export class Sparks {
   private head = 0;
   private tier: Tier;
   private factor: number;
+  /** §9.11 — 1.3 under reduced motion, 1 otherwise. */
+  private durationScale = 1;
   private totalSpawned = 0;
   /** Preallocated so the spawn path never allocates (§9.5). */
   private readonly target = new THREE.Vector3();
@@ -140,6 +142,18 @@ export class Sparks {
   countFor(base: number): number {
     // Never below one: a spawn that rounds to zero would silently drop an edit.
     return Math.max(1, Math.round(base * this.factor));
+  }
+
+  /**
+   * §9.11 — "spark duration ×1.3" under reduced motion.
+   *
+   * Sparks *lengthen* rather than shorten, which reads as backwards until you
+   * follow it: a fast, snappy streak is the motion-sickness trigger, and the same
+   * particle drifting slowly for longer is the calmer version of itself. Removing
+   * them would remove the visual event entirely.
+   */
+  setReducedMotion(on: boolean): void {
+    this.durationScale = on ? 1.3 : 1;
   }
 
   /** `uTime` — the clock the vertex shader evaluates every particle against. */
@@ -222,7 +236,8 @@ export class Sparks {
 
     const spawnTime = this.material.uniforms.uTime!.value as number;
     // §9.5 — a long, slow streak for a small edit; a big one arrives fast.
-    const duration = 1.1 + (1.8 - 1.1) * (1 - magnitude);
+    // §9.11 scales this under reduced motion; §9.5 fixes the base values.
+    const duration = (1.1 + (1.8 - 1.1) * (1 - magnitude)) * this.durationScale;
     const seed = Math.random() * 1000;
     const size = 0.06 + 0.1 * magnitude;
     const brightness = 1.0 + 1.5 * magnitude;

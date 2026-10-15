@@ -166,6 +166,12 @@ export class VisualEngine {
    * smoothing, and conflating them would make the bloom follow the camera.
    */
   private rmsSmooth = 0;
+  /**
+   * Anything else §9.11 reaches, registered by `addLayer` callers that hold a
+   * §9.11-aware object. The rig and the composer are handled directly because the
+   * engine owns them; a layer is owned by whoever mounted it.
+   */
+  readonly reducedMotionConsumers: ((reduced: boolean) => void)[] = [];
   private time = 0;
   private layers: RenderLayer[] = [];
 
@@ -306,9 +312,18 @@ export class VisualEngine {
       window.addEventListener("orientationchange", this.onResize);
     }
     // §9.11 — the motion preference can change mid-session, so it is watched
-    // rather than sampled once. `stopWatchingMotion` tears the listener down in
+    // rather than sampled once. Every §9.11 consumer is fanned out from here, so a
+    // clause cannot be implemented on the rig and then quietly missed on the orb,
+    // the sparks or the composer. `stopWatchingMotion` tears the listener down in
     // `dispose()`; without that, every mount would leak a listener.
-    this.stopWatchingMotion = watchReducedMotion((reduced) => this.rig.setReduceMotion(reduced));
+    this.stopWatchingMotion = watchReducedMotion((reduced) => {
+      this.rig.setReduceMotion(reduced);
+      this.post?.setReducedMotion(reduced);
+      // §9.11 — "orb ripple amplitude ×0.5" and "spark duration ×1.3". Both were
+      // the last two clauses of §9.11 to be implemented, and both are single
+      // multipliers on uniforms that already existed.
+      for (const layer of this.reducedMotionConsumers) layer(reduced);
+    });
   }
 
   /** The DOM canvas, for `document.hidden` checks and the screenshot helper. */
@@ -382,6 +397,20 @@ export class VisualEngine {
   addLayer(layer: RenderLayer): void {
     this.layers.push(layer);
     layer.attach?.(this.scene);
+  }
+
+  /**
+   * Register a §9.11-aware object so it follows the motion preference.
+   *
+   * Called with the orb and the sparks from T4.5's mount points. Anything with a
+   * `setReducedMotion(boolean)` qualifies.
+   */
+  addReducedMotionConsumer(c: { setReducedMotion(on: boolean): void }): void {
+    this.reducedMotionConsumers.push(c.setReducedMotion.bind(c));
+    // Apply the current preference immediately — the watcher only fires on change,
+    // so a consumer registered after startup would otherwise start at full motion
+    // for a user whose OS already asks for reduced motion.
+    c.setReducedMotion(this.rig.reduceMotionEnabled);
   }
 
   /** Start the rAF loop. Idempotent. */

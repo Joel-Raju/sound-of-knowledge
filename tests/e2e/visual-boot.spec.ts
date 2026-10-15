@@ -168,21 +168,28 @@ test("the canvas is cleared to the palette's deep colour, not black", async ({ p
   // §9.1 — `alpha: false`, so the drawing buffer has no alpha and reads back 255.
   expect(pixel.a, "the canvas must be opaque (§9.1 alpha:false)").toBe(255);
 
-  // Measured under swiftshader: `deep` for lydian is linear (0.00086, 0.00174,
-  // 0.00402), which through the sRGB transfer is (3, 6, 13) — the exact chain
-  // OKLCH → linear sRGB → three.js Color → clear colour → drawing buffer.
+  // Measured under swiftshader. C6 darkened `deep`'s lightness, and the floor it hit
+  // is 8-bit quantisation rather than taste — see the harmony test below. At
+  // L = 0.10, lydian's `deep` is linear (0.00082, 0.00235, 0.01001) and comes
+  // through the sRGB transfer as 8-bit **(1, 3, 9)** — the exact OKLCH → linear
+  // sRGB → three.js Color → clear colour → drawing buffer chain, and matching the
+  // measured pixels.
   const luma = 0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b;
   expect(luma, `clear colour luma was ${luma} (rgb ${pixel.r},${pixel.g},${pixel.b})`).toBeLessThan(
     40,
   );
 
   // Not pure black: a `setClearColor(0x000000)` that outlived the palette would
-  // read (0, 0, 0) and sail through the luma ceiling above. `deep` is authored at
-  // L ≈ 0.12, so its brightest channel is comfortably above zero.
+  // read (0, 0, 0) and sail through the luma ceiling above.
+  //
+  // The threshold is **> 0, not a calibrated number**: at L = 0.10 the brightest
+  // channel is 9 out of 255, so any absolute bound above that is a bound on the
+  // palette's lightness rather than on the wiring. What this asserts is that the
+  // palette reached the buffer at all; the hue check below carries the weight.
   expect(
     Math.max(pixel.r, pixel.g, pixel.b),
     "the palette deep must survive to the buffer",
-  ).toBeGreaterThan(4);
+  ).toBeGreaterThan(0);
 
   // And it must be the palette's blue-violet, not a grey: §9.3 gives lydian's
   // `deep` a hue of 260°, so blue dominates red several times over. This is what
@@ -229,7 +236,12 @@ test("the clear colour follows the palette through a harmony change", async ({ p
   // Mid-ease the colour must have moved *off* the old value — not snapped past it
   // and not stayed put. Both of those failures would pass a test that only
   // compared before with after.
-  await page.waitForTimeout(700);
+  //
+  // 2 000 ms, not 700. §9.3 eases with τ = 2 s, so 700 ms in the palette has
+  // travelled only ~30 % of the way — and at C6's darkened `deep` that is under one
+  // 8-bit unit, which is not a signal the assertion can carry. Reading at ~1τ gets
+  // two-thirds of the way, which is unambiguous without weakening the bound.
+  await page.waitForTimeout(2000);
   const during = await readPixel();
   expect(during).not.toBeNull();
   if (!during) return;
@@ -238,6 +250,17 @@ test("the clear colour follows the palette through a harmony change", async ({ p
     a: { r: number; g: number; b: number },
     b: { r: number; g: number; b: number },
   ): number => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
+  // The clear colour must *change* as §9.3 eases the palette to a new harmony.
+  //
+  // This is where C6's darkening found its floor. At L ≈ 0.06 the four modes'
+  // `deep` colours quantise to **the same 8-bit triple** — lydian and mixolydian
+  // both land on (0,1,3) — so the harmony drift is not merely small, it is exactly
+  // zero and the clear colour stops following the palette at all. At L = 0.10 all
+  // four are distinct: (1,3,9), (0,4,9), (2,3,11), (3,2,12).
+  //
+  // So `deep` is set at L = 0.10 and the bound stays above 1. That is a real
+  // constraint, not a loosened one: 8-bit quantisation sets a floor on how dark the
+  // clear colour can go before §9.3 stops being observable.
   expect(
     distance(before, during),
     "the clear colour must drift during the §9.3 ease",
@@ -248,8 +271,14 @@ test("the clear colour follows the palette through a harmony change", async ({ p
   const after = await readPixel();
   expect(after).not.toBeNull();
   if (!after) return;
+  // > 2, down from > 3, for the same reason as the bounds above: C6 darkened
+  // `deep`, so the absolute 8-bit distance between two modes' colours shrank. The
+  // measured distance is 3 — lydian's (1,3,9) against aeolian's — which is a real
+  // move to a distinct triple, and the checks on either side of this one (drift
+  // mid-ease, and hue dominance) are what would catch a clear colour that snapped
+  // straight to the wrong palette slot.
   expect(distance(before, after), "the clear colour must end on the new palette").toBeGreaterThan(
-    3,
+    2,
   );
 });
 

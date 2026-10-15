@@ -336,6 +336,12 @@ export function VisualHarness(): React.JSX.Element {
           handle.rings = rings;
           handle.dust = dust;
 
+          // §9.11 — the orb's ripple amplitude and the sparks' duration both follow
+          // the motion preference, and both are registered here so they cannot be
+          // implemented on the rig and then missed on the layers.
+          engine.addReducedMotionConsumer(orb);
+          engine.addReducedMotionConsumer(sparks);
+
           // Scratch objects for `debugSpawn`. Preallocated here rather than inside
           // the spawn path so firing n particles allocates nothing (§9.5, §12.1).
           const THREE = await import("three");

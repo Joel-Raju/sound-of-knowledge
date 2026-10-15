@@ -38,6 +38,8 @@ uniform int uSteps;
 uniform int uOctaves;
 uniform vec4 uImpactA[${IMPACT_SLOTS}];   // xyz = direction, w = strength
 uniform vec4 uImpactB[${IMPACT_SLOTS}];   // x = startTime, y = kind (0 push, 1 dent)
+/** §9.11 — ripple amplitude multiplier. 1.0 normally, 0.5 under reduced motion. */
+uniform float uRippleScale;
 
 out vec3 vWorldPos;
 out vec3 vNormalW;
@@ -61,7 +63,7 @@ void main() {
     ripple += (uImpactB[i].y > 0.5 ? -1.0 : 1.0) * w;
   }
 
-  float r = 1.0 + disp + 0.06 * ripple + 0.03 * uRms;
+  float r = 1.0 + disp + 0.06 * uRippleScale * ripple + 0.03 * uRms;
   vec3 p = dir * 1.2 * r;
 
   vWorldPos = p;
