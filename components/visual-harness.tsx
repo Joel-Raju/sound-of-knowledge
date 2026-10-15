@@ -347,7 +347,22 @@ export function VisualHarness(): React.JSX.Element {
         // T4.4 — §9.8's composer. Attached before `start()` so no frame is ever drawn
         // directly and then composited; `?nopost=1` forces the direct path, which is
         // how the A/B against the previous T4.3 captures is taken.
-        handle.post = params.get("nopost") === "1" ? null : engine.attachPost();
+        handle.post =
+          params.get("nopost") === "1"
+            ? null
+            : engine.attachPost({
+                // C11 — AgX vs ACES, switchable so they can be compared in one sweep.
+                toneMapping: params.get("tonemap") === "aces" ? "aces" : "agx",
+              });
+        // `?nobloom=1` and `?novignette=1` isolate individual §9.8 effects. Needed
+        // because tone mapping turned out **not** to be what lifts the background or
+        // flattens the orb — so the sweep has to be able to switch effects off, not
+        // just curves.
+        if (handle.post) {
+          if (params.get("nobloom") === "1") handle.post.setEnabled("bloom", false);
+          if (params.get("novignette") === "1") handle.post.setEnabled("vignette", false);
+          if (params.get("nonoise") === "1") handle.post.setEnabled("noise", false);
+        }
         // `handle.sparks` / `handle.rings` / `handle.dust` are set above, inside the
         // `?nosparks` guard — they stay null when the layers are not mounted.
         handle.status = "ready";

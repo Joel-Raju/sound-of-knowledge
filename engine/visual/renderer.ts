@@ -518,7 +518,7 @@ export class VisualEngine {
    * as a composer whose bloom levels and grain opacity do not match the rest of the
    * scene, which is very hard to read as a tier bug.
    */
-  attachPost(): Post | null {
+  attachPost(opts: { toneMapping?: "agx" | "aces" } = {}): Post | null {
     if (this.post) return this.post;
     // The low tier does not get a post stack by default: §12.2 pins software
     // rendering to low precisely because it cannot afford full-screen passes.
@@ -528,6 +528,7 @@ export class VisualEngine {
       scene: this.scene,
       camera: this.camera,
       tier: this.tier,
+      toneMapping: opts.toneMapping,
     });
     // `resize()` sizes the composer from the same CSS box it just gave the renderer,
     // so the two cannot disagree about the drawing buffer.

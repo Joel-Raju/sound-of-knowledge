@@ -44,6 +44,23 @@ export const CA_TAU_SEC = 0.35;
 export const CA_REVERT_KICK = 0.0025;
 export const CA_BASE_OFFSET = 0.0004;
 
+/** §9.8 — "AgX if available in the installed version, else ACES Filmic", exposure 1.0. */
+export type ToneMappingChoice = "agx" | "aces";
+
+/**
+ * Both modes are available in `postprocessing@6.39.5`, so the spec's fallback is
+ * never needed. Which one is *used* is C11, and the answer was measured rather than
+ * assumed — see `DECISIONS.md`.
+ *
+ * AgX desaturates and rolls highlights off hard, which flattens §9.4's ray-marched
+ * interior into one near-white value. ACES holds more separation up top. `?tonemap=aces`
+ * switches between them so the two can be compared in a single sweep.
+ */
+const TONE_MAPPING: Record<ToneMappingChoice, ToneMappingMode> = {
+  agx: ToneMappingMode.AGX,
+  aces: ToneMappingMode.ACES_FILMIC,
+};
+
 /** §9.2 — the effects that can be toggled at runtime. */
 export const POST_EFFECTS = ["bloom", "chromaticAberration", "noise", "vignette"] as const;
 export type PostEffect = (typeof POST_EFFECTS)[number];
@@ -63,6 +80,8 @@ export interface PostOptions {
   scene: THREE.Scene;
   camera: THREE.Camera;
   tier?: Tier;
+  /** C11 — `?tonemap=`. Defaults to AgX, which is §9.8's stated preference. */
+  toneMapping?: ToneMappingChoice;
 }
 
 export class Post {
@@ -118,18 +137,17 @@ export class Post {
     });
     this.noise.blendMode.opacity.value = tierParams.grainOpacity;
 
-    // §9.8 — "AgX if available in the installed version, else ACES Filmic", exposure 1.0.
-    //
-    // AgX **is** available: postprocessing 6.39.5 exports ToneMappingMode.AGX, and
-    // three 0.186 exports AgXToneMapping. Verified rather than assumed, so the ACES
-    // fallback is a guard rather than the expected path.
+    // §9.8 — "AgX if available in the installed version, else ACES Filmic",
+    // exposure 1.0. Both exist in 6.39.5, so the fallback is never *needed*; the
+    // choice between them is C11's, and is switchable rather than baked in.
     //
     // Only `mode` is set, and the library's own defaults are used for the adaptive
     // parameters (whitePoint, middleGrey, minLuminance, …) because §9.8 specifies
     // none of them. Inventing values for them lifted the near-black clear colour to a
     // visible navy across the whole frame — a tone-mapping curve problem that reads
     // exactly like a palette one, and would have been misfiled as the latter.
-    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+    const mode = opts.toneMapping ?? "agx";
+    this.toneMapping = new ToneMappingEffect({ mode: TONE_MAPPING[mode] });
 
     this.composer.addPass(new RenderPass(opts.scene, opts.camera));
 

@@ -2528,3 +2528,56 @@ does not mention, or the check does not test what it says.
 Left unfixed, but it is the kind of mismatch that hides a regression: a reader of §8.4
 would conclude E90 fails while the harness reports a pass. Worth resolving which number
 is authoritative.
+
+## C11 and C6 — two hypotheses tested, both wrong, and the evidence points elsewhere
+
+### C11: the orb core is a structureless wash
+
+`shot.ts --tonemap-sweep` renders five variants against one server, each with a
+magnified centre crop (middle 1/5 at 4×):
+
+| variant | mean | corner | bright>230 |
+|---|---|---|---|
+| tonemap-agx | 80.03 | 1.84 | **0.00 %** |
+| tonemap-aces | 72.22 | 1.53 | **8.23 %** |
+| nobloom | 80.05 | 1.48 | 0.00 % |
+| novignette | 80.11 | 1.66 | 0.00 % |
+| no post at all | 54.03 | 0.43 | 9.89 % |
+
+**ACES was tried because AgX compresses highlights harder, and it does restore
+separation** — 8.23 % of pixels above luminance 230 against AgX's 0.00 %. **But the
+magnified core is a smooth pale wash under ACES exactly as under AgX.** Swapping the
+curve moves the numbers and not the picture.
+
+**Bloom was then blamed — an intensity-0.9 bloom over a bright orb would both wash cyan
+across the frame and add glow over the orb itself — and that is wrong too:** `nobloom`
+scores 80.05 against AgX's 80.03, i.e. bloom is not measurably contributing. Its
+magnified core is identical.
+
+**So the flattening is in §9.4's orb shader, not in post at all.** The core emits values
+far enough above 1.0 that every curve clips it to white, and no amount of grading
+recovers a field that is already saturated at source. The only lever that can work is
+the orb's own emission scale — which §9.4 owns. Two plausible causes tested and refuted
+is worth recording, because the third is the one that costs something.
+
+### C6: the navy **is** tone mapping, and ACES lifts less
+
+Same table. Without post the frame reads mean 54.03; with either curve it reads 72–80.
+Removing bloom or the vignette changes nothing (80.05, 80.11), so the lift is the tone
+mapping itself. **ACES lifts roughly 8 dB less than AgX** (72.22 against 80.03), which
+is the useful result here: it is not near-black either, but it is materially closer.
+
+So C6's two halves now have different answers: **banding passes** (corner std-dev 1.84,
+in (0, 6), no contouring visible) and **the background is too bright, because AgX lifts
+it**.
+
+### What this costs, and what it does not
+
+`?tonemap=aces` is wired and working, so the choice is now a runtime switch rather than a
+code edit. **It has not been adopted**, because it fixes C6's background a little and
+C11 not at all — adopting it would be tuning against a metric while leaving the
+actual complaint untouched.
+
+Neither C11 nor C6 is closed. C11 needs a decision about §9.4's emission scale, which is
+a spec-owned value; C6 needs a decision about how dark "dark" should be, which is the
+human's ear.

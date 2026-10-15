@@ -814,7 +814,63 @@ async function main(): Promise<void> {
       v.__sok?.visual?.addImpacts(3, 0.9, "dent");
     });
 
-    if (DUST_SWEEP) {
+    /**
+ * `--tonemap-sweep` — capture the scene with AgX, with ACES, and with no tone
+ * mapping at all.
+ *
+ * Exists because C11 and C6 are one question with two answers, and answering it
+ * needs the raw material in front of the human rather than in a report:
+ *
+ *  - **C11**: §9.4's ray-marched interior renders as a structureless near-white wash
+ *    under AgX. Is that the tone-mapping curve, or is the orb genuinely that hot?
+ *  - **C6**: the background is navy rather than near-black. Is that AgX lifting the
+ *    clear colour, or is it the palette's `deep`? **The third capture answers it** —
+ *    with tone mapping off, the clear colour is visible unmediated, so if the frame is
+ *    still navy the lift is the palette and if it is black the lift is the curve.
+ *
+ * One server, three page loads, same as `--sweep`.
+ */
+const TONEMAP_SWEEP = args.includes("--tonemap-sweep");
+
+if (TONEMAP_SWEEP) {
+  const MODES: [string, string][] = [
+    ["tonemap-agx", ""],
+    ["tonemap-aces", "&tonemap=aces"],
+    ["nobloom", "&nobloom=1"],
+    ["novignette", "&novignette=1"],
+    ["none", "&nopost=1"],
+  ];
+  console.log("\n=== tone-mapping / effect sweep (C11 + C6) — one server, five modes ===");
+  for (const [name, qs] of MODES) {
+    await page.goto(
+      `http://127.0.0.1:${PORT}/?debug=1${QUALITY ? `&quality=${QUALITY}` : ""}${qs}`,
+    );
+    await page.waitForFunction(() => window.__sokVisualReady === true, null, {
+      timeout: 60_000,
+    });
+    const r = await capture(
+      page,
+      TIMES[TIMES.length - 1] ?? 6,
+      errors,
+      5,
+      `${QUALITY ? `${QUALITY}-` : ""}${name}`,
+      0,
+    );
+    console.log(
+      `${name.padEnd(14)} mean=${r.mean.toFixed(2).padStart(6)}  ` +
+        `corner=${r.cornerStdDev.toFixed(2).padStart(5)}  ` +
+        `bright>230=${(r.brightFraction * 100).toFixed(2).padStart(6)}%`,
+    );
+  }
+  console.log("\nopen:  artifacts/shots/t6s-high-tonemap-*.png  (each has a -zoom too)");
+  if (errors.length > 0) {
+    for (const e of errors) console.log(`   ${e}`);
+    failed = true;
+  }
+  return;
+}
+
+if (DUST_SWEEP) {
       // Rows span the decision: density on one axis, the unspecified base opacity on
       // the other. `off` is the control — if a candidate looks like this one, the dust
       // is contributing nothing and is just cost.
