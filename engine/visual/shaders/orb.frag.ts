@@ -44,6 +44,8 @@ uniform int uOctaves;
 // as a diagonal lattice — the banding is traded for noise rather than hidden.
 // Measurement and rationale in DECISIONS.md.
 uniform float uJitter;
+/** C11 — scales the whole accumulated emission. 1.0 is §9.4 as written. */
+uniform float uEmission;
 uniform vec4 uImpactA[${IMPACT_SLOTS}];
 uniform vec4 uImpactB[${IMPACT_SLOTS}];
 
@@ -122,6 +124,16 @@ void main() {
     glow += s * exp(-ang * 6.0) * exp(-age * 2.0);
   }
   col += glow * uAccentColor;
+
+  // Emission scale. §9.4 accumulates density front to back, and near the centre the
+  // ray spends a long time inside dense material — enough that the core saturates
+  // well above 1.0 before it ever reaches a tone-mapping curve.
+  //
+  // C11 established this is **not** fixable downstream: with AgX *and* with ACES
+  // *and* with bloom disabled, the core is a structureless pale wash. Nothing
+  // recovers a field that is already saturated at source, so the scale has to be
+  // applied here. See DECISIONS.md.
+  col *= uEmission;
 
   // Additive (§9.2): alpha is irrelevant to the blend, but a fragment that
   // writes 0 alpha with additive blending is still added, so this is not a

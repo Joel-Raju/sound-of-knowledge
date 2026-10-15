@@ -45,6 +45,13 @@ export interface OrbOptions {
    * `ORB_DEFAULTS.jitter`. Exposed so the screenshot harness can sweep it.
    */
   jitter?: number;
+  /**
+   * C11 — scales the accumulated emission. §9.4 accumulates density front to back
+   * and the centre saturates well above 1.0, so the core clips to white in every
+   * tone-mapping mode tested (AgX, ACES, and with bloom off entirely). Scaling at
+   * the source is the only lever that recovers the interior structure.
+   */
+  emission?: number;
   /** deterministic, for tests and the screenshot harness. */
   seed?: number;
 }
@@ -55,6 +62,14 @@ export interface OrbOptions {
  * spec in one place rather than discovering them one `uniform` at a time.
  */
 export const ORB_DEFAULTS = {
+  /**
+   * C11's fix. §9.4 as written is 1.0; measured, that renders the core as a
+   * structureless wash regardless of what post does to it.
+   *
+   * Set lower so the centre of the density field sits inside the range where a
+   * tone-mapping curve still has room to separate values. See `DECISIONS.md`.
+   */
+  emission: 0.55,
   /**
    * §9.4 says 1.0 — the jitter displaces the march by a full `stepLen`, and is
    * given there as being there "to hide banding".
@@ -112,6 +127,7 @@ export class Orb {
       uSteps: { value: params.orbSteps },
       uOctaves: { value: params.orbOctaves },
       uJitter: { value: clamp(opts.jitter ?? ORB_DEFAULTS.jitter, 0, 1) },
+      uEmission: { value: clamp(opts.emission ?? ORB_DEFAULTS.emission, 0.05, 4) },
       uImpactA: { value: this.impactA },
       uImpactB: { value: this.impactB },
     };

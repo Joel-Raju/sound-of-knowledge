@@ -2581,3 +2581,38 @@ actual complaint untouched.
 Neither C11 nor C6 is closed. C11 needs a decision about §9.4's emission scale, which is
 a spec-owned value; C6 needs a decision about how dark "dark" should be, which is the
 human's ear.
+
+## C11 and C6 — the human's fixes, and C11's limit
+
+**C6 — darken the palette's `deep`.** Lightness halved across all four modes
+(0.11–0.12 → 0.05–0.06), because the measurement showed the lift is the tone-mapping
+curve and not the palette: frame mean **54.03** with no post, **72–80** with either
+curve, and unchanged at 80.05 / 80.11 when bloom or the vignette is removed. Darkening
+the source is therefore the only place the fix can live.
+
+Result: frame mean **80.03 → 46.65**, and the background now reads near-black rather
+than navy. **C6's banding half passed throughout** and still does (corner std-dev 2.70,
+in (0, 6)).
+
+**C11 — lower the orb's emission.** A `uEmission` uniform now scales the accumulated
+density before output, defaulting to **0.55** against §9.4's 1.0. The orb body now shows
+visible interior mottling where it was a flat wash.
+
+**But the very centre is still saturated.** The magnified middle-1/5 crop at emission
+0.55 remains a pale, structureless wash. So the fix is partial and the honest statement
+is that C11 is **improved, not closed**: the body reads as a body, and the core still
+clips.
+
+That is expected from the geometry rather than a surprise — a ray aimed at the centre of
+a convex volume accumulates maximum density along its whole path, so the centre is the
+worst case by construction. Getting it to survive needs a materially lower emission
+still, and the trade is that the orb stops reading as *luminous*: the whole point of §9.4
+is a glowing body, and there is a floor below which it is just a dim ball.
+
+So the remaining question is genuinely aesthetic and is not resolvable from a screenshot
+I cannot see the way you can: **how much core saturation is acceptable for a piece whose
+subject is a glowing body?**
+
+Both fixes are runtime-switchable while being evaluated — `?tonemap=`, `?nobloom=`,
+`?novignette=`, and emission via the orb's constructor — so nothing here is a one-way
+door. C11 stays open.
