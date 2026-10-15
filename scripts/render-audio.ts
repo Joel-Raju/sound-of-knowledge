@@ -24,6 +24,7 @@ import {
   type Levels,
 } from "../engine/audio/mix-analysis";
 import { isExpectedLocalNoise } from "../tests/e2e/helpers";
+import { analyseDrift, formatDrift, type DriftReport } from "./drift-analysis";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ARTIFACTS = resolve(ROOT, "artifacts/audio");
@@ -69,11 +70,27 @@ interface Report extends Levels {
   nonFinite: number;
 }
 
-const CASES = [
-  { e: 0.3, label: "E30" },
-  { e: 0.6, label: "E60" },
-  { e: 0.9, label: "E90" },
-] as const;
+/**
+ * `--soak` renders D4's 10-minute case *instead of* the three stress levels.
+ *
+ * D4 is listed as "produced by T6.3", but it depends on nothing T6.3 builds — it is
+ * the same offline render at a longer duration, and the interesting part (drift) is a
+ * measurement rather than a listener's judgement. So it is available now, and this
+ * flag exists because running a 600 s render for every routine `audio:check` would
+ * make the fast path slow for no benefit.
+ */
+const SOAK = args.includes("--soak");
+
+const CASES = SOAK
+  ? ([{ e: 0.6, label: "soak" }] as const)
+  : ([
+      { e: 0.3, label: "E30" },
+      { e: 0.6, label: "E60" },
+      { e: 0.9, label: "E90" },
+    ] as const);
+
+/** D4 — 10 minutes at E ≈ 0.6. Overridden by `--seconds` for a quicker rehearsal. */
+const SOAK_SECONDS = 600;
 
 // --- server ---------------------------------------------------------------
 const server = spawn("npm", ["run", "start", "--", "--port", String(PORT)], {
@@ -135,6 +152,8 @@ async function main(): Promise<void> {
   });
 
   const outcomes: Outcome[] = [];
+  /** D4 only — one entry, from the soak case. */
+  const drifts: DriftReport[] = [];
   try {
     const page = await browser.newPage();
     page.on("pageerror", (e) => {
@@ -176,15 +195,35 @@ async function main(): Promise<void> {
           ).__sok;
           return (await sok.renderOffline(o)) as unknown;
         },
-        { seconds, rateMul, seed: 20_261_010 },
+        {
+          seconds: SOAK ? SOAK_SECONDS : seconds,
+          rateMul,
+          seed: 20_261_010,
+        },
       )) as RenderPayload;
 
       const report = payload.report;
       const wav = Buffer.from(payload.wav, "base64");
-      writeFileSync(resolve(ARTIFACTS, `render-${c.label}.wav`), wav);
+      const wavPath = resolve(ARTIFACTS, `render-${c.label}.wav`);
+      writeFileSync(wavPath, wav);
       process.stdout.write(
         `${((Date.now() - started) / 1000).toFixed(1)}s, ${(wav.length / 1e6).toFixed(1)} MB\n`,
       );
+
+      // D4's soak gets the drift analysis. "No drift, no runaway resonance, no
+      // patchy silence" are all measurable, and a listener is a poor instrument for
+      // the first two across ten minutes — a slow level ramp is exactly what you
+      // stop noticing after the first minute. The numbers are there so the ear
+      // confirms something rather than searching for it.
+      if (SOAK) {
+        const drift = analyseDrift(wavPath);
+        drifts.push(drift);
+        writeFileSync(
+          resolve(ARTIFACTS, "drift.json"),
+          `${JSON.stringify(drift, null, 2)}\n`,
+        );
+        process.stdout.write(`\n${formatDrift(drift)}\n`);
+      }
 
       // §8.4 states the loudness, crest and band-share targets "for a 120 s
       // synthetic render at steady E ≈ 0.6", and adds a separate stress clause
@@ -197,22 +236,26 @@ async function main(): Promise<void> {
       outcomes.push({ label: c.label, e: c.e, rateMul, report, failures: check.failures });
     }
 
-    // §8.4 stress requirement, checked at E ≈ 0.9.
-    const stress = outcomes.find((o) => o.e === 0.9)!;
-    const dropRatio =
-      stress.report.attemptedNotes > 0
-        ? stress.report.droppedNotes / stress.report.attemptedNotes
-        : 0;
-    if (dropRatio > MIX_TARGETS.stress.droppedRatioMax) {
-      stress.failures.push(
-        `dropped/attempted ${(dropRatio * 100).toFixed(1)}% > ${(MIX_TARGETS.stress.droppedRatioMax * 100).toFixed(0)}%`,
-      );
-    }
-    const budget = 16; // TIER_PARAMS.high.voices
-    if (stress.report.maxConcurrentVoices > budget) {
-      stress.failures.push(
-        `max concurrent ${stress.report.maxConcurrentVoices} > budget ${budget}`,
-      );
+    // §8.4 stress requirement, checked at E ≈ 0.9. Skipped under `--soak`, which
+    // renders only E ≈ 0.6 — the `!` here would hand back `undefined` and the
+    // next line would throw on a soak run rather than simply skipping.
+    const stress = outcomes.find((o) => o.e === 0.9);
+    if (stress) {
+      const dropRatio =
+        stress.report.attemptedNotes > 0
+          ? stress.report.droppedNotes / stress.report.attemptedNotes
+          : 0;
+      if (dropRatio > MIX_TARGETS.stress.droppedRatioMax) {
+        stress.failures.push(
+          `dropped/attempted ${(dropRatio * 100).toFixed(1)}% > ${(MIX_TARGETS.stress.droppedRatioMax * 100).toFixed(0)}%`,
+        );
+      }
+      const budget = 16; // TIER_PARAMS.high.voices
+      if (stress.report.maxConcurrentVoices > budget) {
+        stress.failures.push(
+          `max concurrent ${stress.report.maxConcurrentVoices} > budget ${budget}`,
+        );
+      }
     }
 
     writeFileSync(

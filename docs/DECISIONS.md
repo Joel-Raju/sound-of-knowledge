@@ -2288,3 +2288,63 @@ to work.
 
 Ticked tasks and human items are now different numbers in different files, which is
 precisely the arrangement that let them drift.
+
+## D4's soak found a real bug: `renderOffline` output depends on total duration
+
+Generating D4 surfaced something that changes how the D1–D3 verdicts should be read.
+
+**D4 rendered and its drift is genuinely flat: +0.035 dB/min over 600 s**, peak −4.79
+dBFS, 0 clipped, 0 non-finite, no bucket below −24.4 dBFS except the last, and no
+silence run. On its own terms the soak is the healthiest artefact in the directory.
+
+**But the soak FAILS §8.4's band targets** — bass 52.6 % against a 10–40 % target, high
+0.4 % against 1–25 % — and the cause is not the audio. It is the render.
+
+| | sub | bass | mid | high | air |
+|---|---|---|---|---|---|
+| `render-E60.wav`, whole 120 s | 22.4 | 23.3 | **51.7** | 2.4 | 0.2 |
+| `render-soak.wav`, **first 120 s only** | 40.6 | **43.4** | 16.0 | **0.1** | 0.0 |
+
+Same seed (`20_261_010`), same `rateMul` (0.306), same first 120 seconds of virtual
+time — and a completely different spectrum. **The only differing input is the buffer
+length passed to `renderOffline`.**
+
+The 120 s render is otherwise exactly reproducible: re-running it today reproduced
+sub 22.4 / bass 23.3 / mid 51.7 / high 2.4 and notes=677, identical to the 14 Oct run.
+So this is not general non-determinism, and it is not the analyser — `bandShare` uses a
+fixed 8192-point FFT with fixed band edges, verified by re-running it on a subarray of
+the soak file.
+
+Mid collapsing and high nearly vanishing is a **spectral-shape** change, not a level
+change, which points at a filter rather than a gain stage. Not yet localised: the
+candidates are the pad's §9.3-adaptive cutoff, the reverb path, or the master limiter,
+and a 600 s offline context is 230 MB against a 120 s one's 46 MB, so allocation
+pressure on the voice pool is also live. Chasing it properly is its own task.
+
+**What this costs right now, stated plainly:**
+
+1. **D4 cannot be ticked.** Its mix targets fail, and the failure is a bug rather than a
+   tuning problem.
+2. **D1–D3's "passes" now carry a caveat.** Those three files are 120 s renders, and the
+   finding is that a 120 s render is *not* representative of the same settings run longer.
+   The listening verdicts stand as verdicts on what was played — they were real ears on
+   real audio — but they cannot be read as evidence about how the piece behaves over
+   minutes. That is a bigger caveat than it looks, and it is the same class of mistake as
+   tuning against a cached render.
+
+### Two measurement errors of my own, in the same investigation
+
+**The drift slope used least squares and was wrong.** It reported +2.9 to +4.7 dB/min
+on the 120 s files. Almost all of that came from a single loud step in the final
+15–25 s — the **second** one of these renders' ends, present in all three. Replaced
+with Theil–Sen (median of pairwise slopes), which is unmoved by a minority of buckets:
+the same files read **+0.34 / +1.95 / +1.43 dB/min**. A regression that lets one event
+report as a steady trend is the same failure as the strided RMS, in a different guise.
+
+**The "step change" I chased was not a step.** It was the source. `SYNTH_RATE_PERIOD_SEC`
+is **90** with amplitude ±0.6, so `rateAt` oscillates between 5.6 and 22.4 events/s on a
+90-second period by design, plus random bursts (`SYNTH_BURST_PROB` 0.02/s). Any level
+analysis of this source has to account for that, and **the drift metric as written
+cannot isolate engine drift** — it measures whether the mix holds together, not whether
+the engine leaks state. That limitation is now printed with every report rather than
+left for the reader to discover.
