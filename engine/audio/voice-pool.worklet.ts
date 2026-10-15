@@ -68,6 +68,12 @@ class VoicePoolProcessor extends AudioWorkletProcessor {
   private readonly activeStartFrame: Float64Array;
   private readonly debug: boolean;
   private statsCounter = 0;
+  /**
+   * Notes discarded because their slot's queue was full. Surfaced to the harness by
+   * the `stats` message so an overflow can never again be silent — that is the
+   * failure mode that hid the duration-dependence bug.
+   */
+  private overwritten = 0;
 
   constructor(options?: AudioWorkletNodeOptions) {
     super(options);
@@ -133,7 +139,15 @@ class VoicePoolProcessor extends AudioWorkletProcessor {
         const len = this.queueLen[slot]!;
         // Full: overwrite the oldest. Dropping the newest would leave a gap in
         // the middle of a phrase, which is far more audible.
+        //
+        // **Counted, and reported.** This branch is where the duration-dependence
+        // bug lived: with a cap of 8 and the offline harness posting every note up
+        // front, ~80–95 % of notes were overwritten here and the survivors bunched
+        // into a swell at the end of the render. Nothing reported it. A silent
+        // drop is indistinguishable from a correct one, so it is now a number the
+        // harness fails on.
         if (len >= WORKLET_QUEUE_CAP) {
+          this.overwritten++;
           const src = this.queue[slot]!;
           const dst = src[0]!;
           for (let j = 1; j < WORKLET_QUEUE_CAP; j++) src[j - 1] = src[j]!;
@@ -168,6 +182,13 @@ class VoicePoolProcessor extends AudioWorkletProcessor {
         // Spec §13.3 — the offline harness posts `sync` and waits for `synced`
         // to guarantee every `on` has been received before rendering starts.
         this.port.postMessage({ t: "synced" });
+        break;
+      }
+      case "stats": {
+        // Read *after* rendering, so the count is final. The harness treats a
+        // non-zero `overwritten` as a hard failure rather than a warning: a dropped
+        // note is not a mix choice, it is the render lying about what it contains.
+        this.port.postMessage({ t: "stats", overwritten: this.overwritten });
         break;
       }
     }
@@ -273,7 +294,8 @@ type ToWorklet =
       seed: number;
     }
   | { t: "kill"; slot: number; when: number }
-  | { t: "sync" };
+  | { t: "sync" }
+  | { t: "stats" };
 
 registerProcessor("sok-voice-pool", VoicePoolProcessor);
 

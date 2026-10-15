@@ -160,6 +160,22 @@ export async function renderOffline(opts: RenderOfflineOptions): Promise<RenderR
   const left = rendered.getChannelData(0);
   const right = rendered.getChannelData(1);
 
+  // **Before anything else**: ask the worklet how many notes it had to discard.
+  // This is a hard error, not a warning. A note silently dropped from a voice queue
+  // is not a mix decision — it is the render no longer describing itself, and every
+  // number below it (band shares, loudness, the listener's verdict) would be
+  // describing audio that is not what the scheduler produced.
+  const overwritten = await engine.overwrittenNotes();
+  if (overwritten !== 0) {
+    throw new Error(
+      `voice worklet dropped ${overwritten} note(s): ` +
+        (overwritten < 0
+          ? "no reply from the worklet (timeout)"
+          : "a slot queue overflowed — WORKLET_QUEUE_CAP is too small for this render") +
+        `. ${metrics.notesScheduled} notes were scheduled over ${seconds}s.`,
+    );
+  }
+
   const lv = levels(left, right);
   const share = bandShare(toMono(left, right), sr);
 

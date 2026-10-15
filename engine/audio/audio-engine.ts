@@ -340,6 +340,37 @@ export class AudioEngine {
   }
 
   /**
+   * Notes the voice worklet discarded because a slot's queue was full.
+   *
+   * Exists so an overflow can be *seen*. A queue that silently overwrites is
+   * indistinguishable from a correct one, and that is how the offline renders lost
+   * 80–95 % of their notes for as long as the cap was 8. See `DECISIONS.md`.
+   *
+   * @param timeoutMs how long to wait for the reply
+   */
+  async overwrittenNotes(timeoutMs = 5000): Promise<number> {
+    const node = this.node;
+    if (!node) return 0;
+    return new Promise<number>((resolve) => {
+      const timer = setTimeout(() => {
+        node.port.removeEventListener("message", onMessage);
+        // Unresolved is indistinguishable from zero, and zero is the answer that
+        // hides problems — so a timeout reports −1 and fails the render loudly.
+        resolve(-1);
+      }, timeoutMs);
+      const onMessage = (e: MessageEvent): void => {
+        const data = e.data as { t?: string; overwritten?: number } | undefined;
+        if (data?.t !== "stats") return;
+        clearTimeout(timer);
+        node.port.removeEventListener("message", onMessage);
+        resolve(data.overwritten ?? 0);
+      };
+      node.port.addEventListener("message", onMessage);
+      node.port.postMessage({ t: "stats" });
+    });
+  }
+
+  /**
    * Spec §8.10 — read the tap and update the shared feature set. Called once
    * per frame by the app loop; the visuals consume `AudioFeatures` directly and
    * never touch the `AnalyserNode` themselves.

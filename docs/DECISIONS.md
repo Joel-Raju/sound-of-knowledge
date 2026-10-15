@@ -2348,3 +2348,100 @@ analysis of this source has to account for that, and **the drift metric as writt
 cannot isolate engine drift** — it measures whether the mix holds together, not whether
 the engine leaks state. That limitation is now printed with every report rather than
 left for the reader to discover.
+
+## The duration-dependence bug found and fixed — it was dropping 80–95 % of notes
+
+### What it was
+
+`WORKLET_QUEUE_CAP` was **8**, so the voice worklet held 16 slots × 8 = **128 pending
+notes in total**. That is a sane figure for the *live* path, where notes arrive roughly
+just-in-time and a slot rarely holds more than a couple.
+
+The offline harness breaks that assumption completely. `renderOffline` runs the whole
+scheduler to completion — pushing every note for the entire render — **before** calling
+`ctx.startRendering()`. The worklet therefore sees the whole render's worth of notes at
+once, and a full queue overwrites its oldest entry. Against 676 notes (120 s) and 2 984
+(600 s), **each slot kept only its last 8 — those nearest the render's end.**
+
+So ~80–95 % of notes were silently discarded and the survivors bunched into a loud
+bright swell in the final ~5 % of every render. That is the "step change at ~99 s" I had
+already found and then **misattributed to the synthetic source's 90-second diurnal
+period**. Two explanations fit the observation and I picked the wrong one; the right one
+was a bug in the engine. The diurnal period is real, but it is not what that step was.
+
+### How it was localised
+
+`scripts/bisect-duration.ts` renders both durations **in one page session** (no
+cross-process state, one browser launch) across three scenarios and compares the first
+120 s of each:
+
+```
+--- before the fix ---
+✗ DIFFERS  full         Δmid 31.70pp  Δhigh 2.08pp
+✗ DIFFERS  notes-only   Δmid 94.43pp  Δhigh 5.07pp
+✓ same     pad-only     Δmid  0.00pp  Δhigh 0.00pp
+```
+
+`notes-only/600`'s first 120 s measured **0.0 % in every band — total silence**, while the
+same scenario over 120 s was mid 94.4 %. That isolated it to the note path and exonerated
+the pad in one run.
+
+### The fix
+
+1. **`WORKLET_QUEUE_CAP` 8 → 1024.** 16 384 pending notes, ~0.5 MB preallocated. It is a
+   constant rather than a growth policy because the worklet cannot allocate inside
+   `process()`. It covers a 10-minute render at §6.4's highest stress density.
+2. **Overwrites are counted** and returned via a new `stats` message.
+3. **`renderOffline` throws on any non-zero count** — a hard error, not a warning. A
+   silently dropped note is not a mix decision; it is the render no longer describing
+   itself, and every number derived from it would describe audio the scheduler never
+   produced.
+
+Raising the cap alone would have fixed the symptom and left the failure mode armed.
+
+### Verified
+
+```
+--- after the fix ---
+✓ same     notes-only   Δmid 0.00pp  Δhigh 0.00pp
+✓ same     pad-only     Δmid 0.00pp  Δhigh 0.00pp
+✓ same     full         Δmid 0.40pp  Δhigh 0.26pp
+```
+
+And the soak's health, which was being masked:
+
+| | before | after |
+|---|---|---|
+| bucket spread | 8.84 dB | **3.16 dB** |
+| slope | +0.035 dB/min | +0.07 dB/min |
+| silence runs | 0 s | 0 s |
+| clipped / non-finite | 0 / 0 | 0 / 0 |
+
+The 8.84 dB of variation I had been reading as the synthetic source's diurnal rate was
+mostly dropped notes.
+
+### What this costs, stated plainly
+
+**D1–D3's listening verdicts are void.** They were real ears on real audio, but that
+audio was missing most of its notes — a piece that is 80 % pad and a final swell. I
+earlier wrote that the verdicts "stand as verdicts on what was played"; that was too
+generous and is withdrawn. They must all be re-listened.
+
+**And the mix now fails §8.4 on all four renders**, having "passed" before only because
+the dropped notes were suppressing exactly the content that fails:
+
+| | sub | bass | mid | high | rms |
+|---|---|---|---|---|---|
+| target | 8–45 % | **10–40 %** | **20–55 %** | 1–25 % | −24…−16 dBFS |
+| E30 | 17.3 % | **9.2 %** | **55.0 %** | 7.6 % | **−15.0** |
+| E60 | 13.5 % | **7.2 %** | **67.6 %** | 8.5 % | **−16.0** |
+| E90 | 12.5 % | **7.9 %** | **72.9 %** | 6.3 % | −16.3 |
+| soak (600 s) | 30.1 % | 11.7 % | **53.5 %** | 4.5 % | **−15.5** |
+
+So the true mix is **mid-heavy and bass-light**, where before the fix it looked balanced
+because the surviving notes were disproportionately the low, long-decaying kinds. §8.4's
+targets were not being met; they were being accidentally satisfied.
+
+This is now a **mix-tuning question rather than a bug**, and it is the human's: how much
+pad against how many notes. Raising the pad's gain fixes bass and mid together, since
+the pad is the low end; trimming note gains fixes mid alone and makes the piece thinner.

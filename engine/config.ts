@@ -666,7 +666,31 @@ export const KIND_CONCURRENT_CAP: Partial<Record<VoiceType, number>> = {
 };
 
 /** spec §8.5 — worklet pending-queue capacity per slot. */
-export const WORKLET_QUEUE_CAP = 8;
+/**
+ * Per-slot pending-note capacity in the voice worklet.
+ *
+ * **Was 8, which is far too small for offline rendering.** The cap is sized for the
+ * live path, where notes arrive roughly just-in-time and a slot rarely holds more
+ * than a couple. The offline harness breaks that assumption entirely: it runs the
+ * whole scheduler to completion *before* calling `startRendering()`, so every note for
+ * the entire render is posted up front and the worklet sees them all at once.
+ *
+ * With 16 slots × 8, total capacity was **128 notes** against 676 in a 120 s render
+ * and 2 984 in a 600 s one. A full queue overwrites its oldest entry, so each slot
+ * retained only its last 8 notes — those nearest the render's end. The result was that
+ * roughly 80–95 % of notes vanished and the survivors bunched into a loud bright
+ * swell in the final ~5 % of every render. See `DECISIONS.md`.
+ *
+ * 1 024 per slot is 16 384 pending notes — about 0.5 MB of preallocated structs, which
+ * is why this is a constant rather than a growth policy: the worklet cannot allocate
+ * inside `process()`. It covers a 10-minute render at §6.4's highest stress density
+ * with room to spare.
+ *
+ * Raising the cap is necessary but not sufficient — a silently full queue is how the
+ * original bug hid for this long, so the worklet now counts overwrites and
+ * `renderOffline` reports them as a hard failure.
+ */
+export const WORKLET_QUEUE_CAP = 1024;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // World / visuals — spec §9
