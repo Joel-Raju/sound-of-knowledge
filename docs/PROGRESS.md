@@ -200,18 +200,21 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.4) —
 **20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
-**Human checklist: 12 of 50 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
+**Human checklist: 10 of 50 closed, 40 open** — see `docs/HUMAN-CHECKLIST.md`.
 
 Audio is finished and verified end to end: the full graph renders offline at all
-three energies within §8.4, and **D1–D3 were listened to and passed on 2026-10-15**
-(E30 musical · E60 full but not crowded · E90 musical). The E90 verdict is the
-informative one — the scheduler drops **31.3 % of attempted notes** against §8.4's
-35 % ceiling and that reads as texture, not as breakage, so no cap change is
-warranted. The air layer is confirmed inaudible at §8.8's values. The one thing
-that went wrong in Phase 3 — four rounds of tuning against a cached render — is
-written up in `DECISIONS.md` along with the protocol that prevents a repeat.
+three energies within §8.4, and the 10-minute soak was listened to in full and
+liked (**D4**, drift spread 2.99 dB over 600 s).
 
-**What is blocked on the human, and on what.** 38 open items break down as:
+**D1–D3 have been re-opened.** Their previous verdicts were given on renders made
+while `WORKLET_QUEUE_CAP` was 8, which silently discarded **80–95 % of notes** — the
+audio was mostly pad and a final swell. The bug is fixed, the mix rebalanced with
+explicit bus gains, and all four artefacts regenerated, so they need re-listening on
+audio that is complete. **D3 matters most**: the scheduler still drops 31.3 % of
+attempted notes at E ≈ 0.9 and whether that reads as texture is now being judged on
+the real thing. The air layer is confirmed inaudible at §8.8's values.
+
+**What is blocked on the human, and on what.** 40 open items break down as:
 
 | needs | items | unblocked by |
 |---|---|---|
@@ -221,7 +224,7 @@ written up in `DECISIONS.md` along with the protocol that prevents a repeat.
 | eyes | C11, C6 | now answerable — post-processing has landed |
 | eyes, on T5 | E4 | HUD, needs T5 |
 
-So **19 of the 38 are gated on T5.1**, not on the human. That is the single
+So **19 of the 40 are gated on T5.1**, not on the human. That is the single
 highest-leverage task left.
 
 Phase 4 opened with T4.1. `engine/visual/` went from 0 lines to the renderer's
