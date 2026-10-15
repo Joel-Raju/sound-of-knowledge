@@ -105,6 +105,18 @@ const NO_SPARKS = args.includes("--no-sparks");
 const SWEEP = args.includes("--sweep");
 
 /**
+ * `--dust-sweep` — render the dust at every candidate density/opacity.
+ *
+ * Exists so C11b is decided by looking rather than by argument. §9.7 specifies 30 000
+ * points and a twinkle spanning [0.25, 1.0] but never says what the twinkle multiplies,
+ * so "how much dust is too much" has no answer derivable from the spec — it is a
+ * judgement, and a contact sheet is cheaper than three paragraphs.
+ *
+ * Runs against one server, same as `--sweep`, for the reason documented there.
+ */
+const DUST_SWEEP = args.includes("--dust-sweep");
+
+/**
  * `--no-post` — skip §9.8's composer, drawing straight to the canvas.
  *
  * Needed for the T4.4 A/B: without it there is no way to attribute a change in the
@@ -801,6 +813,42 @@ async function main(): Promise<void> {
       v.__sok?.visual?.addImpacts(6, 0.7, "push");
       v.__sok?.visual?.addImpacts(3, 0.9, "dent");
     });
+
+    if (DUST_SWEEP) {
+      // Rows span the decision: density on one axis, the unspecified base opacity on
+      // the other. `off` is the control — if a candidate looks like this one, the dust
+      // is contributing nothing and is just cost.
+      const DUST_CANDIDATES: [string, string][] = [
+        ["a-off", "&nosparks=1"],
+        ["b-as-specified", ""],
+        ["c-density-0.35", "&dustDensity=0.35"],
+        ["d-alpha-0.35", "&dustAlpha=0.35"],
+        ["e-both", "&dustDensity=0.35&dustAlpha=0.35"],
+        ["f-alpha-0.15", "&dustAlpha=0.15"],
+      ];
+      console.log("\n=== dust sweep (C11b) — one server, six candidates ===");
+      console.log("look at artifacts/shots/dust-*.png\n");
+      for (const [name, qs] of DUST_CANDIDATES) {
+        await page.goto(
+          `http://127.0.0.1:${PORT}/?debug=1${QUALITY ? `&quality=${QUALITY}` : ""}${qs}`,
+        );
+        await page.waitForFunction(() => window.__sokVisualReady === true, null, {
+          timeout: 60_000,
+        });
+        const r = await capture(page, TIMES[TIMES.length - 1] ?? 6, errors, 1, `dust-${name}`, 0);
+        console.log(
+          `${name.padEnd(18)} mean=${r.mean.toFixed(2).padStart(6)}  ` +
+            `corner=${r.cornerStdDev.toFixed(2).padStart(5)}  ` +
+            `bright=${(r.brightFraction * 100).toFixed(2).padStart(6)}%`,
+        );
+      }
+      console.log("\nopen:  open artifacts/shots/dust-*.png");
+      if (errors.length > 0) {
+        for (const e of errors) console.log(`   ${e}`);
+        failed = true;
+      }
+      return;
+    }
 
     // --sweep: capture all four layer/composer combinations against this one server.
     // Each is a fresh page load, since ?nosparks and ?nopost are read at mount time

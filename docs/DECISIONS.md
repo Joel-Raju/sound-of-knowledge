@@ -2190,3 +2190,37 @@ dust density and alpha, and whether the corner-std-dev ceiling of 6 is meant to 
 grain — in which case the shipped scene is over-budget by a small margin and the dust
 needs thinning — or to bound *banding*, in which case it cannot distinguish "grainy and
 correct" from "broken" and the ceiling needs rethinking.
+
+### C11b resolved — base alpha 0.35, and density was the wrong lever
+
+The decision was made by eye over a contact sheet, not by argument. `shot.ts
+--dust-sweep` renders six candidates against one server:
+
+| candidate | setting | corner std-dev |
+|---|---|---|
+| `a-off` | no dust (control) | 0.34 |
+| `b-as-specified` | 30 000 @ alpha 1.0 | **6.14** |
+| `c-density-0.35` | 10 500 @ alpha 1.0 | 0.34 |
+| `d-alpha-0.35` | 30 000 @ alpha 0.35 | 2.16 |
+| `e-both` | 10 500 @ alpha 0.35 | 0.34 |
+| `f-alpha-0.15` | 30 000 @ alpha 0.15 | 0.56 |
+
+**Density is the wrong lever, and that is the useful finding.** `c` and `e` score 0.34 —
+identical to having no dust at all. Cutting the count does not thin the dust, it deletes
+it, taking the depth cue with it. Only the opacity keeps the motes present while making
+them recede. The count is left at §9.7's 30 000 and the deviation is confined to the one
+quantity the spec leaves unspecified.
+
+**The judgement applied** was: do the motes read as depth around the orb, or as a second
+subject competing with it? At alpha 1.0 they compete — the frame reads as *space*. At 0.35
+they read as tiny dust particles around the orb and the orb stays the subject.
+
+**Baked in as `DUST_BASE_ALPHA = 0.35`**, overridable via `?dustAlpha=` so the choice can
+be revisited without a code change. T4.4 acceptance passes: corner std-dev **1.85** in
+(0, 6), centre std-dev 66.75 > 5, no console errors.
+
+**Not fixed, and separately so:** with the dust entirely *off*, `a-off` still shows a
+**navy** background rather than near-black. That is AgX lifting the clear colour, not the
+dust — visible in the control, and unaffected by anything decided here. Recorded on C6,
+since "is the background dark enough, and does it band" is one question about the same
+surface. The grain is doing its job; T4.4's corner check passes.

@@ -7,7 +7,14 @@
  */
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { DUST, Dust, DUST_DRIFT, DUST_SHELL, DUST_SIZE } from "@/engine/visual/dust";
+import {
+  DUST,
+  DUST_BASE_ALPHA,
+  Dust,
+  DUST_DRIFT,
+  DUST_SHELL,
+  DUST_SIZE,
+} from "@/engine/visual/dust";
 
 const TIERS = ["low", "medium", "high"] as const;
 
@@ -203,5 +210,46 @@ describe("Dust constants", () => {
 
   it("exports a namespace object for the harness", () => {
     expect(DUST.shell).toEqual({ inner: 3, outer: 40 });
+  });
+});
+
+describe("Dust — the C11b base opacity", () => {
+  it("defaults to the value chosen by eye, not the spec's implicit 1.0", () => {
+    // §9.7 never says what the twinkle multiplies. At 1.0 the motes render at full
+    // strength and 30 000 of them additive on dark read as a starfield rather than
+    // as dust around the orb. 0.35 is the sweep's chosen value.
+    expect(DUST_BASE_ALPHA).toBeCloseTo(0.35);
+    const d = new Dust({ tier: "high" });
+    expect(d.material.uniforms.uBaseAlpha!.value).toBeCloseTo(DUST_BASE_ALPHA);
+    d.dispose();
+  });
+
+  it("stays in the band where dust reads as depth rather than as subject", () => {
+    // The sweep measured corner-patch std-dev: 1.0 → 6.12 (a starfield, and over
+    // T4.4's ceiling of 6), 0.35 → 2.16, 0.15 → 0.56 (barely present at all). The
+    // useful band is between "competing subject" and "invisible".
+    expect(DUST_BASE_ALPHA).toBeGreaterThan(0.15);
+    expect(DUST_BASE_ALPHA).toBeLessThan(0.6);
+  });
+
+  it("is overridable, so the choice can be revisited without a code change", () => {
+    const d = new Dust({ tier: "high" });
+    d.setBaseAlpha(1);
+    expect(d.material.uniforms.uBaseAlpha!.value).toBe(1);
+    d.setBaseAlpha(0);
+    expect(d.material.uniforms.uBaseAlpha!.value).toBe(0);
+    d.dispose();
+  });
+
+  it("scales the density independently of the opacity", () => {
+    // The sweep found density is the wrong lever — 35 % of the count scores
+    // identically to no dust at all. The knob stays so that finding stays testable.
+    const d = new Dust({ tier: "high" });
+    d.setDensity(0.35);
+    expect(d.drawn).toBe(Math.round(30000 * 0.35));
+    expect(d.material.uniforms.uBaseAlpha!.value).toBeCloseTo(DUST_BASE_ALPHA);
+    d.setDensity(1);
+    expect(d.drawn).toBe(30000);
+    d.dispose();
   });
 });

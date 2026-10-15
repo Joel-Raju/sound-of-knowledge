@@ -284,6 +284,20 @@ export function VisualHarness(): React.JSX.Element {
           // T4.4 — §9.7's ambient dust, behind everything per §9.2's order.
           const dust = new dustMod.Dust({ tier: engine.tier });
 
+          // `?dustAlpha=` and `?dustDensity=` drive the two quantities the C11b
+          // decision turns on — §9.7's twinkle formula spans [0.25, 1.0] but never
+          // says what it multiplies, so the base opacity is unspecified and this is
+          // where a chosen value comes from. Both exist so the choice can be swept
+          // and looked at rather than argued about.
+          const dustAlpha = Number(params.get("dustAlpha"));
+          if (Number.isFinite(dustAlpha) && params.get("dustAlpha") !== null) {
+            dust.setBaseAlpha(Math.max(0, Math.min(1, dustAlpha)));
+          }
+          const dustDensity = Number(params.get("dustDensity"));
+          if (Number.isFinite(dustDensity) && params.get("dustDensity") !== null) {
+            dust.setDensity(Math.max(0, Math.min(4, dustDensity)));
+          }
+
           engine.addLayer({
             attach: (scene) => {
               scene.add(dust.points);

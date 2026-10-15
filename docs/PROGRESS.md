@@ -155,7 +155,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 - [x] **T4.1** Renderer bootstrap, camera rig, palette, governor, tiers
 - [x] **T4.2** Core orb
 - [x] **T4.3** Sparks and rings
-- [ ] **T4.4** Dust and post-processing
+- [x] **T4.4** Dust and post-processing
 - [ ] **T4.5** Visual queue, event firing, labels, audio coupling
 
 ## Phase 5 — Product shell
@@ -199,7 +199,7 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 ## Status
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.3) —
-**19 of 31 tasks** (T4.4 built, acceptance unresolved). 787 unit tests, 18 Chromium e2e, all gates green.
+**20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
 
 Audio is finished and verified end to end: the full graph renders offline at all
 three energies within §8.4, the mix was reviewed by ear, and the air layer is
@@ -266,21 +266,30 @@ a screenshot with none visible. All three are in `DECISIONS.md`.
 
 Next: **T4.4**, dust and post-processing.
 
-## T4.4 — implemented, acceptance not met
+## T4.4 — dust and post-processing ✅
 
 `engine/visual/dust.ts` (§9.7) and `engine/visual/post.ts` (§9.8) are built and wired:
 the composer is the only thing that draws to screen, §9.2's draw order is pinned via
 `renderOrder`, §9.11's bloom low-pass and ±35 % clamp are implemented, and AgX turned
 out to be available so §9.8's ACES fallback is only a guard.
 
-**T4.4 is not ticked.** Its criterion — corner-patch std-dev `> 0` but `< 6` — reads
-**6.12** consistently at the governor's 0.60 render scale (7.06–7.19 at 0.70; the spread
-tracks the scale because §9.7 scales point size by pixel ratio). And looking at the
-capture, the failure is real: §9.7's 30 000 points at an alpha reaching 1.0, additive on
-a dark background, render as a **dense starfield**, not ambient dust.
+**One deliberate deviation from §9.7, chosen by eye.** §9.7 specifies 30 000 points and
+a twinkle spanning [0.25, 1.0] but never says what the twinkle multiplies. At 1.0 the
+motes render at full strength and the scene reads as a starfield — a second subject
+competing with the orb. A six-candidate contact sheet (`shot.ts --dust-sweep`) settled it:
+**base alpha 0.35**, at which the motes read as tiny dust particles around the orb.
 
-`--sweep` (new) captures all four layer/composer combinations against one server, which
-is how the attribution was established; the first attempt at that A/B returned
-mislabelled rows because `ensureServer` reuses whatever is listening. Full analysis,
-including two bugs of my own, in `DECISIONS.md`. Parked as C11b in
-`HUMAN-CHECKLIST.md`.
+Density turned out to be the wrong lever: 10 500 motes at alpha 1.0 score a corner
+std-dev *identical* to having no dust at all. Cutting the count deletes the depth cue
+rather than thinning it.
+
+**Acceptance now passes** — corner-patch std-dev **1.85** in (0, 6), centre std-dev 66.75
+> 5, no console errors. Both fixes found along the way were mine: invented
+`ToneMappingEffect` parameters that lifted the near-black clear colour to navy
+(7.04 → 5.02), and a four-row A/B that came back mislabelled because `ensureServer` reuses
+whatever is listening. `--sweep` fixed the second class permanently. Full analysis in
+`DECISIONS.md`.
+
+Still open and *not* fixed: with the dust entirely off the background is still navy
+rather than near-black — AgX lifting the clear colour. Folded into **C6**, since it is a
+background question rather than a dust one.

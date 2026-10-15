@@ -34,6 +34,16 @@ export const DUST_DRIFT = 0.4;
 /** §9.7 — high-frequency band boosts point size by up to 50 %. */
 export const DUST_HI_BOOST = 0.5;
 
+/**
+ * The base opacity §9.7's twinkle formula is multiplied by. **Not in the spec** —
+ * see the `uBaseAlpha` uniform's comment for why, and for the sweep that chose it.
+ *
+ * Deviation from §9.7 as written, recorded in `DECISIONS.md`. Chosen by eye over a
+ * six-candidate contact sheet; the only acceptance criterion that changed sign was
+ * T4.4's corner-patch std-dev, from 6.12 (over the ceiling of 6) to 2.16.
+ */
+export const DUST_BASE_ALPHA = 0.35;
+
 export interface DustOptions {
   tier?: Tier;
   /** Seed for the position PRNG; fixed so a capture is reproducible (§13.4). */
@@ -81,6 +91,25 @@ export class Dust {
         uDrift: { value: DUST_DRIFT },
         uHiBoost: { value: DUST_HI_BOOST },
         uTwinkle: { value: 1 },
+        /**
+         * The quantity §9.7 does not specify, and a deliberate deviation from it.
+         *
+         * §9.7 gives the twinkle as `0.25 + 0.75 * pow(sin(...), 2)` — a value in
+         * [0.25, 1.0] — but never says what it multiplies. At 1.0, 30 000 motes
+         * additive on a dark background render as a **starfield**: the motes become a
+         * second subject competing with the orb for attention.
+         *
+         * 0.35 was chosen by looking, not by argument (`shot.ts --dust-sweep`, images
+         * in `artifacts/shots/t6s-dust-*.png`). The test applied was whether the motes
+         * read as depth around the orb or as a competing subject; at 0.35 they read as
+         * small dust particles around the orb and the orb stays the subject.
+         *
+         * **Density was the wrong lever.** Sweeping it showed 10 500 motes at alpha
+         * 1.0 score a corner std-dev identical to having no dust at all (0.34) — cutting
+         * the count deletes the depth cue rather than thinning it. Only the opacity
+         * keeps it. Recorded in `DECISIONS.md`.
+         */
+        uBaseAlpha: { value: DUST_BASE_ALPHA },
       },
       transparent: true,
       // Additive, like the sparks: dust is light, not paint.
@@ -132,6 +161,26 @@ export class Dust {
   /** §9.11 — reduced motion caps the twinkle rather than removing the dust. */
   setTwinkleScale(scale: number): void {
     this.material.uniforms.uTwinkle!.value = scale;
+  }
+
+  /**
+   * The unspecified base opacity (§9.7), exposed so the C11b sweep can drive it.
+   * @see uBaseAlpha
+   */
+  setBaseAlpha(alpha: number): void {
+    this.material.uniforms.uBaseAlpha!.value = alpha;
+  }
+
+  /**
+   * Density multiplier on §9.7's per-tier count.
+   *
+   * The other half of the C11b question: thinner can mean fewer motes or dimmer
+   * ones, and they look different — fewer is cleaner, dimmer keeps the depth cue.
+   */
+  setDensity(scale: number): void {
+    const n = Math.max(0, Math.round(this.count * scale));
+    this.geometry.setDrawRange(0, n);
+    this.visible = n;
   }
 
   /**
@@ -266,6 +315,7 @@ precision highp float;
 
 uniform vec3 uColor;
 uniform float uTwinkle;
+uniform float uBaseAlpha;
 
 in float vTwinkle;
 out vec4 outColor;
@@ -275,7 +325,8 @@ void main() {
   float d = length(c) * 2.0;
   if (d > 1.0) discard;
   float a = 1.0 - d * d;
-  float alpha = a * vTwinkle * uTwinkle;
+  // uBaseAlpha is the unspecified factor from §9.7 — see uBaseAlpha's comment.
+  float alpha = a * vTwinkle * uTwinkle * uBaseAlpha;
   if (alpha <= 0.0) discard;
   outColor = vec4(uColor * alpha, alpha);
 }

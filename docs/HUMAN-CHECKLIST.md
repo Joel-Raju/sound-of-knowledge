@@ -52,6 +52,11 @@ This file is the authoritative list. It is populated as the build progresses.
 - [ ] **C4.** Reduced-motion mode feels calm; no flashing anywhere.
 - [ ] **C5.** No full-screen strobing (> 3 Hz) in any state, including bot bursts.
 - [ ] **C6.** Dark gradients show no banding (grain dither working, §9.8).
+      ⚠️ **Related, from T4.4:** with the dust entirely off the background is still
+      **navy rather than near-black** — AgX lifting the clear colour, visible in
+      `artifacts/shots/t6s-dust-a-off.png`. The grain is doing its job (T4.4's corner
+      std-dev passes), so this is a tone-mapping question about how dark "dark" should
+      be, not a banding one.
 - [ ] **C7.** The orb body is readable — not washed flat against the background.
       _(Regression risk: LEGACY-NOTES §3.2 found `AdditiveBlending` washed the orb
       out, but spec §9.2 mandates additive. Verify and report.)_
@@ -74,29 +79,29 @@ This file is the authoritative list. It is populated as the build progresses.
       high-tier centre sits above luminance 230. §9.1 defers tone mapping to post and
       §9.2 wants HDR for bloom, so this may be correct — but T4.4 owns the answer and
       nobody has looked at it with bloom on.)_
-- [ ] **C11b.** ⏳ **T4.4's dust reads as a starfield, and its acceptance ceiling does
-      not hold for the shipped scene.** _(T4.4. Corner-patch std-dev reads **6.12**
-      consistently at renderScale 0.60 against a `< 6` ceiling, and **7.06–7.19** at
-      0.70.)_
+- [x] **C11b.** ✅ **Resolved — the dust reads as dust.** _(T4.4. Decided by eye over a
+      six-candidate contact sheet, `shot.ts --dust-sweep`.)_
 
-      Looking at `artifacts/shots/t6s-high.png`: the background is a **dense starfield on
-      a navy field**, not "soft glow and non-banded dark gradient". §9.7 gives 30 000
-      points whose twinkle spans [0.25, 1.0] with no base opacity, additive on a dark
-      background — that is a starfield by construction. AgX additionally lifts the
-      near-black clear colour.
+      §9.7 specifies 30 000 points and a twinkle spanning [0.25, 1.0] but **never says
+      what the twinkle multiplies**. At 1.0 the motes render at full strength and the
+      scene reads as a starfield — a second subject competing with the orb.
 
-      Two questions, both human:
-      1. **Should §9.7's dust be thinner or dimmer than specified?** Adding a base
-         opacity the spec does not give, or cutting the count, would make it ambient.
-      2. **Is the `< 6` ceiling meant to bound grain or banding?** If grain, the shipped
-         scene is marginally over and the dust should thin. If banding, it cannot
-         distinguish "grainy and correct" from "broken", and the check needs rethinking —
-         `shot.ts --sweep` shows the orb alone scores **0.00** (a true banding failure)
-         and adding grain moves it to 0.34, so it discriminates those two well.
+      **Density was the wrong lever.** Sweeping it showed 10 500 motes at alpha 1.0 score
+      a corner std-dev *identical* to having no dust at all (0.34): cutting the count
+      deletes the depth cue rather than thinning it. Only dimming keeps it.
 
-      Not adjusted to fit: widening the ceiling to 8 would pass the check without
-      improving the picture. Full numbers and the three bugs found on the way in
-      (`DECISIONS.md`).
+      **Chosen: base alpha 0.35.** Judged on whether the motes read as depth around the
+      orb or as a competing subject. At 0.35 they read as tiny dust particles around the
+      orb and the orb stays the subject. Corner std-dev **6.12 → 1.85**, and T4.4's
+      acceptance now passes.
+
+      Sweep, for the record: as-specified 6.14 · alpha 0.35 → 2.16 · alpha 0.15 → 0.56
+      · density 0.35 → 0.34 (= dust off). Still overridable via `?dustAlpha=` without a
+      code change.
+
+      ⚠️ **Separate issue, not fixed:** with dust *entirely off* the background is still
+      **navy, not near-black** — AgX lifting the clear colour. Folding this into C6
+      (banding / dark gradients) since it is a background question, not a dust one.
 
 ## D. Audio listen files
 
