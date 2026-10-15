@@ -2445,3 +2445,50 @@ targets were not being met; they were being accidentally satisfied.
 This is now a **mix-tuning question rather than a bug**, and it is the human's: how much
 pad against how many notes. Raising the pad's gain fixes bass and mid together, since
 the pad is the low end; trimming note gains fixes mid alone and makes the piece thinner.
+
+## Mix rebalanced, and all four renders now pass §8.4
+
+The human's call: adjust pad *and* notes, then re-render everything.
+
+**Bus gains were never explicit.** `voiceBus`, `padBus`, `droneBus` and `mixBus` were all
+left at Web Audio's default of 1.0, so the pad-to-notes balance was not a decision
+anywhere — it was an accident of the voice implementations. They are now named constants
+(`VOICE_BUS_GAIN`, `PAD_BUS_GAIN`, `DRONE_BUS_GAIN`, `MIX_BUS_GAIN`) applied in
+`buildFxChain`, because a balance that cannot be adjusted is not a balance.
+
+`padBus` and `droneBus` carry the low end, so raising both lifts bass and sub together
+and pulls the mid *share* down; `voiceBus` carries the mid and high. `MIX_BUS_GAIN` is the
+overall trim.
+
+| | before | after |
+|---|---|---|
+| `PAD_BUS_GAIN` / `DRONE_BUS_GAIN` | 1.0 (implicit) | **1.9** (+5.6 dB) |
+| `VOICE_BUS_GAIN` | 1.0 (implicit) | **0.82** (−1.7 dB) |
+| `MIX_BUS_GAIN` | 1.0 (implicit) | **0.74** (−2.6 dB) |
+
+`MIX_BUS_GAIN` took two passes, and the reason is worth keeping: **the calm case got
+louder, not quieter.** Boosting the pad lifts E30's level, because at E ≈ 0.3 there are
+few notes and the pad is a larger share of the total. First pass at 0.89 left E30 at
+−15.79 dBFS, still over §8.4's −16 ceiling. 0.74 lands it at ≈ −16.5.
+
+### All four pass
+
+```
+case   rms      peak   crest   sub    bass   mid    high   air    drop
+E30   -16.4     -4.8   18.5    21.0%  15.9%  50.0%   8.0%  0.3%    0.0%   ✓
+E60   -16.8     -5.1   16.0    14.9%  10.4%  62.0%   8.0%  0.3%    8.4%   ✓
+E90   -16.7     -5.3   16.5    13.2%   9.9%  66.6%   7.6%  0.3%   31.3%   ✓
+soak  -16.5     -4.8   11.7    32.5%  23.7%  40.1%   3.5%  0.2%    6.7%   ✓
+```
+
+Every band inside §8.4, every level inside the window, 0 clipped samples, 0 non-finite.
+Soak drift: **spread 2.99 dB, slope +0.10 dB/min, no silence run, peak −4.79 dBFS** over
+ten minutes.
+
+E90 still drops 31.3 % of attempted notes against the 35 % ceiling — unchanged by the
+rebalance, and still the thing to listen for, since it was judged musical on audio that
+was missing most of its notes and has not yet been re-judged on audio that is complete.
+
+**All four artefacts are regenerated** in `artifacts/audio/`, and **D1–D4 all need
+re-listening.** The previous verdicts were given on audio with 80–95 % of its notes
+absent.

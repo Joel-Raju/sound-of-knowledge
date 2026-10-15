@@ -690,6 +690,36 @@ export const KIND_CONCURRENT_CAP: Partial<Record<VoiceType, number>> = {
  * original bug hid for this long, so the worklet now counts overwrites and
  * `renderOffline` reports them as a hard failure.
  */
+/**
+ * Bus gains. Previously all implicit at Web Audio's default of 1.0, which meant the
+ * pad-to-notes balance was whatever the voice implementations happened to produce.
+ *
+ * Set explicitly after `WORKLET_QUEUE_CAP` was fixed and 80–95 % of notes stopped
+ * being dropped: with the notes actually audible for the first time, the mix came out
+ * **mid-heavy and bass-light** — bass 7–9 % against §8.4's 10–40 %, mid 55–73 % against
+ * its 20–55 %. That had been passing only because the dropped notes were suppressing
+ * exactly the content that fails. See `DECISIONS.md`.
+ *
+ * `padBus` and `droneBus` carry the low end, so raising both lifts bass and sub
+ * together and pulls the mid *share* down; `voiceBus` carries the mid and high. The
+ * values are linear amplitude, so ×1.9 is about +5.6 dB.
+ */
+export const PAD_BUS_GAIN = 1.9;
+export const DRONE_BUS_GAIN = 1.9;
+/** Notes sit forward, so they are trimmed rather than the pad being left to do it all. */
+export const VOICE_BUS_GAIN = 0.82;
+
+/**
+ * Overall trim.
+ *
+ * §8.4's RMS window is −24 … −16 dBFS. With the pad boosted, the **calm** case got
+ * louder rather than quieter — at E ≈ 0.3 there are few notes, so the pad is a larger
+ * share of the total and its +5.6 dB lands harder. Measured: E30 −15.27 dBFS (over),
+ * E60 and E90 inside. This trim takes E30 to about −16.3, leaving margin, and pushes
+ * the busier cases down rather than up.
+ */
+export const MIX_BUS_GAIN = 0.74;
+
 export const WORKLET_QUEUE_CAP = 1024;
 
 // ─────────────────────────────────────────────────────────────────────────────

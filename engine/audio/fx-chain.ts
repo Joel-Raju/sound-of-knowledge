@@ -27,11 +27,15 @@ import {
   DELAY_LP_HZ,
   DELAY_STEPS_A,
   DELAY_STEPS_B,
+  DRONE_BUS_GAIN,
+  MIX_BUS_GAIN,
+  PAD_BUS_GAIN,
   PAD_DUCK_ATTACK_TC,
   PAD_DUCK_GAIN,
   PAD_DUCK_RELEASE_AT,
   PAD_DUCK_RELEASE_TC,
   REVERB_SEND,
+  VOICE_BUS_GAIN,
   DELAY_SEND,
   PAD_REVERB_SEND,
   STEP_SEC,
@@ -96,6 +100,14 @@ export function buildFxChain(ctx: BaseAudioContext, opts: FxChainOptions): FxCha
   const mixBus = ctx.createGain();
   const droneBus = ctx.createGain();
   const airBus = ctx.createGain();
+
+  // Explicit rather than left at Web Audio's default of 1.0. See the bus-gain
+  // constants in `config.ts`: the pad/notes balance is a tuning decision, and it
+  // cannot be one while it is an accident of the voice implementations.
+  voiceBus.gain.value = VOICE_BUS_GAIN;
+  padBus.gain.value = PAD_BUS_GAIN;
+  droneBus.gain.value = DRONE_BUS_GAIN;
+  mixBus.gain.value = MIX_BUS_GAIN;
 
   padBus.connect(padDuck);
   padDuck.connect(mixBus);
