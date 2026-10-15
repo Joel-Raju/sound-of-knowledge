@@ -52,6 +52,8 @@ export interface OrbOptions {
    * the source is the only lever that recovers the interior structure.
    */
   emission?: number;
+  /** C11 — per-step absorption; lower than §9.4 so accumulation stops saturating. */
+  absorb?: number;
   /** deterministic, for tests and the screenshot harness. */
   seed?: number;
 }
@@ -70,6 +72,8 @@ export const ORB_DEFAULTS = {
    * tone-mapping curve still has room to separate values. See `DECISIONS.md`.
    */
   emission: 0.55,
+  /** C11 — §9.4 writes 3.2; see the shader comment for why detail is lost there. */
+  absorb: 3.2,
   /**
    * §9.4 says 1.0 — the jitter displaces the march by a full `stepLen`, and is
    * given there as being there "to hide banding".
@@ -127,6 +131,7 @@ export class Orb {
       uSteps: { value: params.orbSteps },
       uOctaves: { value: params.orbOctaves },
       uJitter: { value: clamp(opts.jitter ?? ORB_DEFAULTS.jitter, 0, 1) },
+      uAbsorb: { value: clamp(opts.absorb ?? ORB_DEFAULTS.absorb, 0.1, 12) },
       uEmission: { value: clamp(opts.emission ?? ORB_DEFAULTS.emission, 0.05, 4) },
       uImpactA: { value: this.impactA },
       uImpactB: { value: this.impactB },

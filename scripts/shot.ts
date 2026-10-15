@@ -832,6 +832,57 @@ async function main(): Promise<void> {
  */
 const TONEMAP_SWEEP = args.includes("--tonemap-sweep");
 
+/**
+ * `--orb-sweep` — capture the orb at a range of per-step absorption values.
+ *
+ * C11's remaining complaint is that the core is *blurry and lacking detail*, not
+ * merely bright. The mechanism is alpha saturation: transmittance decays by the
+ * per-step absorption every step, so deep in the volume the accumulated colour
+ * converges on the emitted one and the fbm structure is cancelled before anything
+ * downstream can see it. Scaling the colour cannot recover detail that is already
+ * gone — only this term, or more march steps, can.
+ *
+ * Both are §9.4 values, so the range is swept and looked at rather than guessed.
+ */
+const ORB_SWEEP = args.includes("--orb-sweep");
+
+if (ORB_SWEEP) {
+  const VALUES: [string, number][] = [
+    ["absorb-3.2-spec", 3.2],
+    ["absorb-2.0", 2.0],
+    ["absorb-1.2", 1.2],
+    ["absorb-0.7", 0.7],
+  ];
+  console.log("\n=== orb absorption sweep (C11 detail) — one server, four values ===");
+  for (const [name, v] of VALUES) {
+    await page.goto(
+      `http://127.0.0.1:${PORT}/?debug=1${QUALITY ? `&quality=${QUALITY}` : ""}&absorb=${v}`,
+    );
+    await page.waitForFunction(() => window.__sokVisualReady === true, null, {
+      timeout: 60_000,
+    });
+    const r = await capture(
+      page,
+      TIMES[TIMES.length - 1] ?? 6,
+      errors,
+      5,
+      `${QUALITY ? `${QUALITY}-` : ""}${name}`,
+      0,
+    );
+    console.log(
+      `${name.padEnd(18)} mean=${r.mean.toFixed(2).padStart(6)}  ` +
+        `centre-stddev=${r.stdDev.toFixed(2).padStart(6)}  ` +
+        `bright>230=${(r.brightFraction * 100).toFixed(2).padStart(6)}%`,
+    );
+  }
+  console.log("\nopen:  artifacts/shots/t6s-high-absorb-*.png");
+  if (errors.length > 0) {
+    for (const e of errors) console.log(`   ${e}`);
+    failed = true;
+  }
+  return;
+}
+
 if (TONEMAP_SWEEP) {
   const MODES: [string, string][] = [
     ["tonemap-agx", ""],

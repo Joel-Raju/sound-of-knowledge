@@ -46,6 +46,8 @@ uniform int uOctaves;
 uniform float uJitter;
 /** C11 — scales the whole accumulated emission. 1.0 is §9.4 as written. */
 uniform float uEmission;
+/** C11 — per-step absorption. 3.2 is §9.4 as written. */
+uniform float uAbsorb;
 uniform vec4 uImpactA[${IMPACT_SLOTS}];
 uniform vec4 uImpactB[${IMPACT_SLOTS}];
 
@@ -101,7 +103,16 @@ void main() {
     d = smoothstep(0.15, 0.85, d + 0.25 * uMid);
     vec3 emit = mix(uCoreColor, uAccentColor,
       smoothstep(0.2, 0.9, rr + 0.3 * snoise(p * 3.0 + uTime * 0.2)));
-    float a = 1.0 - exp(-d * stepLen * 3.2);
+    // Per-step absorption. §9.4 has 3.2 written in.
+//
+// This is where the core's detail is lost. The transmittance variable decays by a
+// every step, so
+// deep in the volume — where the ray meets dense material on every step — the sum
+// of a approaches 1, the accumulated colour converges on the emitted one regardless of how
+// the density varies, and the fbm structure is cancelled out before anything downstream
+// sees it. Scaling the colour (uEmission, C11) cannot recover detail that is
+// already gone; this is the term that destroys it.
+float a = 1.0 - exp(-d * stepLen * uAbsorb);
     col += trans * a * emit * (1.2 + 2.0 * uRms + 1.5 * uFlux);
     trans *= (1.0 - a);
   }

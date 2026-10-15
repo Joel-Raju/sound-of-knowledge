@@ -255,7 +255,19 @@ export function VisualHarness(): React.JSX.Element {
           jitterArg !== null && Number.isFinite(Number(jitterArg))
             ? Math.max(0, Math.min(1, Number(jitterArg)))
             : undefined;
-        const orb = new orbModule.Orb({ tier: engine.tier, jitter });
+        // `?absorb=` and `?emission=` sweep §9.4's core-detail terms (C11). Both are
+        // runtime-switchable so a value can be looked at before it is committed.
+        const absorbArg = Number(params.get("absorb"));
+        const emissionArg = Number(params.get("emission"));
+        const orb = new orbModule.Orb({
+          tier: engine.tier,
+          jitter,
+          absorb: Number.isFinite(absorbArg) && params.get("absorb") !== null ? absorbArg : undefined,
+          emission:
+            Number.isFinite(emissionArg) && params.get("emission") !== null
+              ? emissionArg
+              : undefined,
+        });
 
         engine.addLayer({
           attach: (scene) => {
