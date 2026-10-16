@@ -80,8 +80,49 @@ test.describe("cross-browser smoke", () => {
     // background reach the centre?
     await page.goto("/?debug=1");
     await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 60_000 });
-    // Let the orb's interior accumulate a few frames.
-    await page.waitForTimeout(1200);
+
+    // §9.1 opens with a camera entrance ease, so the orb is **not** at the centre for
+    // the first second or so. Reading immediately after `__sokVisualReady` is a race:
+    // on a fast machine the ease has finished, on a loaded CI runner it has not, and the
+    // assertion below then fails for a reason that has nothing to do with the engine.
+    // This test was flaky for exactly that reason.
+    //
+    // Polled to a *low* bar first — "something is there at all" — and only then held to
+    // the real bound, which distinguishes "not drawn yet" from "genuinely too dim" in a
+    // way no single fixed wait can.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () =>
+              new Promise<number>((resolve) => {
+                requestAnimationFrame(() => {
+                  const c = document.querySelector(
+                    "canvas[data-testid='visual-canvas']",
+                  ) as HTMLCanvasElement | null;
+                  const gl = (c?.getContext("webgl2") ?? c?.getContext("webgl")) as
+                    | WebGL2RenderingContext
+                    | null;
+                  if (!c || !gl) return resolve(0);
+                  const px = new Uint8Array(4);
+                  gl.readPixels(
+                    Math.floor(c.width / 2),
+                    Math.floor(c.height / 2),
+                    1,
+                    1,
+                    gl.RGBA,
+                    gl.UNSIGNED_BYTE,
+                    px,
+                  );
+                  resolve(
+                    0.2126 * (px[0] ?? 0) + 0.7152 * (px[1] ?? 0) + 0.0722 * (px[2] ?? 0),
+                  );
+                });
+              }),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(0.5);
 
     const stats = await page.evaluate(
       () =>

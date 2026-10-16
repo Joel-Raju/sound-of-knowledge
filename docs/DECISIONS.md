@@ -3228,3 +3228,75 @@ sparse while brightness moves 5×. **A bound that cannot fail for the reason it 
 only fails when the suite is busy**, which is worse than no bound at all.
 
 Verified by re-introducing 0.35: the test fails with `peak outside the orb was 13`.
+
+## The bundle-budget warning was lying
+
+`npm run dev` printed:
+
+```
+  voice-pool.worklet.js      42.2 KB gzip  (106% of budget)  !! OVER 40KB BUDGET
+  ingest.worker.js           73.8 KB gzip  (185% of budget)  !! OVER 40KB BUDGET
+```
+
+The human reported it as a possible problem. It was not one. `--watch` sets
+`minify: !dev` and `sourcemap: dev ? "inline" : false`, so those are **dev** artefacts —
+unminified, with the sourcemap inlined — against a **production** budget. The one-shot
+build a moment earlier printed the real numbers: 8.1 KB (20%) and 3.0 KB (8%).
+
+**The instrument was measuring the right file against the wrong expectation, and
+shouting.** Which is this log's entire subject for the fourth time. It also made the
+message actively misleading: `185% of budget` reads as a finding.
+
+Fixed by labelling the dev figure for what it is, and by noting that the size is still
+worth knowing when debugging — it just is not a budget claim.
+
+### §12.1's budget had no test at all
+
+`build-workers.mjs` printed the sizes; that was the whole of the enforcement. Now
+`worker-budget.test.ts` runs the **production** build itself and asserts:
+
+- both artefacts are within 40 KB gzip
+- neither contains a top-level `export` or `import` — `audioWorklet.addModule()` parses
+  as a *classic script*, where a stray `export` is a runtime syntax error in every
+  browser, and nothing in the build would catch it
+- neither is trivially small, which is the inverse failure: a bundle that meets the
+  budget by containing nothing would pass everything above
+- no `sourceMappingURL` in a production build
+
+**Proving the threshold bites took three attempts, and the two failures are the
+interesting part.**
+
+1. `export const __bloat = "xxx…"` — **tree-shaken away.** IIFE output drops unused
+   exports, so the bundle did not grow at all. A test that passes because the code under
+   it was removed is not testing anything.
+2. `globalThis.__bloat = "x".repeat(70000)` — **gzipped to 8.5 KB.** Seventy thousand
+   identical characters are almost free to compress, so a "70 KB" addition moved the
+   bundle by 0.4 KB. Measuring a compressed budget with compressible test data measures
+   nothing.
+3. Incompressible pseudo-random content — reached 28.5 KB at 150 000 characters, still
+   under the limit, because the generator's alphabet bounds the entropy at ~6.5 bits per
+   character.
+
+So the threshold was verified by temporarily setting `MAX_GZIP_BYTES` to 4 KB against
+the real 8.1 KB build, which failed with `203% of §12.1's budget`. The bloat attempts
+are recorded because **an assertion you cannot make fail is an assertion you have not
+tested**, and three of my four attempts at making this one fail were themselves wrong in
+interesting ways.
+
+### Also fixed: two writers per output file in watch mode
+
+`--watch` created an `esbuild.context()` per entry *and then* called `buildAll()`, which
+spawns a second independent `esbuild.build()` writing the same `outfile`. Two writers to
+one artefact is how a partially-written file eventually gets served. It also explains
+why every file printed **twice** on startup — `report()` fired from both the plugin's
+`onEnd` and `buildAll`. `context()` builds on `watch()`, so the first `onEnd` is already
+the initial build.
+
+### And one genuine flake, found by running the suite
+
+`crossbrowser.spec.ts` read the orb's centre pixel after `__sokVisualReady`. §9.1 opens
+with a **camera entrance ease**, so on a loaded CI runner the orb is not centred yet and
+the read lands on background — which is now black, so the luma assertion failed. It
+passed on a fast machine. Replaced the fixed wait with a poll to a deliberately low bar,
+which distinguishes "not drawn yet" from "genuinely too dim"; the real bound is asserted
+afterwards. Three consecutive runs green.

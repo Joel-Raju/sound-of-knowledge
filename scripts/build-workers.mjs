@@ -72,6 +72,19 @@ async function gzipSize(file) {
   return gzipSync(buf).length;
 }
 
+/**
+ * Report one entry's gzip size against §12.1's budget.
+ *
+ * **The budget is a production claim and is only checked against a production build.**
+ * In `--watch` the output is unminified with an inlined sourcemap, which is worth
+ * roughly 9× in gzip terms, and comparing that to the 40 KB production budget produced
+ * `!! OVER 40KB BUDGET  (185% of budget)` on a completely healthy tree — the human
+ * reported it as a possible problem and it took reading the build options to see that
+ * the instrument was measuring the right file against the wrong expectation.
+ *
+ * The dev figure is still printed, because its size is a real thing to know when
+ * debugging. It is just not a budget claim, and it does not shout.
+ */
 async function report(entry) {
   const outFile = resolve(OUT_DIR, entry.out);
   let gz = 0;
@@ -82,6 +95,12 @@ async function report(entry) {
     /* not built yet */
   }
   const pct = ((gz / MAX_GZIP_BYTES) * 100).toFixed(0);
+  if (dev) {
+    console.log(
+      `  ${entry.out.padEnd(24)} ${(gz / 1024).toFixed(1).padStart(6)} KB gzip  (dev, unminified — §12.1's budget applies to the production build)`,
+    );
+    return;
+  }
   const flag = gz > MAX_GZIP_BYTES ? "  !! OVER 40KB BUDGET" : "";
   console.log(
     `  ${entry.out.padEnd(24)} ${(gz / 1024).toFixed(1).padStart(6)} KB gzip  (${pct}% of budget)${flag}`,
@@ -103,6 +122,14 @@ async function buildAll() {
 }
 
 if (watch) {
+  // **One writer per output file.** This used to call `esbuild.context()` for each
+  // entry *and then* `buildAll()`, which spawns a second, independent `esbuild.build()`
+  // writing the same `outfile`. Two writers to one artefact plus `report()` firing from
+  // both the plugin's `onEnd` and `buildAll` is why every file was reported twice on
+  // startup. It was not a correctness problem — both builds were the same config — but
+  // two writers is how a partial file eventually gets served.
+  //
+  // `context()` builds on `watch()`, so the first `onEnd` *is* the initial build.
   const ctxs = await Promise.all(
     ENTRIES.map((e) =>
       esbuild.context({
@@ -127,7 +154,6 @@ if (watch) {
     ),
   );
   await Promise.all(ctxs.map((c) => c.watch()));
-  await buildAll();
   console.log("[build-workers] watching for changes…");
 } else {
   try {
