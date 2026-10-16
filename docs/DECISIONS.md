@@ -2918,3 +2918,33 @@ state, which is the behaviour that matters.
 §13.4 item 6's XSS case is covered at the HUD as well as the label: an injected
 `<img src=x onerror=…>` title renders as literal text, produces no `<img>`, leaves
 `window.__pwned` undefined, and still yields a correctly encoded article URL.
+
+## The canvas filled only the window's height — found by looking at it
+
+The human ran the app and asked what the black band down the right side was. It is
+`w-dvh`, and it is the over-constrained box problem:
+
+```html
+<div class="fixed inset-0 h-dvh w-dvh">
+```
+
+With `position: fixed` and `left`/`right` both 0, adding an explicit `width` over-constrains
+the box. CSS resolves `left`/`width`/`right` by **ignoring `right`**, so `w-dvh` sized
+the container to **100 units of viewport height** and used it as a width. On a landscape
+window that paints the left portion and leaves the rest as bare page background.
+
+**Why it read as a rendering fault rather than a layout one.** The orb renders, the
+background gradient renders, and the HUD spans the full width — because the HUD elements
+are `fixed inset-x-0`, positioned against the viewport rather than against the container,
+so they said nothing about the container's width. A black band next to correct rendering
+is exactly what a shader or clear-colour bug looks like, and the HUD sitting full-width
+in the black half is what made it look deliberate.
+
+`h-dvh` is kept deliberately: §11.7 wants the height to track the mobile toolbar, and
+the same over-constraint is desirable there. Only the width was wrong.
+
+The regression test runs against a deliberately **wide** 1400×700 viewport so a portrait
+one cannot mask it, and also asserts the drawing buffer's aspect ratio matches the
+element's — otherwise three.js would render into a narrower buffer and stretch it, and a
+round orb would come out elliptical. Verified by re-introducing `w-dvh`: the test fails,
+and it passes with the fix.

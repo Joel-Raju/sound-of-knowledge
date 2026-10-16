@@ -213,6 +213,34 @@ test.describe("T5.1 — the live piece", () => {
     errors.assertClean("debug page");
   });
 
+  test("the canvas fills the viewport, not just its height", async ({ page }) => {
+    // A regression with a precise cause. `fixed inset-0` plus an explicit width
+    // over-constrains the box: CSS resolves `left`/`width`/`right` by ignoring
+    // `right`, so a `w-dvh` class sized the container to 100 units of viewport
+    // **height**. On a landscape window that painted the left portion and left the
+    // rest of the screen as bare page background — which looks like a rendering fault
+    // and is actually a layout one.
+    //
+    // Asserted against a deliberately wide viewport so a portrait one cannot mask it.
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.goto("/");
+    await expect(page.getByTestId("enter-button")).toBeEnabled({ timeout: 20_000 });
+
+    const box = await page.evaluate(() => {
+      const c = document.querySelector("canvas");
+      if (!c) return null;
+      const r = c.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), bw: c.width, bh: c.height };
+    });
+    expect(box, "no canvas").not.toBeNull();
+    expect(box!.w, "the canvas must span the viewport width").toBeGreaterThanOrEqual(1400);
+    expect(box!.h).toBeGreaterThanOrEqual(700);
+
+    // The drawing buffer must match too, or three.js would be rendering into a
+    // narrower buffer and stretching it — a round orb would come out elliptical.
+    expect(Math.abs(box!.bw / box!.bh - box!.w / box!.h)).toBeLessThan(0.02);
+  });
+
   test("dispose is reachable and leaves the canvas behind", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("enter-button")).toBeEnabled({ timeout: 20_000 });

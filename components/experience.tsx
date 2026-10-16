@@ -131,7 +131,13 @@ export function Experience({ debug = false }: { debug?: boolean }): React.JSX.El
   if (debug) return <></>;
 
   return (
-    <div ref={mountRef} className="fixed inset-0 h-dvh w-dvh bg-black">
+    // `h-dvh` but deliberately **no `w-dvh`**. With `position: fixed` and
+    // `inset-0`, adding an explicit width over-constrains the box: CSS resolves
+    // `left`/`width`/`right` by ignoring `right`, so `w-dvh` sized the container to
+    // 100 units of viewport **height** and left the right-hand part of the window
+    // unpainted. `h-dvh` is kept because §11.7 wants the height to track the mobile
+    // toolbar, and the same over-constraint is desirable there.
+    <div ref={mountRef} className="fixed inset-0 h-dvh bg-black">
       {(!entered || !dismissed) && (
         <StartOverlay
           ready={phase === "ready"}
