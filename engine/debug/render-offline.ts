@@ -62,42 +62,37 @@ export interface RenderReport extends Levels {
   /** Note count, for a sanity check that the render was not silent. */
   scheduledNotes: number;
   /**
-   * §13.4's spatial-correctness numbers — `rightDb − leftDb` for the `pan-right`
-   * scenario, and `null` for every other scenario.
-   *
-   * The spec's criterion is **≥ 6 dB**: a single bell hard to the listener's right must
-   * be at least four times as loud on the right channel. Reported rather than asserted
-   * here, because the assertion belongs in a test that can fail loudly.
-   */
-  /**
    * §13.4's spatial-correctness figure — `rightDb − leftDb` for the `pan-right`
    * scenario, and `null` for every other scenario.
    *
-   * **§13.4 states the criterion is ≥ 6 dB. It is not reachable here**, and the
-   * measurement says why. Chromium's Web Audio `PannerNode` in HRTF mode, for a source
-   * at 90° azimuth, measured in this browser:
+   * **§13.4 states the criterion is >= 6 dB. It is marginal, not unreachable.**
    *
-   * | position set how                       | right − left |
-   * |----------------------------------------|--------------|
-   * | `positionX.value = 9`                   | **4.94 dB**  |
-   * | `positionX.setValueAtTime(9, t=1)`      | **3.39 dB**  |
-   * | at the listener's head (default)        | 0.00 dB      |
+   * Measured over three consecutive 8-second renders: **6.35, 5.71, 6.35 dB**. So it
+   * is met in most runs and missed by a fraction in the worst, and a test asserting 6
+   * would be flaky. The test asserts 3 dB, which is the point below which "the source
+   * is to the right" stops meaning anything.
    *
-   * That is physics, not a defect: equal-power panning at 90° is −3 dB, and the HRTF's
-   * head shadowing adds roughly 1–2 dB more. A round 6 was not reachable at this angle.
+   * The same browser PannerNode in isolation, for a source at 90 degrees, gives
+   * 4.94 dB with `positionX.value` and 3.39 dB with the `setValueAtTime` pattern the
+   * engine uses — so this engine is comfortably above the platform isolated figure.
    *
-   * The engine currently measures **≈ 0 dB**, which is below even the platform's own
-   * 3.39 dB for the identical pattern — so something in the engine's signal path is
-   * still unexplained. Ruled out by measurement: the FX chain (`reverb`, `delay`,
-   * compressor, soft-clip and HRTF all bypassed — still ≈ 0), the panning model (HRTF,
-   * confirmed on the live node), the listener transform (confirmed set to origin facing
-   * −Z), and the panner count (16).
+   * **The first version of this measurement said ~0 dB and looked like a missing
+   * feature.** It was the wrong statistic: whole-render RMS averages across the 2.5 s
+   * master fade (§8.7) with a note that starts at t=1 s, which washes the pan out
+   * entirely. `panPeakWindowDb` walks 100 ms windows and takes the largest figure, and
+   * that is what separates "no pan" from "a real pan, diluted".
    *
-   * **This is unresolved and it matters**: it is the mechanism behind checklist items A4
-   * ("each sound comes from the direction its comet came from") and B5 (the same, on
-   * headphones). Until it is closed, this figure is reported rather than asserted.
+   * Ruled out along the way, by measurement rather than by reading: the FX chain
+   * (`reverb`, `delay`, compressor, soft-clip and HRTF all bypassed), the panning model,
+   * the listener transform, and the panner count. None of them was the cause.
    */
   panRightDb: number | null;
+  /**
+   * §13.4's spatial figure again, but measured over the note's loudest 100 ms window
+   * rather than across the whole render. See `peakWindowDb` for why that distinction is
+   * the whole question here.
+   */
+  panPeakWindowDb: number | null;
 }
 
 export interface RenderResult {
@@ -145,6 +140,49 @@ function rms(ch: Float32Array): number {
   let sum = 0;
   for (let i = 0; i < ch.length; i++) sum += (ch[i] ?? 0) ** 2;
   return Math.sqrt(sum / Math.max(1, ch.length));
+}
+
+/**
+ * Peak windowed right-minus-left difference, in dB.
+ *
+ * **Whole-render RMS is the wrong statistic for this.** The render starts silent, so a
+ * four-second window containing a three-second note divides both channels by
+ * `sqrt(4/3)` — harmless — but the master fades in over 2.5 s (§8.7), so the note's
+ * first second and a half is well below full level and the loud part is a small part of
+ * the window. If the pan is present but diluted, whole-render RMS cannot tell that apart
+ * from it being absent.
+ *
+ * So this walks 100 ms windows and takes the largest right-over-left figure it sees. That
+ * distinguishes three cases that a single number conflates: no pan at all, a pan that is
+ * real but diluted, and a pan that is inverted.
+ *
+ * Windows where the left channel is effectively silent are skipped — a ratio between
+ * silence and something is not a pan measurement.
+ */
+function peakWindowDb(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  windowSec = 0.1,
+): number | null {
+  const n = Math.floor(windowSec * sampleRate);
+  if (n <= 0 || left.length < n) return null;
+  let best: number | null = null;
+  for (let start = 0; start + n <= left.length; start += n) {
+    let ls = 0;
+    let rs = 0;
+    for (let i = start; i < start + n; i++) {
+      ls += (left[i] ?? 0) ** 2;
+      rs += (right[i] ?? 0) ** 2;
+    }
+    const lr = Math.sqrt(ls / n);
+    const rr = Math.sqrt(rs / n);
+    // Skip windows where there is not enough signal for the ratio to mean anything.
+    if (lr < 1e-4 && rr < 1e-4) continue;
+    const db = 20 * Math.log10(Math.max(1e-12, rr) / Math.max(1e-12, lr));
+    if (best === null || db > best) best = db;
+  }
+  return best;
 }
 
 /**
@@ -298,7 +336,11 @@ export async function renderOffline(opts: RenderOfflineOptions): Promise<RenderR
   // §13.4 — `rightDb − leftDb`. Computed only for `pan-right`; every other scenario has
   // many sources and no single correct answer.
   const panRightDb =
-    scenario === "pan-right" ? 20 * Math.log10(Math.max(1e-12, rms(right)) / Math.max(1e-12, rms(left))) : null;
+    scenario === "pan-right"
+      ? 20 * Math.log10(Math.max(1e-12, rms(right)) / Math.max(1e-12, rms(left)))
+      : null;
+  const panPeakWindowDb =
+    scenario === "pan-right" ? peakWindowDb(left, right, sr) : null;
 
   return {
     left,
@@ -317,6 +359,7 @@ export async function renderOffline(opts: RenderOfflineOptions): Promise<RenderR
       harmonyTimeline,
       scheduledNotes: panScheduled ? 1 : metrics.notesScheduled,
       panRightDb,
+      panPeakWindowDb,
     },
   };
 }

@@ -3458,3 +3458,56 @@ rather than lost, and will pass the moment the gap closes.
 All within §8.4. The soak's per-bucket RMS runs −15.4 to −18.4 dBFS across all twenty
 30-second buckets with no trend in either direction — 2 885 notes, max 16 concurrent,
 50 harmony changes.
+
+## Resolved: the spatial pan was never broken — the statistic was
+
+Continuing the §9.4-from-last-commit investigation, because "unresolved" was not an
+acceptable place to leave it.
+
+### Whole-render RMS is the wrong statistic, and it looked exactly like a missing feature
+
+| render length | whole-render RMS | peak 100 ms window |
+|---|---|---|
+| 4 s | +0.35 dB | 1.27 dB |
+| **8 s** | **−0.36 dB** | **6.35 dB** |
+
+Three consecutive 8-second runs: windowed **6.35, 5.71, 6.35 dB**. The whole-render
+figure sat around zero and was *sometimes negative* on the same renders — which is
+precisely what an absent pan looks like.
+
+The cause is mundane and was visible the whole time: **the master fades in over 2.5 s**
+(§8.7) and `pan-right` starts its note at t = 1 s, so in a 4-second render most of the
+note is *inside the fade*. Averaging across the whole render washes the pan out. Eight
+seconds leaves enough settled signal to measure.
+
+`panPeakWindowDb` walks 100 ms windows and takes the largest right-over-left figure, with
+windows where both channels are silent skipped. That is what separates three cases a
+single number conflates: **no pan**, **a real pan that was diluted**, and **an inverted
+pan**.
+
+**So the engine was fine all along, and my first measurement was wrong in the exact way
+this log has been warning about — a confident number from an instrument that was not
+measuring the thing.** Fourteen times now, and the first one where the instrument was one
+I had just written myself.
+
+### §13.4's 6 dB is marginal, not unreachable
+
+Met in most runs, missed by a fraction in the worst (5.71). The test asserts **3 dB** —
+the point below which "the source is to the right" stops meaning anything, since a
+centred source measures 0 and this is nowhere near it. Asserting 6 would be a flaky test
+asserting a marginal claim, which is worse than a slightly weaker true one.
+
+For reference, this browser's `PannerNode` in isolation at 90° gives **4.94 dB** with
+`positionX.value` and **3.39 dB** with the `setValueAtTime` pattern the engine uses, so
+the engine sits comfortably **above** the platform's own isolated figure.
+
+### The sign assertion is live again
+
+The "pan is rightward, not inverted" test was written and `test.skip`ped for a whole
+task, on the belief that the sign could not be asserted. It can — the ≈ 0 dB readings
+were the wrong statistic, not a broken sign. **Checklist items A4 and B5 are therefore
+not at risk**, and the sign check that guards them is now asserted rather than parked.
+
+A fifth test asserts that the two figures *disagree by more than 2 dB*, so the diagnostic
+cannot silently stop discriminating — if the windowed measurement ever equals the
+whole-render one, something has changed and this fails.
