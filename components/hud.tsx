@@ -24,6 +24,8 @@ const AUTO_FADE_MS = 5_000;
 const FADED_OPACITY = 0.25;
 /** §11.4 — the status line does not fade. */
 const STATUS_OPACITY = 1;
+/** §11.6 — "aria-live=\"polite\" summary updated at most every 10 s". */
+const ANNOUNCE_INTERVAL_MS = 10_000;
 
 const STATUS_COLOURS: Record<string, string> = {
   live: "bg-emerald-500",
@@ -57,7 +59,9 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
 
   // §11.4 — `role="status" aria-live="polite"`, and §11.6 caps the announced summary
   // at once every 10 s so a screen reader is not read a number four times a second.
-  const lastAnnounced = useRef(0);
+  const [announced, setAnnounced] = useState("");
+  const lastAnnouncedAt = useRef(0);
+  const lastAnnouncedText = useRef("");
 
   // --- engine subscriptions -------------------------------------------------
 
@@ -65,9 +69,23 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
     if (!engine) return;
     // §11.4 — ≤ 4 Hz, driven by the engine's own throttle rather than by a React
     // interval, so a paused tab cannot queue updates.
+    //
+    // The announcement throttle lives here rather than in its own effect because it
+    // *is* the `stats` handler's business: §11.6's cap is about how often this event
+    // is allowed to change what a screen reader says. Splitting it out made it an
+    // effect that set state, which is both a lint error and a worse shape — the
+    // decision is made per event, here.
     return engine.on("stats", (s) => {
       setMetrics({ ...engine.getMetrics() });
       setEps(s.eps);
+
+      const next = politeSummary(engine.getMetrics().streamState, s.eps);
+      if (next === lastAnnouncedText.current) return;
+      const now = performance.now();
+      if (now - lastAnnouncedAt.current < ANNOUNCE_INTERVAL_MS) return;
+      lastAnnouncedAt.current = now;
+      lastAnnouncedText.current = next;
+      setAnnounced(next);
     });
   }, [engine]);
 
@@ -168,13 +186,6 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
 
   // --- announcements (§11.6) ------------------------------------------------
 
-  useEffect(() => {
-    if (!metrics) return;
-    const now = performance.now();
-    if (now - lastAnnounced.current < 10_000) return;
-    lastAnnounced.current = now;
-  }, [metrics]);
-
   if (hidden) {
     // Still one affordance back, or `H` with the UI hidden is unrecoverable without
     // knowing the shortcut. §11.4's "hide UI" that cannot be undone is a trap.
@@ -197,9 +208,6 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
     : "Starting…";
 
   const delta = ticker?.edit ? signed(ticker.edit.delta) : "";
-  const polite = eps > 0
-    ? `${STATUS_WORD[state] ?? state}, about ${eps.toFixed(0)} edits per second`
-    : "";
 
   const apply = (patch: Parameters<Engine["setSettings"]>[0]): void => {
     engine?.setSettings(patch);
@@ -210,7 +218,7 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
     <>
       <div
         data-testid="hud"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 p-3 transition-opacity duration-700"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 pb-[max(0.75rem,var(--sok-safe-b))] pr-[max(0.75rem,var(--sok-safe-r))] pl-[max(0.75rem,var(--sok-safe-l))] pt-3 transition-opacity duration-700"
         style={{ opacity: faded ? FADED_OPACITY : 1 }}
       >
         {/* Bottom-left: status dot + line, and the ticker under it. */}
@@ -286,12 +294,12 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
       </div>
 
       {/* §11.4 — top-left wordmark. */}
-      <p className="pointer-events-none fixed left-3 top-3 z-20 text-xs tracking-wide text-neutral-600">
+      <p className="pointer-events-none fixed left-[max(0.75rem,var(--sok-safe-l))] top-[max(0.75rem,var(--sok-safe-t))] z-20 text-xs tracking-wide text-neutral-600">
         Sound of Knowledge
       </p>
 
       {/* §11.4 — footer. */}
-      <p className="pointer-events-none fixed bottom-1 left-1/2 z-20 -translate-x-1/2 text-[10px] text-neutral-700">
+      <p className="pointer-events-none fixed bottom-[max(0.25rem,var(--sok-safe-b))] left-1/2 z-20 -translate-x-1/2 text-[10px] text-neutral-700">
         Data:{" "}
         <a
           href="https://wikitech.wikimedia.org/wiki/EventStreams"
@@ -305,7 +313,7 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
 
       {/* §11.6 — the polite live region. Visually hidden so it never costs layout. */}
       <p data-testid="hud-live-region" role="status" aria-live="polite" className="sr-only">
-        {polite}
+        {announced}
       </p>
 
       {panelOpen && settings && (
@@ -362,6 +370,28 @@ interface TickerLine {
   text: string;
   href: string;
   edit: { delta: number };
+}
+
+/**
+ * §11.6 — the announced summary: "Live, about 18 edits per second".
+ *
+ * Rounded, so the handler can compare against the last announced string and skip the
+ * update when the value has not moved. Without that every 4 Hz sample of a jittery
+ * `eps` is a distinct string, and "at most every 10 s" quietly becomes "at most 10
+ * distinct values".
+ *
+ * This was a no-op effect for the whole of T5.2 — it read a ref, compared it to a
+ * clock, and returned without touching state, under a comment saying it enforced the
+ * cap. It could not, because the region was driven straight off `eps`.
+ *
+ * That stayed hidden until T5.3 wired `eps` to a real value for the first time, at
+ * which point the region began changing four times a second and the existing test
+ * failed. A safety that never had anything to protect is indistinguishable from one
+ * that is working, until the thing it guards starts happening.
+ */
+function politeSummary(streamState: string, eps: number): string {
+  if (eps <= 0) return "";
+  return `${STATUS_WORD[streamState] ?? streamState}, about ${eps.toFixed(0)} edits per second`;
 }
 
 /** §11.4's `Dorian in C` — the mode name, capitalised. */

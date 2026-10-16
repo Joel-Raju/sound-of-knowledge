@@ -33,10 +33,19 @@ import { Harmony, type HarmonyEvent } from "./music/harmony";
 import { IngestClient } from "./ingest/ingest-client";
 import { defaultIngestConfig } from "./ingest/ingest-core";
 import { validateSettings, saveSettings } from "./settings";
+import { OUTPUT_LATENCY_FALLBACK } from "./config";
 import { mulberry32 } from "./util/random";
 
 /** §5.5 — `stats` is emitted at 4 Hz; React must not re-render faster (§1, line 61). */
 const STATS_INTERVAL_SEC = 0.25;
+/**
+ * §11.8 — how long to wait for `webglcontextrestored` before calling it a failure.
+ *
+ * Restoring is usually immediate. 8 s is generous on purpose: the cost of waiting too
+ * long is a banner that says "restoring…" a moment longer, and the cost of waiting too
+ * little is offering **Reload** over a canvas that was about to come back.
+ */
+const GL_RESTORE_TIMEOUT_MS = 8_000;
 
 /** §5.5 — the metrics and event payloads, verbatim from the spec. */
 export interface Metrics {
@@ -85,7 +94,27 @@ export interface EngineEvents {
    * ordering to drift, and that ordering is load-bearing.
    */
   notable: NotableEvent;
+  /**
+   * §11.8 — `webglcontextlost` / `webglcontextrestored`.
+   *
+   * `restored: true` means the rebuild worked and the banner can say "restoring…";
+   * `false` means it did not and the UI must offer **Reload** instead. Distinguishing
+   * the two is the whole point — a banner that only ever says "restoring…" over a
+   * permanently black canvas is worse than none.
+   */
+  gl: { restored: boolean };
   error: { code: "webgl" | "audio" | "worklet" | "stream" | "unknown"; message: string };
+}
+
+/**
+ * §11.3 — the data-mode overrides. Named `DataSource` rather than `DataMode` because
+ * `ingest/protocol.ts` already exports a `DataMode` **union**
+ * (`"live" | "replay" | "synthetic"`), and two different `DataMode`s in one codebase
+ * is a trap waiting for an import to be wrong.
+ */
+export interface DataSource {
+  mode?: "live" | "replay" | "synthetic";
+  seed?: number;
 }
 
 export interface EngineOptions {
@@ -94,6 +123,16 @@ export interface EngineOptions {
   settings: Settings;
   /** from `?debug=1` */
   debug?: boolean;
+  /**
+   * §11.3 — `?source=live|replay|synthetic` and `?seed=`. **Not persisted.**
+   *
+   * Until this was wired, the e2e suite had no offline source at all: every test asked
+   * for the live Wikimedia stream, which means every test depended on the network and
+   * `notesScheduled` sat at 0 in CI. §13.4 says these tests run with
+   * `?source=synthetic` — so this is the parameter the suite is specified around, and it
+   * was not connected to anything.
+   */
+  data?: DataSource;
 }
 
 export class Engine {
@@ -154,6 +193,10 @@ export class Engine {
   private notableSeen = 0;
   private streamState = "connecting";
   private lastStatsEmit = 0;
+  /** §10.1's heard-time, latched so the pre-audio case has a stable value. */
+  private lastHeard = 0;
+  private glRestoreTimer = 0;
+  private stopWatchingVisibility: (() => void) | null = null;
   private readonly rng = mulberry32(0x5eed);
 
   // --- events --------------------------------------------------------------
@@ -208,7 +251,24 @@ export class Engine {
   // --- visuals -------------------------------------------------------------
 
   private async buildVisuals(): Promise<void> {
-    const engine = new VisualEngine({ canvas: this.canvas });
+    const engine = new VisualEngine({
+      canvas: this.canvas,
+      onContextLost: () => {
+        this.emit("gl", { restored: false });
+        // §11.8 — "if it fails, offer Reload". Restore failing looks exactly like
+        // restore being slow: no event either way. So the absence of
+        // `webglcontextrestored` within a generous window *is* the failure signal.
+        window.clearTimeout(this.glRestoreTimer);
+        this.glRestoreTimer = window.setTimeout(
+          () => this.emit("gl", { restored: false }),
+          GL_RESTORE_TIMEOUT_MS,
+        );
+      },
+      onContextRestored: () => {
+        window.clearTimeout(this.glRestoreTimer);
+        this.emit("gl", { restored: true });
+      },
+    });
     this.visuals = engine;
 
     const orb = new Orb({ tier: engine.tier });
@@ -286,6 +346,9 @@ export class Engine {
 
     engine.start();
 
+    // §10.1 — clear the visual queue when the tab comes back.
+    this.stopWatchingVisibility = this.watchVisibility();
+
     // §11.2 — the Enter button is enabled when `create()` resolves, so this promise
     // must not resolve until a frame has actually been drawn with every shader
     // compiled. A hidden element measures 0×0 and skips the draw entirely, which is
@@ -326,18 +389,76 @@ export class Engine {
     });
   }
 
-  /** §9.9/§10.2 — drain due notes and fire their visuals. */
-  private queueAndFlush(now: number): void {
-    const ready = this.queue.drain(now);
-    for (const note of ready) {
+  /**
+   * §10.1/§10.2 — drain due notes, then fire their visuals.
+   *
+   * **Two clocks, and conflating them is the bug this comment exists for.**
+   *
+   * `note.when` is **AudioContext time** — the scheduler emits against `ctx.currentTime`,
+   * because that is the clock the worklet schedules on. The visual layer is driven by
+   * the render clock, which is `performance.now() - t0`. Those two share a rate but not
+   * an epoch, and the audio clock drifts against the wall clock.
+   *
+   * §10.1 says which goes where:
+   *
+   *   const heard = ctx.currentTime - outputLatency - avSyncMs / 1000;
+   *   while (queue.peek().when <= heard && fired < 8) fire(queue.pop());
+   *
+   * So the **queue gate** is compared in audio time, because that is the only clock in
+   * which `note.when` means anything. Everything downstream of `fire()` — sparks, rings,
+   * orb impacts, labels — is timed against the **render** clock, because that is what
+   * `uTime` evaluates against and a particle's whole life is `(uTime - spawnTime)`.
+   *
+   * Passing the render clock to `drain()` (which this did before T5.3) compares two
+   * different epochs: the visuals land at an arbitrary offset from the sound, and the
+   * error grows with the audio hardware's drift.
+   *
+   * @param renderNow the render clock, seconds since `t0`
+   */
+  private queueAndFlush(renderNow: number): void {
+    const heard = this.heardTime();
+    const due = this.queue.drain(heard);
+
+    // §10.1 — at most 8 per frame. A frame that took 200 ms can have a dozen notes
+    // come due at once; firing all of them would put that frame's work back into the
+    // next frame, which is the mechanism behind a death spiral.
+    let fired = 0;
+    for (const note of due) {
+      if (fired++ >= 8) {
+        // Push the rest back for the next frame rather than dropping them.
+        this.requeue(note);
+        continue;
+      }
       const d = note.dir;
       this.shellPos.set(d.x * note.radius, d.y * note.radius, d.z * note.radius);
-      this.director?.fire(note, this.shellPos, now);
+      this.director?.fire(note, this.shellPos, renderNow);
     }
-    this.director?.flush(now);
+
+    this.director?.flush(renderNow);
     this.metrics.visualQueueLen = this.queue.length;
-    this.labels?.update(now, this.visuals!.camera, this.canvas.clientWidth, this.canvas.clientHeight);
-    this.emitStats(now);
+    this.labels?.update(renderNow, this.visuals!.camera, this.canvas.clientWidth, this.canvas.clientHeight);
+    this.emitStats(renderNow);
+  }
+
+  /**
+   * §10.1 — `ctx.currentTime - outputLatency - avSyncMs / 1000`.
+   *
+   * The latency terms are what make a visual land when its note is *heard* rather than
+   * when it was scheduled: `outputLatency` is how far the audio hardware is behind the
+   * clock it is handed, and `avSyncMs` is the user's correction for Bluetooth and other
+   * paths with their own, larger, delay.
+   */
+  private heardTime(): number {
+    const ctx = this.ctx;
+    if (!ctx) return this.lastHeard;
+    const latency = this.audio?.outputLatency ?? OUTPUT_LATENCY_FALLBACK;
+    this.lastHeard = ctx.currentTime - latency - this.settings.avSyncMs / 1000;
+    return this.lastHeard;
+  }
+
+  /** Re-queue a note deferred by §10.1's per-frame cap, preserving its heard-time. */
+  private requeue(note: NoteEvent): void {
+    this.queue.push(note);
   }
 
   // --- start ---------------------------------------------------------------
@@ -391,12 +512,18 @@ export class Engine {
 
       const ingest = new IngestClient({
         config: defaultIngestConfig({
+          // §11.3 — the data mode and seed come from the URL, not from settings. They
+          // are deliberately not persisted: writing a test URL's source into
+          // localStorage would silently change a user's preferences because someone
+          // once opened a test link.
+          mode: this.opts.data?.mode ?? "live",
+          seed: this.opts.data?.seed ?? 1,
           source: this.settings.source,
           langs: this.settings.langs,
         }),
         handlers: {
           onBatch: (edits) => scheduler.onBatch(edits),
-          onStats: () => this.refreshIngestMetrics(),
+          onStats: (s) => this.onIngestStats(s),
           onStatus: (state, detail) => {
             this.streamState = state;
             this.emit("status", { stream: state, detail });
@@ -439,14 +566,52 @@ export class Engine {
     else if (e.kind === "key") p.set(p.currentMode, e.state.rootPc);
   }
 
-  private refreshIngestMetrics(): void {
-    const h = this.harmony;
-    if (h) {
-      this.metrics.energy = 0;
-      this.metrics.mode = h.getState().mode;
-      this.metrics.keyName = h.keyName;
-    }
+  /**
+ * §5.5's ingest counters — and the edits/s the HUD reports.
+ *
+ * These were **not wired at all** until T5.3: `refreshIngestMetrics` was an empty stub,
+ * so `acceptedTotal`, `droppedTotal` and the `stats` event's `eps`/`accepted`/`dropped`
+ * were permanently zero. The HUD therefore read "Live · **0** edits/s" no matter how
+ * much traffic was arriving — and E4 ("bot ratio in the HUD looks plausible on live
+ * traffic") was unanswerable *because the HUD was lying*, not because of the traffic.
+ *
+ * §6.3 — `eps` is reported as **accepted** per second, never as raw input rate. The
+ * honest number is what the piece actually played.
+ */
+  private onIngestStats(s: {
+    seen: number;
+    accepted: number;
+    dropped: number;
+    botAccepted: number;
+    revertAccepted: number;
+    windowMs: number;
+  }): void {
+    const seconds = Math.max(0.001, s.windowMs / 1000);
+    this.metrics.acceptedTotal = s.accepted;
+    this.metrics.droppedTotal = s.dropped;
+
+    // All three readouts are over the **delta** since the last window, not the
+    // lifetime totals. `botAccepted / accepted` as cumulative counts is an average
+    // that barely moves — a "bot ratio" which takes an hour to react is not a readout.
+    const dAccepted = s.accepted - this.lastAccepted;
+    const dBot = s.botAccepted - this.lastBotAccepted;
+    const dRevert = s.revertAccepted - this.lastRevertAccepted;
+
+    this.eps = dAccepted / seconds;
+    this.botRatio = dAccepted > 0 ? dBot / dAccepted : 0;
+    this.revertRatio = dAccepted > 0 ? dRevert / dAccepted : 0;
+
+    this.lastAccepted = s.accepted;
+    this.lastBotAccepted = s.botAccepted;
+    this.lastRevertAccepted = s.revertAccepted;
   }
+
+  private eps = 0;
+  private botRatio = 0;
+  private revertRatio = 0;
+  private lastAccepted = 0;
+  private lastBotAccepted = 0;
+  private lastRevertAccepted = 0;
 
   /** §5.5 — at 4 Hz, and only while something is listening. */
   private emitStats(now: number): void {
@@ -471,11 +636,11 @@ export class Engine {
     this.metrics.streamState = this.streamState;
 
     this.emit("stats", {
-      eps: 0,
+      eps: this.eps,
       accepted: this.metrics.acceptedTotal,
       dropped: this.metrics.droppedTotal,
-      botRatio: 0,
-      revertRatio: 0,
+      botRatio: this.botRatio,
+      revertRatio: this.revertRatio,
       energy: this.metrics.energy,
       mode: this.metrics.mode,
       keyName: this.metrics.keyName,
@@ -507,6 +672,27 @@ export class Engine {
 
   getSettings(): Readonly<Settings> {
     return this.settings;
+  }
+
+  // --- §10.1 visibility ------------------------------------------------------
+
+  /**
+   * §10.1 — "On `visibilitychange → visible`: clear the queue."
+   *
+   * Also the reason the render loop pauses. A hidden tab still **schedules audio**
+   * (§11.8: "Audio continues, rendering pauses"), so on return the queue holds notes
+   * whose heard-time passed long ago. Firing them all at once is a wall of stale
+   * visuals that never matched a sound — §10.1's `dropStale` would eventually discard
+   * them, but "eventually" is several hundred frames of nonsense.
+   */
+  private onVisibility = (): void => {
+    if (document.hidden) return;
+    this.queue.clear();
+  };
+
+  private watchVisibility(): () => void {
+    document.addEventListener("visibilitychange", this.onVisibility);
+    return () => document.removeEventListener("visibilitychange", this.onVisibility);
   }
 
   // --- misc API ------------------------------------------------------------
@@ -541,6 +727,9 @@ export class Engine {
     if (this.disposed) return;
     this.disposed = true;
 
+    window.clearTimeout(this.glRestoreTimer);
+    this.stopWatchingVisibility?.();
+    this.stopWatchingVisibility = null;
     this.queue.clear();
     this.director?.clear();
     this.ingest?.dispose();

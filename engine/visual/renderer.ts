@@ -64,6 +64,10 @@ export interface RendererOptions {
   reduceMotion?: boolean;
   /** override the initial mode for the palette */
   mode?: "lydian" | "mixolydian" | "dorian" | "aeolian";
+  /** §11.8 — fired on `webglcontextlost`; the UI shows "Display reset — restoring…" */
+  onContextLost?: () => void;
+  /** §11.8 — fired on `webglcontextrestored`, once GL resources are back */
+  onContextRestored?: () => void;
 }
 
 /**
@@ -187,12 +191,18 @@ export class VisualEngine {
   /** Set on context loss so the loop can idle instead of throwing every frame. */
   private contextLost = false;
   private readonly onLost = (e: Event): void => {
+    // §11.8 — `preventDefault()` is what makes a restore possible at all. Without it
+    // the browser treats the context as gone permanently and never fires
+    // `webglcontextrestored`, which is the difference between a recoverable hiccup and
+    // a canvas that stays black until reload.
     e.preventDefault();
     this.contextLost = true;
+    this.onLostCb?.();
   };
   private readonly onRestored = (): void => {
     this.contextLost = false;
     this.lastFrame = 0;
+    this.onRestoredCb?.();
   };
   private readonly onResize = (): void => {
     this.resize();
@@ -254,7 +264,12 @@ export class VisualEngine {
     this.tick(now);
   };
 
+  private readonly onLostCb: (() => void) | undefined;
+  private readonly onRestoredCb: (() => void) | undefined;
+
   constructor(opts: RendererOptions = {}) {
+    this.onLostCb = opts.onContextLost;
+    this.onRestoredCb = opts.onContextRestored;
     this.tier = opts.tier ?? detectTier(opts.env ?? readEnvironment());
 
     if (opts.canvas) {

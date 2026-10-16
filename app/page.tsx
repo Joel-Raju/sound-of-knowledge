@@ -21,12 +21,17 @@ export default async function Page({
 }): Promise<React.JSX.Element> {
   const params = await searchParams;
   const debug = params.debug === "1";
+  // Passed down as a raw string so the client resolves §11.3's overrides without
+  // touching `window` during render — which would be a hydration mismatch.
+  const rawSearch = new URLSearchParams(
+    Object.entries(params).flatMap(([k, v]) => (v === undefined ? [] : [[k, String(v)]])),
+  ).toString();
 
   return (
     <main className="min-h-dvh bg-black text-neutral-400">
       {/* The live piece. Renders nothing under `?debug=1`, so the debug page gets
           exactly one WebGL context from the T4 harness and never two. */}
-      <Experience debug={debug} />
+      <Experience debug={debug} search={rawSearch} />
 
       {/* Debug-only visual harness: the orb, sparks, rings and dust with a
           deterministic spawn pattern, for `scripts/shot.ts` and the e2e suite.

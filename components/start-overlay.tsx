@@ -59,14 +59,11 @@ export function StartOverlay({
       </p>
 
       {fatal ? (
-        // §11.2 — no Enter button when there is nothing to enter.
-        <p
-          data-testid="start-fatal"
-          className="max-w-md text-sm text-neutral-500"
-          role="status"
-        >
-          This piece needs WebGL2, which this browser or device does not appear to
-          support. {fatal}
+        // §11.2 — no Enter button when there is nothing to enter. `Experience` renders
+        // `NoWebGL` for a failed engine construction, so reaching here means the
+        // failure happened after create resolved.
+        <p data-testid="start-fatal" className="max-w-md text-sm text-neutral-500" role="status">
+          Something went wrong preparing the visuals. {fatal}
         </p>
       ) : (
         <>

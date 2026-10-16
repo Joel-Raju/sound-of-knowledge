@@ -187,11 +187,20 @@ describe("§13.2 — stale drop", () => {
     expect(q.droppedStale).toBe(1);
   });
 
-  it("derives its threshold from the scheduler's furthest lookahead", () => {
-    // Not a tuned number: the furthest ahead a note can ever be placed is
-    // LOOKAHEAD_HIDDEN_SEC, so anything further past its `when` has missed its window.
+  it("is §10.1's 2.0 s", () => {
+    // §10.1 says `dropStale(heard - 2.0)` outright, with the reason: "events older than
+    // 2 s (e.g. after a hidden tab) are discarded unfired". It was derived to 1.5 s
+    // before T5.3 — sound reasoning, since the scheduler never places a note further
+    // ahead than LOOKAHEAD_HIDDEN_SEC — but the spec states the number.
+    //
+    // The bound that still matters is the one below: 2.0 s must comfortably exceed the
+    // furthest lookahead, or a note could be born stale.
+    expect(STALE_AFTER_SEC).toBe(2);
     expect(STALE_AFTER_SEC).toBeGreaterThan(LOOKAHEAD_HIDDEN_SEC);
-    expect(STALE_AFTER_SEC).toBeLessThan(LOOKAHEAD_HIDDEN_SEC + 0.5);
+  });
+
+  it("capacity is §10.1's 256", () => {
+    expect(DEFAULT_CAPACITY).toBe(256);
   });
 });
 
@@ -232,9 +241,6 @@ describe("§13.2 — capacity overflow drops oldest", () => {
     expect(q.drain(99).map((n) => n.when)).toEqual([3, 4, 5]);
   });
 
-  it("has a default capacity", () => {
-    expect(DEFAULT_CAPACITY).toBeGreaterThan(0);
-  });
 });
 
 describe("§13.2 — hidden tab leaves the queue empty on return", () => {

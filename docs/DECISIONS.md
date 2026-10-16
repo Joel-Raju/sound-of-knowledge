@@ -2998,3 +2998,102 @@ the centre** now.
 **A test that asserts on a signal that a design decision has legitimately driven to
 zero does not get weaker — it gets blind.** The two fixes here are the same fix: point
 the assertion at a channel that still carries the information.
+
+## T5.3 — resilience, and three things that had never worked
+
+### The visual queue was draining against the wrong clock
+
+`note.when` is **AudioContext** time — the scheduler emits against `ctx.currentTime`,
+because that is the clock the worklet schedules on. `VisualQueue.drain()` was being
+passed the **render** clock. Those two share a rate but not an epoch, and the audio
+clock drifts against the wall clock.
+
+§10.1 states which goes where:
+
+```ts
+const heard = ctx.currentTime - outputLatency - avSyncMs / 1000;
+while (queue.peek().when <= heard && fired < 8) fire(queue.pop());
+```
+
+The **queue gate** is audio time — the only clock in which `note.when` means anything.
+Everything downstream of `fire()` is render time, because that is what `uTime` evaluates
+against and a particle's whole life is `(uTime - spawnTime)`. Getting this wrong puts
+every visual at an arbitrary offset from its sound, growing with the audio hardware's
+drift, and badly wrong after a tab has been hidden.
+
+Also adopted from §10.1 verbatim, replacing two derivations of mine:
+
+| | was | now | why |
+|---|---|---|---|
+| queue capacity | 64 | **256** | §10.1 names it. At 4.81 notes/s, 64 is 13 s of notes held for events that can no longer be shown |
+| stale window | 1.5 s | **2.0 s** | §10.1 says `dropStale(heard - 2.0)`. The derivation was sound; the spec states the number, and 2.0 also survives a 300 ms frame hitch |
+| per-frame cap | — | **8** | §10.1's `fired < 8`. A 200 ms frame can have a dozen notes come due; firing them all puts that work into the next frame |
+
+Both derivations were true and were the wrong question — they optimised the queue's
+memory rather than following the spec, and the spec's numbers were right there.
+
+### `?source=` and `?seed=` were parsed and then discarded
+
+`readUrlOverrides` existed and returned `{mode, seed, debug}` — and **nothing read it**.
+Every request for a synthetic or replay source went to the live Wikimedia stream.
+
+That is why §13.4's own stated test setup (`?source=synthetic&debug=1&quality=low`) had
+no offline source behind it, why `notesScheduled` sat at 0 in CI, and why item 5's
+replay-fallback test could not be written at all. `EngineOptions.data` now carries it,
+and `app/page.tsx` — a server component — resolves the query string and passes it down,
+because reading `window.location` during render is the hydration mismatch that cost T5.1
+a bug.
+
+### The HUD's "edits/s" was permanently zero
+
+`refreshIngestMetrics` was an **empty stub**. `acceptedTotal`, `droppedTotal`, `eps`,
+`botRatio` and `revertRatio` were never assigned, so the status line read
+"Live · **0** edits/s" no matter how much traffic arrived.
+
+That makes **E4 — "bot ratio in the HUD looks plausible on live traffic" — unanswerable
+for a reason that had nothing to do with traffic.** The HUD was not reporting a
+implausible ratio; it was reporting nothing. Now wired, over the per-window **delta**
+rather than the cumulative totals: `botAccepted / accepted` as lifetime counts is an
+average that barely moves, and a readout that takes an hour to react is not a readout.
+
+### The §11.6 announcement cap was a no-op with a comment claiming otherwise
+
+The polite live region was driven straight off `eps` at 4 Hz. An effect existed that
+read a ref, compared it to a clock, and returned without touching any state — under a
+comment saying it enforced §11.6's ten-second cap. It could not, and it never had
+anything to protect, because `eps` was always 0.
+
+Wiring `eps` for the first time made the region change sixteen times in ten seconds and
+the existing test failed. The throttle now lives in the `stats` handler where the
+decision is actually made, and compares the **rounded** string — without rounding, every
+jittery sample is distinct and "at most every 10 s" becomes "at most 10 distinct values".
+
+**A safety that never has anything to protect is indistinguishable from one that is
+working.** This is the same shape as `setBloomIntensity`, the `accent`/`core` uniform
+and the inert `check:docs` guard — and the fourth time the detector was *a later change
+making the guarded thing actually happen*.
+
+### Also in this task
+
+- **§11.8's error states**, one banner, five distinct conditions with distinct copy.
+  `gl-lost` says "restoring…" and **cannot be dismissed**; `gl-failed` offers **Reload**,
+  which needs a timeout — restore failing looks identical to restore being slow, so the
+  *absence* of `webglcontextrestored` within 8 s is the failure signal.
+- **§10.1's visibility rule**, and §11.8's `Resume audio`, polled off the `stats` event
+  (already capped at 4 Hz, so it costs nothing extra).
+- **§11.7 mobile**: `viewport-fit=cover`, `env(safe-area-inset-*)` on the HUD, and
+  `canvas { touch-action: none }` — with `body { touch-action: pan-y }` left intact so
+  the settings panel still scrolls. A drag on the canvas is a camera rotation (§9.1) and
+  a browser claiming it for scroll makes the piece feel broken on a phone.
+- **`<noscript>`**, asserted from the served HTML — with scripting on it is inert, so a
+  live-DOM assertion would prove nothing.
+
+### Four of my own e2e tests were wrong
+
+- Two asked a stream failure for `?source=synthetic`, which never opens a stream.
+- Two asserted on `audioState` immediately after Enter, before `start()` had resolved.
+- One asserted `""` starts with `https://` for an unused pool slot, which is six
+  pre-created anchors with no `href` yet.
+- One called `errors.assertClean()` on a test that **deliberately aborts the stream** —
+  asserting that the thing under test did not happen. It now asserts that the *only*
+  failures are the stream.

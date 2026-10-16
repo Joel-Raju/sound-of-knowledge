@@ -12,24 +12,28 @@
  * stale drop, capacity overflow, heard-time gating — are testable directly.
  */
 import type { NoteEvent } from "../types";
-import { LOOKAHEAD_HIDDEN_SEC } from "../config";
 
 /**
- * Default capacity. A note's visual event lives ~3.2 s (a label) and `≤ 1 per 1.2 s`
- * of labels are spawned, so a queue this size covers the worst case that can still be
- * displayed at all; anything beyond it is already invisible.
- */
-export const DEFAULT_CAPACITY = 64;
-
-/**
- * How late a note may be before it is dropped rather than fired.
+ * §10.1 — "Queue: fixed-capacity (256) array kept sorted by `when`".
  *
- * Derived rather than picked: `LOOKAHEAD_HIDDEN_SEC` is the furthest ahead the
- * scheduler will ever place a note, so a note more than that far *past* its `when`
- * cannot be "about to be heard" — it missed its window. The extra 0.25 s covers
- * frame slack, so a dropped frame does not cost a visual.
+ * This was 64 until T5.3. The derivation behind it — that a label lives 3.2 s and `≤ 1`
+ * per 1.2 s, so more than ~3 is invisible — was true and was the wrong question: the
+ * cap is not there to hide notes, it is there to bound the array, and §10.1 names the
+ * number. At 4.81 notes/s a second of headroom is under five entries; 64 is 13 seconds
+ * of notes, which is a lot of memory to hold for events that can no longer be shown.
  */
-export const STALE_AFTER_SEC = LOOKAHEAD_HIDDEN_SEC + 0.25;
+export const DEFAULT_CAPACITY = 256;
+
+/**
+ * §10.1 — `dropStale(heard - 2.0)`: "events older than 2 s (e.g. after a hidden tab) are
+ * discarded unfired".
+ *
+ * This was `LOOKAHEAD_HIDDEN_SEC + 0.25` = 1.5 s, derived rather than read. The derivation
+ * was sound — the scheduler never places a note further ahead than 1.25 s — but §10.1
+ * states 2.0 outright and gives the reason. Two seconds also leaves room for a long
+ * frame, so a single 300 ms hitch costs one visual rather than four.
+ */
+export const STALE_AFTER_SEC = 2.0;
 
 export interface VisualQueueOptions {
   capacity?: number;
