@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { NoteFlavor } from "@/engine/types";
 
 /**
  * Debug-only visual harness. Spec T4.1 acceptance — "the main page (debug) shows
@@ -38,8 +39,27 @@ export interface VisualHandle {
    * meaningless against an empty pool.
    */
   debugSpawn(n?: number): void;
+  /**
+   * Fire one synthetic note of a given flavor **through §10.2's fire table**.
+   *
+   * T4.5. `debugSpawn` used to call `sparks.spawnStreak` and friends directly, which
+   * meant the table itself was never executed — only the layer methods beneath it
+   * were. Routing every synthetic note through the director means the browser path
+   * exercises the same code a live edit will, so T5.1 only has to change where the
+   * `NoteEvent`s come from rather than rewrite the visuals.
+   */
+  debugFire(flavor: NoteFlavor): void;
   /** Live particle and ring counts, for the capture harness. */
   poolCounts(): { sparks: number; rings: number };
+  /** §9.9 — how many anchors are currently showing. */
+  labelCounts(): { active: number; notable: number };
+  /**
+   * §9.9's ticker feed — the most recent `notable` event, or null.
+   *
+   * Exposed now so the ticker can be verified before T5.2 builds the HUD that
+   * consumes it. A feed nothing reads is a feed whose throttling is never observed.
+   */
+  lastNotable(): import("@/engine/visual/labels").NotableEvent | null;
   /** Preallocated three.js objects the spawn path reuses (§9.5, no allocation). */
   three: {
     dir: import("three").Vector3;
@@ -53,6 +73,10 @@ export interface VisualHandle {
     accent: import("three").Color;
     core: import("three").Color;
   } | null;
+  /** T4.5 — §10.2's fire table, wired to the real layers. */
+  director: import("@/engine/visual/fire").VisualDirector | null;
+  /** T4.5 — §9.9's six-anchor label pool. */
+  labels: import("@/engine/visual/labels").LabelLayer | null;
   /**
    * Fire `n` synthetic impacts on a Fibonacci sphere. Exists so `shot.ts` and
    * the e2e suite can put structure on the orb without a live Wikipedia
@@ -136,6 +160,86 @@ function coneDirection(
     .normalize();
 }
 
+/**
+ * T4.5 — the flavor rotation `debugSpawn` walks.
+ *
+ * Weighted towards the streak flavors because they are what a capture measures, but
+ * every §10.2 row appears: a capture taken with only streaks would never show that the
+ * revert dent or the burst actually reach the screen.
+ */
+const DEBUG_SPAWN_FLAVORS: readonly NoteFlavor[] = [
+  "add",
+  "remove",
+  "large",
+  "add",
+  "new",
+  "revert",
+  "bot-thud",
+  "add",
+  "bot-tick",
+  "remove",
+];
+
+/**
+ * A stand-in edit for synthetic notes.
+ *
+ * `importance` starts above §9.9's label threshold so `debugSpawn` can put a label on
+ * screen — a debug path that never shows the feature is how that feature goes
+ * unnoticed until T5.2 wires the HUD.
+ */
+const DEMO_EDIT: import("@/engine/types").NormalizedEdit = {
+  id: 1,
+  ts: 0,
+  wiki: "enwiki",
+  host: "en.wikipedia.org",
+  lang: "en",
+  project: "wikipedia",
+  ns: 0,
+  title: "Albert Einstein",
+  actor: "registered",
+  kind: "edit",
+  minor: false,
+  delta: 4200,
+  absDelta: 4200,
+  magnitude: 0.7,
+  importance: 0.9,
+  revNew: 5,
+};
+
+/**
+ * A `NoteEvent` shaped exactly as the scheduler emits one, so §10.2's table cannot tell
+ * a debug note from a real one.
+ *
+ * That is the whole point. `debugSpawn` used to call the layer methods directly, which
+ * meant the table *above* them — the part that decides which edit becomes which visual
+ * — was never executed in the browser at all. Building a real `NoteEvent` here means a
+ * wrong flavor mapping shows up in a screenshot, not only in a unit test.
+ */
+function syntheticNote(
+  flavor: NoteFlavor,
+  shellPos: import("three").Vector3,
+  magnitude: number,
+): import("@/engine/types").NoteEvent {
+  return {
+    when: 0, // fired immediately; §10.2's arrival maths is relative to `now`
+    voice: flavor === "revert" ? "gong" : "pluck",
+    midi: 60,
+    freq: 261.6,
+    vel: 0.7,
+    dir: { x: shellPos.x, y: shellPos.y, z: shellPos.z },
+    radius: SPARK_SHELL,
+    edit: {
+      ...DEMO_EDIT,
+      kind: flavor === "new" ? "new" : flavor === "revert" ? "revert" : "edit",
+      actor: flavor === "bot-thud" || flavor === "bot-tick" ? "bot" : "registered",
+      magnitude,
+      importance: Math.min(1, magnitude + 0.2),
+    },
+    flavor,
+    visual: true,
+  };
+}
+
 export function VisualHarness(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -167,56 +271,53 @@ export function VisualHarness(): React.JSX.Element {
       },
       debugSpawn: (n = 12) => {
         const engine = handle.engine;
-        const sparks = handle.sparks;
-        const rings = handle.rings;
-        const orb = handle.orb;
-        if (!engine || !sparks || !orb) return;
+        if (!engine) return;
         const three = handle.three;
         if (!three) return;
-        const t = engine.clockNow;
-        const dir = three.dir; // preallocated Vector3
-        const origin = three.origin;
-        const toCore = three.toCore;
-        const colour = three.accent;
-        const core = three.core;
 
         // Point the cone away from the camera, so the sparks land on the far side
         // of the shell — the part §9.1's inside-the-cloud camera actually frames.
         three.base.copy(engine.camera.position).normalize().negate();
 
         for (let i = 0; i < n; i++) {
-          const d = coneDirection(i, n, three.base, dir, three.auxA, three.auxB);
-          origin.set(d.x * SPARK_SHELL, d.y * SPARK_SHELL, d.z * SPARK_SHELL);
-          // Inward: §9.5's target is dirToCore * 1.25.
-          toCore.set(-d.x, -d.y, -d.z);
-          if (i % 5 === 4) {
-            sparks.spawnBurst(origin, core, 0.8);
-          } else if (i % 7 === 6) {
-            sparks.spawnBotPulse(origin, toCore, colour, 0.4);
-          } else {
-            sparks.spawnStreak(origin, toCore, colour, 0.7);
-          }
+          const d = coneDirection(i, n, three.base, three.dir, three.auxA, three.auxB);
+          three.origin.set(d.x * SPARK_SHELL, d.y * SPARK_SHELL, d.z * SPARK_SHELL);
+          handle.debugFire(DEBUG_SPAWN_FLAVORS[i % DEBUG_SPAWN_FLAVORS.length]!);
         }
-        if (rings) {
-          for (let i = 0; i < 3; i++) {
-            const d = coneDirection(i, 3, three.base, dir, three.auxA, three.auxB);
-            origin.set(d.x * SPARK_SHELL, d.y * SPARK_SHELL, d.z * SPARK_SHELL);
-            rings.spawn(origin, core, t);
-            toCore.set(d.x, d.y, d.z);
-            orb.addImpact(toCore, 0.8, "dent", t);
-          }
-        }
+      },
+      debugFire: (flavor: NoteFlavor) => {
+        // Routed through the director, not straight to the layers — see `debugFire`
+        // on `VisualHandle`.
+        const director = handle.director;
+        const three = handle.three;
+        const engine = handle.engine;
+        if (!director || !three || !engine) return;
+        director.fire(
+          syntheticNote(flavor, three.origin, 0.7),
+          three.origin,
+          engine.clockNow,
+        );
       },
       poolCounts: () => ({
         sparks: handle.sparks?.spawned ?? 0,
         rings: handle.rings?.spawned ?? 0,
       }),
+      labelCounts: () => ({
+        active: handle.labels?.activeCount ?? 0,
+        notable: notableSeen,
+      }),
+      lastNotable: () => lastNotable,
       three: null,
+      director: null,
+      labels: null,
     };
     sok.visual = handle;
     w.__sok = sok;
 
     let disposed = false;
+    /** §9.9's ticker feed — counted here so `labelCounts` can report it. */
+    let notableSeen = 0;
+    let lastNotable: import("@/engine/visual/labels").NotableEvent | null = null;
 
     void (async () => {
       try {
@@ -381,6 +482,64 @@ export function VisualHarness(): React.JSX.Element {
           if (params.get("novignette") === "1") handle.post.setEnabled("vignette", false);
           if (params.get("nonoise") === "1") handle.post.setEnabled("noise", false);
         }
+
+        // --- T4.5 — §9.9's label pool and §10.2's fire table ---------------
+        //
+        // The label layer is appended to `document.body`, not rendered by React: it owns
+        // six `<a>` elements it mutates every frame, and handing that to React's
+        // reconciler would cost a diff per frame to change six transforms.
+        const labelsMod = await import("@/engine/visual/labels");
+        const labels = new labelsMod.LabelLayer(document, (e) => {
+          notableSeen++;
+          lastNotable = e;
+        });
+        document.body.appendChild(labels.layer);
+        handle.labels = labels;
+
+        const fireMod = await import("@/engine/visual/fire");
+        const THREE = await import("three");
+        const palette = engine.palette;
+        // §9.9/§10.2 speak in `THREE.Color`; `Palette` speaks `Rgb`. One pooled
+        // `THREE.Color` per call site rather than an allocation per note (§12.1).
+        const toColor = new THREE.Color();
+        const director = new fireMod.VisualDirector({
+          sparks: {
+            spawnStreak: (o, d, c, m, opts) => handle.sparks!.spawnStreak(o, d, c, m, opts),
+            spawnBurst: (o, c, m) => handle.sparks!.spawnBurst(o, c, m),
+            spawnBotPulse: (o, d, c, m) => handle.sparks!.spawnBotPulse(o, d, c, m),
+          },
+          rings: { spawn: (o, c, at) => handle.rings!.spawn(o, c, at) },
+          orb: { addImpact: (d, m, k, at) => handle.orb!.addImpact(d, m, k, at) },
+          colorFor: (kind, magnitude) => {
+            // `Palette.colorFor` is the one place that knows how an event kind maps to
+            // a colour (the `large` mix, the `revert` push toward white, …). Reading
+            // `palette.current[...]` here would have bypassed all of it.
+            const rgb = palette.colorFor(kind, magnitude);
+            return toColor.setRGB(rgb.r, rgb.g, rgb.b);
+          },
+          post: handle.post ?? undefined,
+          addTrauma: (a) => engine.rig.addTrauma(a),
+          labels,
+        });
+        handle.director = director;
+
+        // §10.2's deferred impacts are flushed per frame — "a small fixed array
+        // `pendingImpacts[32]` … flushed each frame". Attached as a layer so it runs
+        // inside the existing rAF loop rather than on a timer of its own.
+        engine.addLayer({
+          attach: () => {},
+          update: (_dt, time) => {
+            director.flush(time);
+            labels.update(
+              time,
+              engine.camera,
+              canvas.clientWidth,
+              canvas.clientHeight,
+            );
+          },
+          dispose: () => labels.dispose(),
+        });
+
         // `handle.sparks` / `handle.rings` / `handle.dust` are set above, inside the
         // `?nosparks` guard — they stay null when the layers are not mounted.
         handle.status = "ready";
@@ -408,6 +567,9 @@ export function VisualHarness(): React.JSX.Element {
       handle.rings = null;
       handle.dust = null;
       handle.three = null;
+      handle.director = null;
+      handle.labels = null;
+      lastNotable = null;
       handle.status = "loading";
       if (w.__sok?.visual === handle) delete w.__sok.visual;
     };

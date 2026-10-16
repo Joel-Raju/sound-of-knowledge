@@ -2715,3 +2715,79 @@ Two changes make that impossible rather than merely unlikely:
 Both directions are now tested: unticking a declared item fails with that item named,
 and deleting the markers fails with "the guard is inert". A guard that cannot report
 its own death is worth less than no guard, because it reads as coverage.
+
+## T4.5 — §10.2's fire table, §9.9's labels, and the visual queue
+
+### The fire table had never been executed
+
+Since T4.2 the harness fired sparks and orb impacts from hand-written synthetic code.
+It looked right and matched §10.2 by eye — and nothing had ever run the table itself.
+Every mapping from *which kind of edit* to *which visual* was unverified: a revert
+pushing instead of denting, a large edit's streak at 1× instead of 1.8×, an impact
+landing at the wrong moment. Those are precisely the faults that produce visuals which
+feel subtly wrong with no visible defect.
+
+`VisualDirector` now owns the table, with the layer handles injected as structural
+types so all seven rows run against recording fakes — **40 unit tests, no WebGL**. And
+`debugSpawn` builds real `NoteEvent`s and fires them *through* the director, so T5.1
+only has to change where notes come from rather than rewrite the visuals.
+
+### `Post.setBloomIntensity` was dead code
+
+Found while wiring §10.2's "large edit … slow bloom swell", the first clause that
+needed it. The setter wrote `bloomTarget` and `update()` never read it, recomputing
+bloom from RMS every frame — so the setter had **no effect on screen whatsoever** while
+looking entirely configured.
+
+The same shape as C11's uniform, and the eleventh time. Two changes:
+
+- `setBloomIntensity` now sets a **bias** the RMS response is added to, rather than a
+  target that gets overwritten. Expressed as a bias so it composes with §9.8 instead of
+  cancelling it — `v` is the intensity wanted when the mix is silent.
+- `swellBloom(amount)` is separate, because the two have different lifetimes. A bias
+  persists; a swell decays on its own slower clock (`BLOOM_SWELL_TAU_SEC = 1.6`,
+  `BLOOM_SWELL_LARGE = 0.22`). Conflating them would have turned a transient into a
+  permanent shift in how the whole mix looks.
+
+### §10.2's `accent` / `core` — a spec gap, recorded rather than invented
+
+§10.2 names two streak variants. §9.5 defines exactly three spark kinds and gives
+`aStyle` a `size`, a `jIndex01` and a `brightness` — **no `accent`/`core` switch**, and
+the names appear nowhere else in the spec. Both are fired as `streak` and differ by
+brightness (`accent` 1.0, `core` 1.35), which is the only per-streak style axis §9.5
+defines that the two words plausibly mean. `core` is the brighter because a removal is
+an event about the content rather than the record. One line to change if specified.
+
+### Queue parameters are derived, not tuned
+
+| value | source |
+|---|---|
+| `STALE_AFTER_SEC` 1.5 | `LOOKAHEAD_HIDDEN_SEC` (1.25) + 0.25 frame slack |
+| capacity 64 | a label lives 3.2 s; more than this is already invisible |
+| label interval 1.2 s, ticker 2.5 s | §9.9's own figures |
+
+The stale threshold is the one that matters. The scheduler never places a note more than
+`LOOKAHEAD_HIDDEN_SEC` ahead, so a note further *past* its time cannot be "about to be
+heard" — it missed its window, and firing it produces a wall of visuals that never
+matched audio.
+
+### Two things the tests got wrong, which were worth the trouble
+
+**A vacuous pass.** "add and remove push at arrival" iterated `of("impact")` — which is
+**empty**, because those impacts are deferred until `flush`. `forEach` over an empty
+array asserts nothing. It was green and proved nothing. Every impact assertion now
+flushes first and counts its hits.
+
+**A wall-clock sleep in a frame-clock test.** The ticker test waited 2.6 s of wall time
+and expected §9.9's 2.5 s render-clock throttle to have elapsed. `engine.clockNow`
+advances **per rendered frame**, and under swiftshader frames are slow, so 2.6 s of wall
+time is well under 2.5 s of render time — and the ticker was right to refuse. The test
+now polls the render clock. A wall-clock sleep would have passed on a fast GPU and
+failed in CI for a reason unrelated to the code.
+
+### Also found
+
+Two e2e files each declared `Window.__sok` with the subset they needed. Interface
+merging requires identical types, so the second declaration changed the first's meaning
+and `tsc` failed pointing at accesses that were valid in the file that owned them.
+Now one `tests/e2e/sok-window.ts` covering everything the suite touches.

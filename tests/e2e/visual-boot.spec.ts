@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { recordErrors } from "./helpers";
+import "./sok-window";
 
 /**
  * Spec T4.1 acceptance — "tests green; the main page (debug) shows a dark canvas
@@ -21,32 +22,6 @@ interface VisualReady {
   status: string;
   message?: string;
 }
-
-declare global {
-  interface Window {
-    __sokVisualReady?: boolean;
-    __sok?: {
-      visual?: {
-        engine: unknown;
-        status: string;
-        message?: string;
-        stats(): {
-          fps: number;
-          emaMs: number;
-          p95Ms: number;
-          tier: string;
-          level: number;
-          scale: number;
-          drawCalls: number;
-          triangles: number;
-          /** Real GPU frame cost from the last synchronised sample (see DECISIONS.md). */
-          syncedMs: number;
-        } | null;
-      };
-    };
-  }
-}
-
 test("the debug page renders a dark canvas with no console errors", async ({ page }) => {
   const errors = recordErrors(page);
 

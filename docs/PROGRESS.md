@@ -156,7 +156,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 - [x] **T4.2** Core orb
 - [x] **T4.3** Sparks and rings
 - [x] **T4.4** Dust and post-processing
-- [ ] **T4.5** Visual queue, event firing, labels, audio coupling
+- [x] **T4.5** Visual queue, event firing, labels, audio coupling
 
 ## Phase 5 — Product shell
 
@@ -198,8 +198,8 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.4) —
-**20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.5) —
+**21 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
 **Human checklist: 15 of 51 closed, 36 open** — see `docs/HUMAN-CHECKLIST.md`.
 13 of 52 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
 

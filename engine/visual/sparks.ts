@@ -62,6 +62,31 @@ function clamp01(v: number): number {
   return Number.isFinite(v) ? (v < 0 ? 0 : v > 1 ? 1 : v) : 0;
 }
 
+/**
+ * §9.5 — `duration = lerp(1.1, 1.8, 1 − magnitude)`.
+ *
+ * Exported because §10.2 needs a streak's *arrival* time ("push, at arrival time
+ * (`now + duration*0.85`)"), and the code firing the orb impact has to agree with the
+ * particle it is impact-timing to the millisecond. Two copies of this formula is how
+ * they would drift — and a drifted arrival is the one §10.2 error that is invisible
+ * when wrong: the impact just lands a little early or late.
+ *
+ * §9.11's reduced-motion scale is applied by the caller, here and in `emit`.
+ */
+export function sparkDuration(magnitude: number): number {
+  return 1.1 + (1.8 - 1.1) * (1 - clamp01(magnitude));
+}
+
+/** §10.2 — a streak reaches the core at 85 % of its duration. */
+export const SPARK_ARRIVAL_FRACTION = 0.85;
+
+export interface StreakStyleOpts {
+  /** §10.2 — a large edit's streak is "×1.8 size". */
+  sizeScale?: number;
+  /** §10.2 — the `accent` / `core` brightness variants. See `STREAK_STYLE_BRIGHTNESS`. */
+  brightnessScale?: number;
+}
+
 export class Sparks {
   readonly mesh: THREE.Mesh;
   readonly geometry: THREE.InstancedBufferGeometry;
@@ -177,11 +202,21 @@ export class Sparks {
     dirToCore: THREE.Vector3,
     color: THREE.Color,
     magnitude: number,
+    opts: StreakStyleOpts = {},
   ): number {
     const m = clamp01(magnitude);
     const base =
       m >= SPARK_COUNTS.largeMagnitude ? SPARK_COUNTS.streakLarge : SPARK_COUNTS.streak(m);
-    return this.emit(SPARK_KIND.streak, origin, dirToCore, color, m, base);
+    return this.emit(
+      SPARK_KIND.streak,
+      origin,
+      dirToCore,
+      color,
+      m,
+      base,
+      opts.sizeScale ?? 1,
+      opts.brightnessScale ?? 1,
+    );
   }
 
   /** §9.5 — a bot pulse: one particle, straight line, flashes on arrival. */
@@ -219,6 +254,8 @@ export class Sparks {
     color: THREE.Color,
     magnitude: number,
     baseCount: number,
+    sizeScale = 1,
+    brightnessScale = 1,
   ): number {
     const K = this.countFor(baseCount);
 
@@ -237,10 +274,10 @@ export class Sparks {
     const spawnTime = this.material.uniforms.uTime!.value as number;
     // §9.5 — a long, slow streak for a small edit; a big one arrives fast.
     // §9.11 scales this under reduced motion; §9.5 fixes the base values.
-    const duration = (1.1 + (1.8 - 1.1) * (1 - magnitude)) * this.durationScale;
+    const duration = sparkDuration(magnitude) * this.durationScale;
     const seed = Math.random() * 1000;
-    const size = 0.06 + 0.1 * magnitude;
-    const brightness = 1.0 + 1.5 * magnitude;
+    const size = (0.06 + 0.1 * magnitude) * sizeScale;
+    const brightness = (1.0 + 1.5 * magnitude) * brightnessScale;
 
     const oA = this.aOrigin.array as Float32Array;
     const tA = this.aTarget.array as Float32Array;

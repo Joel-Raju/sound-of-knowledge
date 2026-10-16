@@ -42,6 +42,14 @@ export const BLOOM_REDUCED_MOTION_CAP = 0.7;
 /** §9.8 — `caKick` decays with τ = 0.35 s; +0.0025 on a revert. */
 export const CA_TAU_SEC = 0.35;
 export const CA_REVERT_KICK = 0.0025;
+/**
+ * §10.2 — a large edit's "slow bloom swell". A separate, longer clock from
+ * `BLOOM_TAU_SEC`: the swell should still be faintly present after the transient
+ * that caused it has gone, which is what makes it read as a swell rather than a pulse.
+ */
+export const BLOOM_SWELL_TAU_SEC = 1.6;
+/** §10.2 — how much a large edit swells the bloom, in intensity units. */
+export const BLOOM_SWELL_LARGE = 0.22;
 export const CA_BASE_OFFSET = 0.0004;
 
 /** §9.8 — "AgX if available in the installed version, else ACES Filmic", exposure 1.0. */
@@ -93,7 +101,9 @@ export class Post {
   readonly toneMapping: ToneMappingEffect;
 
   /** The §9.8 target before §9.11 clamps it — useful for the HUD and for tests. */
-  private bloomTarget = BLOOM_BASE;
+  private bloomBias = 0;
+  /** §10.2's transient swell; decays in `update` on `BLOOM_SWELL_TAU_SEC`. */
+  private bloomSwell = 0;
   private bloomCurrent = BLOOM_BASE;
   private caKick = 0;
   private caOffset = new THREE.Vector2(CA_BASE_OFFSET, CA_BASE_OFFSET);
@@ -199,9 +209,31 @@ export class Post {
 
   private reducedMotion = false;
 
-  /** §9.8 — runtime setter; kept separate from `update` so tests can drive it. */
+  /**
+   * §9.8 — a baseline offset applied on top of the RMS response.
+   *
+   * **This used to be dead.** The setter wrote `bloomTarget` and `update()` never read
+   * it, recomputing bloom from RMS every frame — so the setter had no effect on screen
+   * whatsoever while looking entirely configured. Found while wiring §10.2's "slow
+   * bloom swell" for a large edit, which is the first clause that needs it.
+   *
+   * Expressed as a *bias* rather than a replacement so it composes with §9.8's
+   * RMS-driven term instead of cancelling it: `v` is the intensity this calls for when
+   * the mix is silent.
+   */
   setBloomIntensity(v: number): void {
-    this.bloomTarget = v;
+    this.bloomBias = v - BLOOM_BASE;
+  }
+
+  /**
+   * §10.2 — a large edit carries "trauma +0.15; slow bloom swell".
+   *
+   * Separate from `setBloomIntensity` because the two have different lifetimes: a bias
+   * persists until changed, a swell decays away on its own slower clock. Conflating
+   * them would have made a transient into a permanent shift in how the whole mix looks.
+   */
+  swellBloom(amount: number): void {
+    this.bloomSwell += amount;
   }
 
   /** §9.8 — +0.0025 on a revert. Ignored under §9.11 reduced motion. */
@@ -256,13 +288,18 @@ export class Post {
     // §9.8's target, then §9.11's clamp around it.
     const raw = BLOOM_BASE + BLOOM_RMS_GAIN * clamp01(rmsSmooth);
     const span = BLOOM_AMPLITUDE_LIMIT * BLOOM_BASE;
-    const clamped = Math.min(raw, BLOOM_BASE + span);
+    const biased = raw + this.bloomBias + this.bloomSwell;
+    const clamped = Math.min(biased, BLOOM_BASE + span);
     const capped = this.reducedMotion
       ? Math.min(clamped, BLOOM_REDUCED_MOTION_CAP)
       : clamped;
 
     this.bloomCurrent = lowpass(this.bloomCurrent, capped, dtSec, BLOOM_TAU_SEC);
     if (this.enabled.bloom) this.bloom.intensity = this.bloomCurrent;
+
+    // The swell decays on its own, slower clock: §10.2's "slow bloom swell" for a
+    // large edit is meant to *linger* after the transient passes, not track it.
+    this.bloomSwell = lowpass(this.bloomSwell, 0, dtSec, BLOOM_SWELL_TAU_SEC);
 
     // CA kick decays with its own τ, per §9.8.
     this.caKick = lowpass(this.caKick, 0, dtSec, CA_TAU_SEC);
