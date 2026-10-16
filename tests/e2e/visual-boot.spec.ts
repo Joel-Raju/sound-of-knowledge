@@ -105,7 +105,9 @@ test("the frame loop runs and the governor holds its bounds", async ({ page }) =
 });
 
 test("the canvas is cleared to the palette's deep colour, not black", async ({ page }) => {
-  await page.goto("/?debug=1");
+  // `?deep=0.5` — see the note below on why this test measures a brighter background
+  // than the one that ships.
+  await page.goto("/?debug=1&deep=0.5");
   await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 30_000 });
   // Past the entrance ease, though the clear colour does not depend on the camera.
   await page.waitForTimeout(1500);
@@ -145,32 +147,44 @@ test("the canvas is cleared to the palette's deep colour, not black", async ({ p
 
   // Measured under swiftshader. C6 darkened `deep`'s lightness, and the floor it hit
   // is 8-bit quantisation rather than taste — see the harmony test below. At
-  // L = 0.10, lydian's `deep` is linear (0.00082, 0.00235, 0.01001) and comes
-  // through the sRGB transfer as 8-bit **(1, 3, 9)** — the exact OKLCH → linear
-  // sRGB → three.js Color → clear colour → drawing buffer chain, and matching the
-  // measured pixels.
-  const luma = 0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b;
-  expect(luma, `clear colour luma was ${luma} (rgb ${pixel.r},${pixel.g},${pixel.b})`).toBeLessThan(
-    40,
-  );
-
-  // Not pure black: a `setClearColor(0x000000)` that outlived the palette would
-  // read (0, 0, 0) and sail through the luma ceiling above.
+  // **Compare against the palette, at a lightness chosen so the comparison has signal.**
   //
-  // The threshold is **> 0, not a calibrated number**: at L = 0.10 the brightest
-  // channel is 9 out of 255, so any absolute bound above that is a bound on the
-  // palette's lightness rather than on the wiring. What this asserts is that the
-  // palette reached the buffer at all; the hue check below carries the weight.
-  expect(
-    Math.max(pixel.r, pixel.g, pixel.b),
-    "the palette deep must survive to the buffer",
-  ).toBeGreaterThan(0);
+  // This test used to assert "not pure black", which worked only while `deep` was
+  // bright enough to be distinguishable from black. C6 moved it to L = 0.04, where the
+  // background rounds to (0,0,1) — and at that darkness nothing can tell the palette
+  // apart from a hardcoded `setClearColor(0x000000)`, which is the entire failure
+  // this test exists to catch.
+  //
+  // I first tried comparing against the palette's own `deep` at the shipped L = 0.04,
+  // and **verified it did not work**: with the clear colour hardcoded to black the
+  // test still passed, because the whole background spans one 8-bit unit and any
+  // tolerance wide enough to absorb rounding also absorbs the fault. Darker is not
+  // more precise here; it is less.
+  //
+  // So the page is loaded with `?deep=0.5`. The override exists precisely so a test
+  // can ask for a background bright enough to measure. At L = 0.5 the tolerance can
+  // be 2 units instead of 4, which is tight enough to catch a stale clear colour.
+  const expected = await page.evaluate(() => {
+    const engine = window.__sok?.visual?.engine as unknown as {
+      palette: { current: { deep: { r: number; g: number; b: number } } };
+    };
+    const d = engine.palette.current.deep;
+    const enc = (c: number): number =>
+      Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+    return { r: enc(d.r), g: enc(d.g), b: enc(d.b) };
+  });
+  // Sanity: the override really took, or the tight tolerance below is meaningless.
+  expect(Math.max(expected.r, expected.g, expected.b), "?deep= must have brightened the palette")
+    .toBeGreaterThan(40);
 
-  // And it must be the palette's blue-violet, not a grey: §9.3 gives lydian's
-  // `deep` a hue of 260°, so blue dominates red several times over. This is what
-  // would catch a clear colour wired to the wrong palette slot.
-  expect(pixel.b).toBeGreaterThan(pixel.r * 2);
-  expect(pixel.g).toBeGreaterThan(pixel.r);
+  expect(
+    Math.abs(pixel.r - expected.r) + Math.abs(pixel.g - expected.g) + Math.abs(pixel.b - expected.b),
+    `clear colour rgb(${pixel.r},${pixel.g},${pixel.b}) should match the palette's deep rgb(${expected.r},${expected.g},${expected.b})`,
+  ).toBeLessThanOrEqual(2);
+
+  // §9.3 gives lydian's `deep` hue 260°, so blue must dominate red.
+  expect(pixel.b).toBeGreaterThan(pixel.r);
+  expect(pixel.g).toBeGreaterThanOrEqual(pixel.r);
 });
 
 test("the clear colour follows the palette through a harmony change", async ({ page }) => {
@@ -201,60 +215,111 @@ test("the clear colour follows the palette through a harmony change", async ({ p
   expect(before).not.toBeNull();
   if (!before) return;
 
-  // Retarget to aeolian, whose `deep` is authored at hue 290° against lydian's
-  // 260° — a clear hue shift, not a brightness wobble.
+  // C6, decided by eye: the background is authored at L = 0.04, which renders as
+  // (0,0,1)–(0,0,2) after §9.8's tone mapping. The background is now **too dark to
+  // carry a hue**, so this test can no longer use it to witness §9.3's harmony ease.
+  //
+  // It did for a long time, and the constraint was real: at L = 0.06 lydian and
+  // mixolydian quantised to the same 8-bit triple and the drift measured exactly zero.
+  // Keeping the background at L = 0.10 to preserve a 1/255 signal was the wrong
+  // trade — a navy wash to observe a harmony change that the orb, the dust and the
+  // sparks all show far more legibly.
+  //
+  // So the harmony is witnessed through `core` and `dust` below. Measured at 8-bit
+  // across all four modes, they are 50–140 units apart; `deep` spans 1.
+  const luma = 0.2126 * before.r + 0.7152 * before.g + 0.0722 * before.b;
+  expect(luma, `background luma was ${luma.toFixed(2)}`).toBeLessThan(2);
+  expect(
+    Math.max(before.r, before.g, before.b),
+    "the background must be black, not navy",
+  ).toBeLessThanOrEqual(3);
+
+  // Retarget to aeolian, whose hues are a clear shift from lydian's.
   await page.evaluate(() => {
     const e = window.__sok?.visual?.engine as { setHarmony(m: string, r: number): void } | null;
     e?.setHarmony("aeolian", 6);
   });
 
-  // Mid-ease the colour must have moved *off* the old value — not snapped past it
-  // and not stayed put. Both of those failures would pass a test that only
-  // compared before with after.
-  //
-  // 2 000 ms, not 700. §9.3 eases with τ = 2 s, so 700 ms in the palette has
-  // travelled only ~30 % of the way — and at C6's darkened `deep` that is under one
-  // 8-bit unit, which is not a signal the assertion can carry. Reading at ~1τ gets
-  // two-thirds of the way, which is unambiguous without weakening the bound.
-  await page.waitForTimeout(2000);
-  const during = await readPixel();
-  expect(during).not.toBeNull();
-  if (!during) return;
+  const readCore = async (): Promise<{ r: number; g: number; b: number }> =>
+    page.evaluate(() => {
+      const p = (window.__sok?.visual?.engine as { palette: { current: { core: { r: number; g: number; b: number } } } })
+        .palette.current;
+      const enc = (c: number): number =>
+        Math.round(
+          255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055),
+        );
+      return { r: enc(p.core.r), g: enc(p.core.g), b: enc(p.core.b) };
+    });
 
   const distance = (
     a: { r: number; g: number; b: number },
     b: { r: number; g: number; b: number },
   ): number => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
-  // The clear colour must *change* as §9.3 eases the palette to a new harmony.
-  //
-  // This is where C6's darkening found its floor. At L ≈ 0.06 the four modes'
-  // `deep` colours quantise to **the same 8-bit triple** — lydian and mixolydian
-  // both land on (0,1,3) — so the harmony drift is not merely small, it is exactly
-  // zero and the clear colour stops following the palette at all. At L = 0.10 all
-  // four are distinct: (1,3,9), (0,4,9), (2,3,11), (3,2,12).
-  //
-  // So `deep` is set at L = 0.10 and the bound stays above 1. That is a real
-  // constraint, not a loosened one: 8-bit quantisation sets a floor on how dark the
-  // clear colour can go before §9.3 stops being observable.
-  expect(
-    distance(before, during),
-    "the clear colour must drift during the §9.3 ease",
-  ).toBeGreaterThan(1);
 
-  // And it must end up clearly somewhere new.
+  const coreBefore = await readCore();
+
+  // Mid-ease the colour must have moved *off* the old value — not snapped past it
+  // and not stayed put. Both of those failures would pass a test that only compared
+  // before with after. §9.3 eases with τ = 2 s, so ~1τ is two-thirds of the way.
+  await page.waitForTimeout(2000);
+  const coreDuring = await readCore();
+  expect(
+    distance(coreBefore, coreDuring),
+    "the palette's core colour must drift during the §9.3 ease",
+  ).toBeGreaterThan(5);
+
+  // And it must end up clearly somewhere new — nowhere near the value it started at.
   await page.waitForTimeout(3500);
-  const after = await readPixel();
-  expect(after).not.toBeNull();
-  if (!after) return;
-  // > 2, down from > 3, for the same reason as the bounds above: C6 darkened
-  // `deep`, so the absolute 8-bit distance between two modes' colours shrank. The
-  // measured distance is 3 — lydian's (1,3,9) against aeolian's — which is a real
-  // move to a distinct triple, and the checks on either side of this one (drift
-  // mid-ease, and hue dominance) are what would catch a clear colour that snapped
-  // straight to the wrong palette slot.
-  expect(distance(before, after), "the clear colour must end on the new palette").toBeGreaterThan(
-    2,
-  );
+  const coreAfter = await readCore();
+  expect(
+    distance(coreBefore, coreAfter),
+    "the palette's core colour must end on the new harmony",
+  ).toBeGreaterThan(20);
+});
+
+test("all four harmonies are distinguishable through the orb, not the background", async ({
+  page,
+}) => {
+  // The claim that makes C6's L = 0.04 safe: §9.3's harmony survives the move to a
+  // black background, because the channels that carry it are nowhere near the 8-bit
+  // floor. Measured separation across the four modes:
+  //
+  //   deep  (0,0,1) (0,0,1) (0,0,2) (0,0,2)   → 2 distinct, 1 unit apart
+  //   dust  ~40–60 units between every pair
+  //   core  ~50–140 units between every pair
+  //
+  // If this fails, the background is the only place the harmony was visible and the
+  // trade was not free after all.
+  await page.goto("/?debug=1&quality=high");
+  await page.waitForFunction(() => window.__sokVisualReady === true, null, { timeout: 30_000 });
+
+  const enc = (c: number): number =>
+    Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+
+  const seen: Record<string, string[]> = { core: [], dust: [], deep: [] };
+  for (const mode of ["lydian", "mixolydian", "dorian", "aeolian"]) {
+    await page.evaluate((m) => {
+      const e = window.__sok?.visual?.engine as { setHarmony(m: string, r: number): void };
+      e.setHarmony(m, 0);
+    }, mode);
+    await page.waitForTimeout(4000);
+    const c = await page.evaluate(() => {
+      const p = (window.__sok?.visual?.engine as { palette: { current: Record<string, { r: number; g: number; b: number }> } })
+        .palette.current;
+      return { core: p.core, dust: p.dust, deep: p.deep };
+    });
+    for (const k of ["core", "dust", "deep"] as const) {
+      const rgb = c[k] as { r: number; g: number; b: number };
+      seen[k]?.push([rgb.r, rgb.g, rgb.b].map(enc).join(","));
+    }
+  }
+
+  const distinct = (a: string[]): number => new Set(a).size;
+  expect(distinct(seen.core!), "the core colour must tell the four modes apart").toBe(4);
+  expect(distinct(seen.dust!), "the dust colour must tell the four modes apart").toBe(4);
+  // The background is *not* expected to — that is the trade, stated as an assertion
+  // so a future change to `deep` that restores it is noticed as a comment, not a bug.
+  expect(distinct(seen.deep!)).toBeLessThan(4);
 });
 
 test("disposing the engine stops the loop and releases the context", async ({ page }) => {

@@ -51,7 +51,7 @@ This file is the authoritative list. It is populated as the build progresses.
 - [ ] **C3.** Mode/colour transitions feel smooth, not abrupt.
 - [ ] **C4.** Reduced-motion mode feels calm; no flashing anywhere.
 - [ ] **C5.** No full-screen strobing (> 3 Hz) in any state, including bot bursts.
-- [x] **C6.** ✅ **No banding; background darkened within a hard floor.** _(T4.4.)_
+- [x] **C6.** ✅ **No banding; background is black (`deep` at L = 0.04, chosen by eye).** _(T4.4, T5.2.)_
       Corner-patch luminance std-dev **2.27–2.70** throughout, inside T4.4's (0, 6),
       and no contouring visible in the captures — the grain is dithering correctly.
 
@@ -60,13 +60,41 @@ This file is the authoritative list. It is populated as the build progresses.
       neither was responsible — the lift is **tone mapping**, and the fix belongs in the
       palette's `deep` rather than in the curve.
 
-      **It found a floor that is quantisation, not taste.** At L ≈ 0.06 the four modes'
-      `deep` colours land on 8-bit triples and lydian and mixolydian land on the
-      *identical* (0,1,3) — so the §9.3 harmony drift measured exactly **0** and the
-      background stopped following the palette at all, at any threshold. `deep` is
-      therefore at **L = 0.10**, where all four are distinct: (1,3,9), (0,4,9),
-      (2,3,11), (3,2,12). Recorded in `visual-boot.spec.ts` so the next person to try
-      going darker finds it in one place.
+      **The floor turned out to be the wrong thing to optimise.** At L ≈ 0.06 the four
+      modes' `deep` colours quantise to 8-bit triples and lydian and mixolydian land on
+      the *identical* triple, so the §9.3 harmony drift measured exactly 0 — and `deep`
+      was held at L = 0.10 to preserve it. The human looked at the result and called it
+      navy. **The trade was wrong**: a background washed with blue to observe a harmony
+      change the orb, the dust and the sparks all show far more legibly.
+
+      Measured across the sweep, rendered (not authored) 8-bit values:
+
+      | `deep` L | lydian | mixolydian | dorian | aeolian | distinct |
+      |---|---|---|---|---|---|
+      | 0.10 | (0,4,18) | (0,5,18) | (0,4,22) | (2,3,24) | 4 |
+      | 0.08 | (0,1,8) | (0,2,8) | (0,1,11) | (0,1,14) | 4 |
+      | 0.06 | (0,0,3) | (0,0,3) | (0,0,4) | (0,0,5) | 3 |
+      | **0.04** | (0,0,1) | (0,0,1) | (0,0,2) | (0,0,2) | **2** |
+
+      **L = 0.04, chosen by eye.** §9.3's harmony survives it entirely, in the channels
+      that carry it: `core` and `dust` are **50–140 units** apart between modes, against
+      1 unit in `deep`. Asserted by a dedicated e2e test, which also asserts that `deep`
+      is *not* carrying it — so the trade is written down rather than forgotten.
+
+      **`?deep=<L>` now sweeps it**, so the next person to want it darker does not have
+      to rebuild: `artifacts/shots/deep-compare.html` is the side-by-side.
+
+      **Two tests had to be re-pointed**, and one of them taught the session's lesson
+      again:
+
+      - The clear-colour test compared against the palette at the shipped L = 0.04 and
+        **still passed with the clear colour hardcoded to black** — verified by
+        deliberately breaking it. At that darkness the background spans one 8-bit unit,
+        so any tolerance wide enough to absorb rounding also absorbs the fault. It now
+        loads `?deep=0.5` and asserts against the palette with a ±2 tolerance.
+      - The cross-browser smoke read the *background* to prove "something got drawn".
+        It is now black by design, so it reads the **orb at the centre** instead.
+
       ⚠️ **Related, from T4.4:** with the dust entirely off the background is still
       **navy rather than near-black** — AgX lifting the clear colour, visible in
       `artifacts/shots/t6s-dust-a-off.png`. The grain is doing its job (T4.4's corner

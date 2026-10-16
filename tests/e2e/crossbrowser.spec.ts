@@ -36,8 +36,19 @@ test.describe("cross-browser smoke", () => {
             ) as HTMLCanvasElement | null;
             const gl = c?.getContext("webgl2");
             if (!c || !gl) return resolve(null);
+            // Read the **centre**, not a corner. This used to read (2,2) — the
+            // background — and asserted its luma was above zero, which worked only
+            // while `deep` was bright enough to be distinguishable from black. C6
+            // moved the background to L = 0.04, where it legitimately rounds to
+            // (0,0,1) or (0,0,0) depending on the engine's dithering, and the
+            // check then failed on perfectly correct renders.
+            //
+            // The question is "did anything get drawn", and the orb is the thing
+            // that gets drawn. The background is a colour, not evidence.
             const px = new Uint8Array(4);
-            gl.readPixels(2, 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            const w = c.width;
+            const h = c.height;
+            gl.readPixels(Math.floor(w / 2), Math.floor(h / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
             resolve({
               hasWebGL2: true,
               luma: 0.2126 * (px[0] ?? 0) + 0.7152 * (px[1] ?? 0) + 0.0722 * (px[2] ?? 0),
@@ -53,8 +64,11 @@ test.describe("cross-browser smoke", () => {
     expect(probe.hasWebGL2).toBe(true);
 
     // Not "is it exactly the palette's deep" — that is what visual-boot asserts
-    // on Chromium. Here it is only "did anything get drawn at all".
-    expect(probe.luma, `renderer: ${probe.renderer} / ${probe.version}`).toBeGreaterThan(0);
+    // on Chromium. Here it is only "did the orb reach the buffer at all".
+    expect(
+      probe.luma,
+      `renderer: ${probe.renderer} / ${probe.version}`,
+    ).toBeGreaterThan(1);
 
     errors.assertClean("cross-browser boot");
   });

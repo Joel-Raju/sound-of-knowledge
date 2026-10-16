@@ -367,6 +367,19 @@ export function VisualHarness(): React.JSX.Element {
         const forced =
           quality === "low" || quality === "medium" || quality === "high" ? quality : undefined;
 
+        // `?deep=` sweeps §9.3's background lightness (C6). §9.8's tone mapping lifts it on
+        // the way to the screen, so the authored value is not what the eye sees — and
+        // that lift is the whole complaint.
+        //
+        // Set **before** the engine, because `VisualEngine` constructs its `Palette`
+        // in its constructor and the override is consulted when the palette is built.
+        // Setting it afterwards would silently do nothing.
+        const deepArg = params.get("deep");
+        if (deepArg !== null && Number.isFinite(Number(deepArg))) {
+          const paletteMod = await import("@/engine/visual/palette");
+          paletteMod.setDeepLightnessOverride(Number(deepArg));
+        }
+
         const engine = new mod.VisualEngine({
           canvas,
           tier: forced,
@@ -392,6 +405,9 @@ export function VisualHarness(): React.JSX.Element {
             : undefined;
         // `?absorb=` and `?emission=` sweep §9.4's core-detail terms (C11). Both are
         // runtime-switchable so a value can be looked at before it is committed.
+        // `?deep=` sweeps §9.3's background lightness (C6). §9.8's tone mapping lifts it on
+        // the way to the screen, so the authored value is not what the eye sees — and
+        // the lift is the whole complaint.
         const absorbArg = Number(params.get("absorb"));
         const emissionArg = Number(params.get("emission"));
         const orb = new orbModule.Orb({

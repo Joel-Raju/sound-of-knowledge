@@ -2948,3 +2948,53 @@ one cannot mask it, and also asserts the drawing buffer's aspect ratio matches t
 element's — otherwise three.js would render into a narrower buffer and stretch it, and a
 round orb would come out elliptical. Verified by re-introducing `w-dvh`: the test fails,
 and it passes with the fix.
+
+## C6 closed for real — `deep` at L = 0.04, and the floor was the wrong thing to optimise
+
+The human looked at the running piece and said the background was navy and should be
+black. Swept and rendered rather than derived:
+
+| `deep` L | lydian | mixolydian | dorian | aeolian | distinct |
+|---|---|---|---|---|---|
+| 0.10 (was) | (0,4,18) | (0,5,18) | (0,4,22) | (2,3,24) | 4 |
+| 0.08 | (0,1,8) | (0,2,8) | (0,1,11) | (0,1,14) | 4 |
+| 0.06 | (0,0,3) | (0,0,3) | (0,0,4) | (0,0,5) | 3 |
+| **0.04 (shipped)** | (0,0,1) | (0,0,1) | (0,0,2) | (0,0,2) | **2** |
+
+**L = 0.04, chosen by eye** out of five side-by-side captures
+(`artifacts/shots/deep-compare.html`, regenerate with `?deep=<L>`).
+
+### The earlier decision was wrong, and it was wrong in a specific way
+
+I had held `deep` at L = 0.10 because below L ≈ 0.07 the four modes' `deep` colours
+quantise onto the same 8-bit triple, so the §9.3 harmony drift measured exactly 0. I
+recorded that as a hard floor, and it was — but it was a floor on the **test**, not on
+the product. The harmony is carried by `core` and `dust`, which at L = 0.04 are **50–140
+8-bit units** apart between modes, against 1 unit in `deep`.
+
+So the trade I had been protecting was: *a blue wash on the background, to observe a
+harmony change that the orb shows in the middle of the frame*. That was never a good
+trade. A dedicated e2e now asserts both halves — that `core` and `dust` tell all four
+modes apart, **and** that `deep` does not — so the trade is written down rather than
+rediscovered.
+
+### The lesson arrived a thirteenth time, wearing a new hat
+
+The clear-colour test was rewritten to compare the rendered pixel against the palette's
+own `deep` — which sounds like it fixes the "can't tell black from the palette" problem
+at L = 0.04. **It did not.** I broke the renderer deliberately, hardcoding
+`setClearColor(0,0,0)`, and the test still passed: the whole background spans one 8-bit
+unit, so any tolerance wide enough to absorb 8-bit rounding also absorbs the fault.
+
+Darker is not more precise here. It is **less**. The fix was to load `?deep=0.5` for that
+one test — the override exists so a test can ask for a background bright enough to
+measure — and tighten the tolerance from ±4 to ±2. Re-broken, it now fails with
+`clear colour rgb(0,0,0) should match the palette's deep rgb(93,100,111)`.
+
+The cross-browser smoke had the same shape: it read the background to prove "something
+got drawn", which is a background that is now legitimately black. It reads the **orb at
+the centre** now.
+
+**A test that asserts on a signal that a design decision has legitimately driven to
+zero does not get weaker — it gets blind.** The two fixes here are the same fix: point
+the assertion at a channel that still carries the information.

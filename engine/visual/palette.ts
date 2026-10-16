@@ -34,25 +34,25 @@ const SPEC: Record<ModeId, PaletteSpec> = {
     core: [0.86, 0.12, 85],
     accent: [0.82, 0.14, 200],
     dust: [0.75, 0.06, 60],
-    deep: [0.1, 0.02, 260],
+    deep: [0.04, 0.02, 260],
   },
   mixolydian: {
     core: [0.84, 0.13, 165],
     accent: [0.82, 0.15, 60],
     dust: [0.72, 0.05, 180],
-    deep: [0.1, 0.025, 230],
+    deep: [0.04, 0.025, 230],
   },
   dorian: {
     core: [0.8, 0.13, 250],
     accent: [0.78, 0.16, 330],
     dust: [0.7, 0.05, 260],
-    deep: [0.105, 0.025, 270],
+    deep: [0.04, 0.025, 270],
   },
   aeolian: {
     core: [0.74, 0.14, 295],
     accent: [0.78, 0.15, 25],
     dust: [0.65, 0.05, 300],
-    deep: [0.1, 0.03, 290],
+    deep: [0.04, 0.03, 290],
   },
 };
 
@@ -99,6 +99,24 @@ export interface PaletteColors {
   deep: Rgb;
 }
 
+/**
+ * C6 — an override for the background's lightness, so it can be swept and *looked at*.
+ *
+ * §9.3's `deep` is authored per mode and §9.8's tone mapping lifts it on the way to the
+ * screen, so the background that reaches the eye is not the number in `SPEC`. Sweeping
+ * it needs a runtime handle; a rebuild per data point is not a sweep.
+ */
+let deepLightnessOverride: number | null = null;
+
+/** Set, or pass `null` to restore each mode's authored lightness. */
+export function setDeepLightnessOverride(L: number | null): void {
+  deepLightnessOverride = L === null ? null : Math.max(0, Math.min(1, L));
+}
+
+export function getDeepLightnessOverride(): number | null {
+  return deepLightnessOverride;
+}
+
 function build(spec: PaletteSpec, hueShift: number): PaletteColors {
   const shift = (c: readonly [number, number, number], out: Rgb): Rgb => {
     let h = c[2] + hueShift;
@@ -106,11 +124,18 @@ function build(spec: PaletteSpec, hueShift: number): PaletteColors {
     h = ((h % 360) + 360) % 360;
     return oklchToLinearSrgb(c[0], c[1], h, out);
   };
+  // Only `deep` is overridden. `core`, `accent` and `dust` are the light sources of the
+  // piece; changing them would be changing what the piece looks like, not what the
+  // background behind it looks like.
+  const deep: readonly [number, number, number] =
+    deepLightnessOverride === null
+      ? spec.deep
+      : [deepLightnessOverride, spec.deep[1], spec.deep[2]];
   return {
     core: shift(spec.core, { r: 0, g: 0, b: 0 }),
     accent: shift(spec.accent, { r: 0, g: 0, b: 0 }),
     dust: shift(spec.dust, { r: 0, g: 0, b: 0 }),
-    deep: shift(spec.deep, { r: 0, g: 0, b: 0 }),
+    deep: shift(deep, { r: 0, g: 0, b: 0 }),
   };
 }
 
