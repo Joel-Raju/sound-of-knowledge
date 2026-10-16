@@ -138,7 +138,7 @@ export class AudioEngine {
    * delay, pad) are added in T3.3; this establishes the spine so the
    * e2e boot test can already load the worklet and trigger a note.
    */
-  async init(): Promise<void> {
+    async init(): Promise<void> {
     const params = TIER_PARAMS[this.tier];
     const ctx = this.ctx;
 

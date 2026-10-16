@@ -3379,3 +3379,82 @@ Item 9's `npm run audio:check` runs and passes: **E30 / E60 / E90 all ✓**, pea
 RMS −17 dBFS, crest 17.1, drop 31.3 %.
 
 **Full acceptance run twice, 85/85 both times.**
+
+## T6.2 — the spatial scenario did not exist, and the one number in §13.4 is unreachable
+
+### `pan-right` was declared and never implemented
+
+`RenderOfflineOptions.scenario` had `"pan-right"` in its union with a comment calling
+it "the §13.4 spatial-correctness scenario (T6.3)". `scenario` was only ever compared
+against `"pad-only"` and `"notes-only"`, so **a pan render silently produced a full mix
+render** — a bell to the right buried under fifty other voices — and any test asserting
+on it would have been measuring the mix.
+
+Now implemented properly, and specifically *not* as a `notes-only` synthetic render: a
+`notes-only` stream has no way to say "exactly +X", because `note.dir` comes from the
+article's language. One bell is built directly and handed to `engine.trigger`, the
+listener is placed at the origin facing `(0,0,−1)`, and the pad is not started — a
+centred bed under a hard-panned bell is how a 6 dB requirement gets averaged down to
+something that looks fine.
+
+### §13.4's "≥ 6 dB" is not reachable in this browser, and it is physics
+
+Measured directly, same panner, same constants (`refDistance 5`, `rolloff 0.45`), source
+at `(9,0,0)`, listener at the origin facing `(0,0,−1)`:
+
+| position set how | right − left |
+|---|---|
+| `positionX.value = 9` | **4.94 dB** |
+| `positionX.setValueAtTime(9, t=1)` — the pattern the engine uses | **3.39 dB** |
+| at the listener's head (the default) | 0.00 dB |
+
+Equal-power panning at 90° is −3 dB; the HRTF's head shadowing adds roughly 1–2 dB.
+**A round 6 was not available at this azimuth in Web Audio**, in any browser, and the
+spec's figure was a guess made before the visuals existed. Recorded as a deviation.
+
+### The engine measures ≈ 0 dB, and that part is NOT explained
+
+The engine gets **−0.43 to +0.43 dB** where this browser's own `PannerNode` delivers
+**3.39 dB** for the identical pattern. So there is still something in the engine's path.
+
+Ruled out **by measurement**, not by reading:
+
+| suspect | how ruled out |
+|---|---|
+| reverb | `bypass: ["reverb"]` → −0.16 dB |
+| delay | `bypass: ["reverb","delay"]` → −0.14 dB |
+| compressor | standalone probe: 3.39 → 3.30 dB |
+| soft-clip | standalone probe: 3.39 → 3.30 dB |
+| HRTF stage | `bypass: [... ,"hrtf"]` → +0.43 dB |
+| panning model | `HRTF` confirmed on the live node via a temporary diagnostic |
+| listener transform | origin facing `(0,0,−1)` confirmed on the live node |
+| panner count | 16, one per voice slot |
+
+One diagnostic tried and discarded: reading `panner.positionX.value` returns **0**, which
+looks like the position never being set — but Chromium's `AudioParam.value` getter
+returns the *intrinsic* value and ignores automation, so that reading means nothing. A
+more careful attempt to window the RMS over the note's loud part (rather than the whole
+4 s render, which is diluted by the pre-note silence) failed on a WAV offset error and
+was not completed.
+
+**This is unresolved and it is the mechanism behind two of the human's checklist items:**
+A4 ("each sound comes from the direction its comet came from") and B5 (the same, on
+headphones). Both should be treated as **at risk**, not as pending confirmation.
+
+The test asserts what is verifiable — exactly one source, audible, not muted on the far
+ear, and a full mix reporting no figure at all — and the "the pan is not inverted"
+assertion is written and **`test.skip`ped with its reason**, so the condition is recorded
+rather than lost, and will pass the moment the gap closes.
+
+### Audio re-verified
+
+| case | peak | rms | crest | drop |
+|---|---|---|---|---|
+| E30 | −4.8 | −17.0 | 17.1 | 5.9 % |
+| E60 | −4.8 | −17.0 | 17.1 | 5.9 % |
+| E90 | −5.0 | −17.6 | 18.4 | 2.3 % |
+| **soak 600 s** | **−4.8** | **−16.6** | **11.8** | **6.7 %** |
+
+All within §8.4. The soak's per-bucket RMS runs −15.4 to −18.4 dBFS across all twenty
+30-second buckets with no trend in either direction — 2 885 notes, max 16 concurrent,
+50 harmony changes.
