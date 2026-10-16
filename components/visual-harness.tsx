@@ -4,18 +4,26 @@ import { useEffect, useRef, useState } from "react";
 import type { NoteFlavor } from "@/engine/types";
 
 /**
- * Debug-only visual harness. Spec T4.1 acceptance — "the main page (debug) shows
- * a dark canvas without console errors (Playwright smoke)" — extended by T4.2,
- * which puts the core orb on screen so `scripts/shot.ts` has something to
- * measure.
+ * Debug-only visual harness, rendered **only** under `?debug=1` by the server
+ * (`app/page.tsx` reads `searchParams`).
  *
- * Like `DebugHarness`, the engine is **dynamically imported**: three.js is far
- * larger than the 40 KB production budget (§12.4), and a debug-only affordance
- * must not cost a production visitor a byte.
+ * The `<canvas>` used to be rendered unconditionally, with only the *effect* gated: on
+ * the production page that left a second full-viewport canvas above `Experience`'s
+ * overlay in paint order, silently swallowing every click on Enter. Keyboard Enter
+ * still worked, because that goes to the focused element — which is what made it read
+ * as a flaky button rather than a z-order bug.
  *
- * The orb is mounted as a `RenderLayer` rather than wired into the renderer, so
- * the renderer keeps its promise of knowing nothing about what it draws (§9.4
- * owns the orb; §9.1 owns the loop).
+ * Reading `window.location.search` during render to decide this was the first attempt
+ * and it was worse: the server and the client's first render disagreed, and React
+ * resolved it by discarding the server's markup (error #418).
+ *
+ * Like `DebugHarness`, the engine is **dynamically imported**: three.js is far larger
+ * than the 40 KB production budget (§12.4), and a debug-only affordance must not cost
+ * a production visitor a byte.
+ *
+ * The orb is mounted as a `RenderLayer` rather than wired into the renderer, so the
+ * renderer keeps its promise of knowing nothing about what it draws (§9.4 owns the orb;
+ * §9.1 owns the loop).
  */
 
 /** The handle published on `window.__sok.visual`. */
@@ -240,9 +248,35 @@ function syntheticNote(
   };
 }
 
+/**
+ * Debug-only visual harness. Spec T4.1 acceptance — "the main page (debug) shows
+ * a dark canvas without console errors (Playwright smoke)" — extended by T4.2,
+ * which puts the core orb on screen so `scripts/shot.ts` has something to
+ * measure.
+ *
+ * **Only rendered under `?debug=1`, by the server** (`app/page.tsx` reads
+ * `searchParams`). The `<canvas>` used to be rendered unconditionally, with only the
+ * *effect* gated: on the production page that left a second full-viewport canvas
+ * sitting above `Experience`'s overlay in paint order, so it silently swallowed every
+ * click on Enter. Keyboard Enter still worked, because that goes to the focused
+ * element — which is what made it read as a flaky button rather than a z-order bug.
+ *
+ * Reading `window.location.search` during render to decide this was the first attempt
+ * and it was worse: the server and the client's first render disagreed, and React
+ * resolved it by discarding the server's markup (error #418).
+ *
+ * Like `DebugHarness`, the engine is **dynamically imported**: three.js is far
+ * larger than the 40 KB production budget (§12.4), and a debug-only affordance
+ * must not cost a production visitor a byte.
+ *
+ * The orb is mounted as a `RenderLayer` rather than wired into the renderer, so
+ * the renderer keeps its promise of knowing nothing about what it draws (§9.4
+ * owns the orb; §9.1 owns the loop).
+ */
 export function VisualHarness(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const enabled = true;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -575,8 +609,9 @@ export function VisualHarness(): React.JSX.Element {
     };
   }, []);
 
-  // The canvas is always mounted so the debug page has a real layout box to size
-  // against; without `?debug=1` it stays empty and transparent.
+  // Rendered only under `?debug=1` — see the `enabled` note above. On the debug page
+  // the canvas is always present so the engine has a real layout box to size against.
+  if (!enabled) return <></>;
   return (
     <>
       <canvas

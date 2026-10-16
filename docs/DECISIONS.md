@@ -2791,3 +2791,59 @@ Two e2e files each declared `Window.__sok` with the subset they needed. Interfac
 merging requires identical types, so the second declaration changed the first's meaning
 and `tsc` failed pointing at accesses that were valid in the file that owned them.
 Now one `tests/e2e/sok-window.ts` covering everything the suite touches.
+
+## T5.1 — the engine facade and the React shell
+
+**Acceptance: Enter enables in ~1.0 s under swiftshader**, against the spec's 20 s
+ceiling. That number is asserted on every e2e run, because `warmUp` is exactly the kind
+of function that can go from 1 s to 30 s without failing anything else.
+
+### The gesture constraint is the whole design
+
+§8.2: an `AudioContext` may only be created from a user gesture. So `create()` does
+everything that needs no permission — renderer, shaders, warm-up frame — and `start()`
+is the single method that touches audio.
+
+I wrote the overlay wrong the first time: it set a fading state and called `onEnter()`
+from a `setTimeout`, which loses the gesture and leaves the context suspended. That
+presents as a *mute bug*, not a permission error, and is very hard to trace to a timer.
+§11.2 has the order the other way round — start first, then fade — so the fade is now
+driven by the `entered` prop the parent sets *after* `start()` resolves.
+
+### Three bugs the tests were written to find, and all three were real
+
+**Production had two canvases, and the wrong one was on top.** `VisualHarness`
+rendered its `<canvas>` unconditionally with only the *effect* gated on `?debug=1`. On
+the production page that second full-viewport canvas sat above `Experience`'s overlay
+in paint order and swallowed every click on Enter.
+
+The reason this read as a flaky button rather than a z-order bug: **keyboard Enter
+worked**. Key events go to the focused element and never do a hit test. Four tests
+failed on `locator.click` timing out while the keyboard test passed, and that
+asymmetry was the whole diagnosis.
+
+**Hydration mismatch, React error #418.** The first fix gated the canvas in the
+component by reading `window.location.search` during render — `false` on the server,
+`true` on the client, so React threw away the server's markup. Now `app/page.tsx` is an
+async server component that awaits `searchParams` and passes `debug` down. The server
+knows the query string; the client should not have to guess it during render.
+
+**The overlay unmounted instead of fading.** `{!entered && <StartOverlay/>}` removes
+the element, so §11.2's 1.2 s transition never ran and the first frame of the piece
+snapped into full brightness. It stays mounted for 1.2 s after `entered`, then leaves.
+The first attempt at the fix used `(!dismissed || entered)`, which is true when both
+are true — the condition to render is `!entered || !dismissed`.
+
+### What `Metrics` needed a test for
+
+`getMetrics()` returning `{}` satisfies "not null". The e2e now asserts all nineteen of
+§5.5's fields exist and are the right kind, because a facade that looks like the spec's
+interface but populates nothing is the same shape as every other silent fault here.
+
+### StrictMode
+
+React 19 mounts effects twice in development. Three guards: a `cancelled` flag so a
+`create()` resolving after unmount disposes its result; `start()` refusing to run on a
+disposed engine; and the engine in a ref rather than state. The e2e asserts production
+has exactly **one** canvas — two would halve the frame budget with nothing in the code
+explaining why.
