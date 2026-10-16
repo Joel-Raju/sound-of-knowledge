@@ -2560,6 +2560,7 @@ recovers a field that is already saturated at source. The only lever that can wo
 the orb's own emission scale — which §9.4 owns. Two plausible causes tested and refuted
 is worth recording, because the third is the one that costs something.
 
+<!-- sok-resolved: C6 -->
 ### C6: the navy **is** tone mapping, and ACES lifts less
 
 Same table. Without post the frame reads mean 54.03; with either curve it reads 72–80.
@@ -2665,6 +2666,7 @@ and under one 8-bit unit at the new darkness), and the final distance bound went
 > 3 to > 2. The measured distance is 3, lydian's (1,3,9) against aeolian's — a real move
 to a distinct triple.
 
+<!-- sok-resolved: C11 -->
 ### C11 closed — absorption 1.2, chosen by eye
 
 The human compared the `--orb-sweep` captures and found **both** 1.2 and 0.7 better than
@@ -2686,3 +2688,30 @@ in a shader term, and the failure mode that keeps recurring is a uniform that is
 and set but never read: it looks configured, tests pass, and nothing on screen changes.
 `expect(fragmentShader).toContain("-d * stepLen * uAbsorb")` is the assertion that would
 have caught that class immediately.
+
+### The first guard for this was itself inert
+
+Caught by the habit this log exists for — a confident claim from an instrument that
+was not measuring.
+
+`check:docs` already verified the documents agree **with each other**. C6 and C11 had
+been reported closed in conversation, written up here, and left unticked in the
+checklist, and nothing fired, because the docs *were* internally consistent. The drift
+was between a claim and the file it was about.
+
+The first fix matched `**C11.** ✅` in this file. **That shape occurs zero times in
+3,300 lines** — resolutions are recorded as markdown headings (`### C11 closed — …`).
+It passed every test I gave it because it was silent. Had I not deliberately unticked
+C11 with the counts left consistent to isolate the guard, I would have committed a
+check that reported coverage it did not have, on the exact drift it was written to
+catch.
+
+Two changes make that impossible rather than merely unlikely:
+
+- the marker is explicit HTML — `<!-- sok-resolved: C11 -->`
+- the check **fails if no markers exist at all**, so the guard cannot rot into
+  inertness without saying so
+
+Both directions are now tested: unticking a declared item fails with that item named,
+and deleting the markers fails with "the guard is inert". A guard that cannot report
+its own death is worth less than no guard, because it reads as coverage.

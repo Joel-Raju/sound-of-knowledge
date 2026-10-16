@@ -200,7 +200,7 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 **Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.4) —
 **20 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
-**Human checklist: 13 of 51 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
+**Human checklist: 15 of 51 closed, 36 open** — see `docs/HUMAN-CHECKLIST.md`.
 13 of 52 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
 
 Audio is finished and verified end to end: the full graph renders offline at all
@@ -228,7 +228,7 @@ the real thing. The air layer is confirmed inaudible at §8.8's values.
 **D1–D4 are all closed.** They were re-judged on audio rendered after the
 `WORKLET_QUEUE_CAP` fix, which had been silently discarding 80–95 % of notes.
 
-So **19 of the 38 are gated on T5.1**, not on the human. That is the single
+So **19 of the 36 are gated on T5.1**, not on the human. That is the single
 highest-leverage task left.
 
 Phase 4 opened with T4.1. `engine/visual/` went from 0 lines to the renderer's

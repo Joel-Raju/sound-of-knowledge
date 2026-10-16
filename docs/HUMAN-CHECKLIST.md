@@ -51,7 +51,22 @@ This file is the authoritative list. It is populated as the build progresses.
 - [ ] **C3.** Mode/colour transitions feel smooth, not abrupt.
 - [ ] **C4.** Reduced-motion mode feels calm; no flashing anywhere.
 - [ ] **C5.** No full-screen strobing (> 3 Hz) in any state, including bot bursts.
-- [ ] **C6.** Dark gradients show no banding (grain dither working, §9.8).
+- [x] **C6.** ✅ **No banding; background darkened within a hard floor.** _(T4.4.)_
+      Corner-patch luminance std-dev **2.27–2.70** throughout, inside T4.4's (0, 6),
+      and no contouring visible in the captures — the grain is dithering correctly.
+
+      The background was **navy rather than near-black**, diagnosed by sweeping the post
+      stack: bloom off scored 80.05 against AgX's 80.03 and the vignette off 80.11, so
+      neither was responsible — the lift is **tone mapping**, and the fix belongs in the
+      palette's `deep` rather than in the curve.
+
+      **It found a floor that is quantisation, not taste.** At L ≈ 0.06 the four modes'
+      `deep` colours land on 8-bit triples and lydian and mixolydian land on the
+      *identical* (0,1,3) — so the §9.3 harmony drift measured exactly **0** and the
+      background stopped following the palette at all, at any threshold. `deep` is
+      therefore at **L = 0.10**, where all four are distinct: (1,3,9), (0,4,9),
+      (2,3,11), (3,2,12). Recorded in `visual-boot.spec.ts` so the next person to try
+      going darker finds it in one place.
       ⚠️ **Related, from T4.4:** with the dust entirely off the background is still
       **navy rather than near-black** — AgX lifting the clear colour, visible in
       `artifacts/shots/t6s-dust-a-off.png`. The grain is doing its job (T4.4's corner
@@ -74,11 +89,27 @@ This file is the authoritative list. It is populated as the build progresses.
       banding** — the banding the jitter exists to hide does not occur, because the
       density field varies by more than a `stepLen` across each step. Set to 0;
       the uniform is retained as insurance with a measured reason for being off.)_
-- [ ] **C11.** The orb's high-tier core is **not a blown-out white blob** once §9.8's
-      bloom and tone mapping land. _(T4.2. After the `fbm` normalisation, 10.5 % of the
-      high-tier centre sits above luminance 230. §9.1 defers tone mapping to post and
-      §9.2 wants HDR for bloom, so this may be correct — but T4.4 owns the answer and
-      nobody has looked at it with bloom on.)_
+- [x] **C11.** ✅ **Resolved — the core has interior structure.** _(T4.4, three
+      wrong hypotheses before the right one.)_
+      Parked since T2 precisely waiting for §9.8 to land. Once it did, the core was a
+      structureless wash, and the diagnosis went:
+
+      1. **Tone mapping** — ACES tested against AgX. It *does* restore separation
+         (8.23 % of pixels above luminance 230 against AgX's 0.00 %), but the magnified
+         core is a smooth wash either way. **Wrong.**
+      2. **Bloom** — intensity 0.9 over a bright orb would both wash the frame and add
+         glow over the orb. Disabling it scored 80.05 against 80.03. **Wrong.**
+      3. **The orb's own shader** — the actual cause. Transmittance decays by the
+         per-step absorption every step, so deep in the volume the accumulated colour
+         converges on the emitted one and the fbm structure is cancelled *before*
+         anything downstream sees it. Scaling the colour cannot recover detail that is
+         already gone.
+
+      Two deviations from §9.4, both chosen by eye and both pinned by tests:
+      **absorption 3.2 → 1.2** and **emission 1.0 → 0.55**. The human compared the
+      sweep at 3.2 / 2.0 / 1.2 / 0.7 and found 1.2 and 0.7 both better than the spec's
+      3.2; 1.2 is the default because the orb still reads as a luminous body there,
+      and 0.7 is one `?absorb=` away.
 - [x] **C11b.** ✅ **Resolved — the dust reads as dust.** _(T4.4. Decided by eye over a
       six-candidate contact sheet, `shot.ts --dust-sweep`.)_
 

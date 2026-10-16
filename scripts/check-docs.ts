@@ -88,6 +88,41 @@ if (phaseLine && lastTicked) {
   }
 }
 
+/**
+ * Every item `DECISIONS.md` declares resolved must actually be ticked.
+ *
+ * **Why this exists.** Asked "is the progress being updated" three times, and the
+ * third time it was true: C6 and C11 had been reported as closed in conversation, the
+ * reasoning had been written into `DECISIONS.md`, and the items were still `- [ ]` in
+ * the checklist. Nothing caught it, because the checks above verify the documents
+ * agree **with each other** — and they did. The drift was between a claim and the file
+ * it was about.
+ *
+ * **Why the marker is an HTML comment.** The first version of this matched `**C11.** ✅`
+ * in `DECISIONS.md`, and that shape occurs zero times in the file — resolutions are
+ * recorded as markdown *headings* (`### C11 closed — …`). It passed every test because
+ * it was silent, which is the exact failure mode it was written to catch. So the marker
+ * is explicit, and the next assertion exists so the marker set cannot rot away unnoticed
+ * (an inert guard is worse than no guard: it reads as coverage).
+ */
+const decisions = read("docs/DECISIONS.md");
+const declared = [...decisions.matchAll(/<!--\s*sok-resolved:\s*([^>]*?)\s*-->/g)]
+  .flatMap((m) => (m[1] as string).split(",").map((id) => id.trim()))
+  .filter(Boolean);
+
+if (declared.length === 0) {
+  failures.push(
+    "DECISIONS.md has no `<!-- sok-resolved: X -->` markers — the resolved-items " +
+      "guard is inert, so it is reporting coverage it does not have",
+  );
+}
+
+for (const id of declared) {
+  if (new RegExp(`^- \\[ \\] \\*\\*${id}\\.\\*\\*`, "m").test(checklist)) {
+    failures.push(`declared resolved in DECISIONS.md but still unticked: ${id}`);
+  }
+}
+
 if (failures.length > 0) {
   console.error(`✗ docs are out of date (${failures.length}):`);
   for (const f of failures) console.error(`   ${f}`);
