@@ -55,6 +55,45 @@ describe("§9.11 — orb ripple amplitude ×0.5", () => {
   });
 });
 
+describe("C11 — the orb's detail terms", () => {
+  it("absorption is the shipped value, not §9.4's 3.2", () => {
+    // §9.4 writes 3.2. Measured, that renders the core as a structureless wash
+    // regardless of tone mapping, so it is a deliberate deviation and this is where
+    // the deviation lives.
+    expect(ORB_DEFAULTS.absorb).toBeCloseTo(1.2);
+    expect(ORB_DEFAULTS.absorb).not.toBeCloseTo(3.2);
+  });
+
+  it("emission is the shipped value, not §9.4's 1.0", () => {
+    expect(ORB_DEFAULTS.emission).toBeCloseTo(0.55);
+    expect(ORB_DEFAULTS.emission).not.toBeCloseTo(1);
+  });
+
+  it("reaches the fragment shader, not just the uniform object", () => {
+    // A uniform that is declared and set but never sampled would pass every
+    // assertion above while changing nothing on screen — which is exactly the
+    // shape of bug C11 spent a session chasing.
+    const orb = new Orb({ tier: "high" });
+    expect(orb.material.fragmentShader).toContain("uniform float uAbsorb;");
+    expect(orb.material.fragmentShader).toContain("-d * stepLen * uAbsorb");
+    expect(orb.material.fragmentShader).toContain("col *= uEmission;");
+    orb.dispose();
+  });
+
+  it("both remain overridable, so the choice can be revisited", () => {
+    const a = new Orb({ tier: "high", absorb: 0.7 });
+    expect(a.material.uniforms.uAbsorb!.value).toBeCloseTo(0.7);
+    const b = new Orb({ tier: "high", emission: 1 });
+    expect(b.material.uniforms.uEmission!.value).toBeCloseTo(1);
+  });
+
+  it("clamps to a sane range", () => {
+    const orb = new Orb({ tier: "high", absorb: -5 });
+    expect(orb.material.uniforms.uAbsorb!.value).toBeGreaterThan(0);
+    orb.dispose();
+  });
+});
+
 describe("§9.11 — spark duration ×1.3", () => {
   it("lengthens rather than shortens", () => {
     // Backwards on its face, and correct: a fast snappy streak is the

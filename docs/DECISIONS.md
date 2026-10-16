@@ -2664,3 +2664,25 @@ the mid-ease read moved from 700 ms to 2 000 ms (τ = 2 s, so 700 ms was ~30 % o
 and under one 8-bit unit at the new darkness), and the final distance bound went from
 > 3 to > 2. The measured distance is 3, lydian's (1,3,9) against aeolian's — a real move
 to a distinct triple.
+
+### C11 closed — absorption 1.2, chosen by eye
+
+The human compared the `--orb-sweep` captures and found **both** 1.2 and 0.7 better than
+§9.4's 3.2, without separating them. **1.2 is the default**: the interior mottling the
+complaint asked for is visible from there, and the orb still reads as a luminous body
+rather than thinning toward gas. 0.7 carries more structure and is one `?absorb=` away,
+but it trades away more than the complaint asked for.
+
+So §9.4 now ships two deviations, both deliberate and both tested:
+
+| term | §9.4 | shipped | why |
+|---|---|---|---|
+| per-step absorption | 3.2 | **1.2** | detail is lost to alpha saturation, not colour scale |
+| emission scale | 1.0 | **0.55** | core clipped in AgX, in ACES, and with bloom off |
+
+**The test that matters most here is not the value — it is that the uniform is actually
+sampled.** C11 consumed a large part of this session chasing a symptom whose cause was
+in a shader term, and the failure mode that keeps recurring is a uniform that is declared
+and set but never read: it looks configured, tests pass, and nothing on screen changes.
+`expect(fragmentShader).toContain("-d * stepLen * uAbsorb")` is the assertion that would
+have caught that class immediately.

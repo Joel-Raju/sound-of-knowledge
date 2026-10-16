@@ -72,8 +72,15 @@ export const ORB_DEFAULTS = {
    * tone-mapping curve still has room to separate values. See `DECISIONS.md`.
    */
   emission: 0.55,
-  /** C11 — §9.4 writes 3.2; see the shader comment for why detail is lost there. */
-  absorb: 3.2,
+  /**
+   * C11 — §9.4 writes 3.2; see the shader comment for why detail is lost there.
+   *
+   * Swept at 3.2 / 2.0 / 1.2 / 0.7 and chosen by eye at **1.2**: the interior
+   * mottling the human asked for is visible from here, and the orb still reads as a
+   * luminous body rather than thinning toward gas. 0.7 carries more structure still
+   * and is one `?absorb=` away, but it trades away more than the complaint asked for.
+   */
+  absorb: 1.2,
   /**
    * §9.4 says 1.0 — the jitter displaces the march by a full `stepLen`, and is
    * given there as being there "to hide banding".
