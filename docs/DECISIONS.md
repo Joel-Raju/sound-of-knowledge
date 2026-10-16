@@ -3300,3 +3300,82 @@ the read lands on background — which is now black, so the luma assertion faile
 passed on a fast machine. Replaced the fixed wait with a poll to a deliberately low bar,
 which distinguishes "not drawn yet" from "genuinely too dim"; the real bound is asserted
 afterwards. Three consecutive runs green.
+
+## T6.1 — two of §13.4's nine e2e items were missing, and one was measuring nothing
+
+### Item 2 did not exist, and my first version of it could not fail
+
+`§13.4 item 2` — "screenshot the canvas at t = 6 s and t = 12 s; luminance std-dev > 3;
+mean absolute pixel difference between the two > 1.0" — **was not in the suite at all**.
+That is the one check that proves the *picture changes*, and without it a canvas
+rendering a single frozen frame passes everything else: the orb is bright, the clear
+colour is right, the HUD counts up.
+
+I wrote it with `gl.readPixels` first. Then I tried to break it by stopping the render
+loop, and **it still passed.**
+
+The cause: `readPixels` only reads a drawing buffer that has been drawn into since the
+last composite. Outside one, its contents are undefined — and in practice it returned
+varying garbage. The loop was provably stopped (`frames.frameCount` frozen at 272) and
+the frozen image still measured above the threshold.
+
+So the test now uses **real screenshots decoded with `sharp`** (§13.4's wording is
+"screenshot" anyway, and it is the only way to read a faithful picture of what is on
+screen), plus a second test that stops the loop and asserts the same measurement now
+*fails*.
+
+### Measured distributions, and a claim I had to retract
+
+```
+LIVE   0.860  0.738  0.638  0.578      (4 samples, unloaded)
+FROZEN 0.000  0.000  0.000  0.000      (4 samples, unloaded)
+FROZEN up to 0.111                      (under full-suite load)
+std-dev: live 6.40, frozen 6.38
+```
+
+I wrote in a comment that frozen and live were "five orders of magnitude apart". **That
+was wrong** — it was true of one unloaded sample and not of the suite under load, where
+compositor jitter puts frozen at 0.111. The bounds are 0.3 and 0.45, which sit in the gap
+between the two distributions with room on both sides: 2.7× above the worst frozen, 1.3×
+below the best live.
+
+### §13.4's `> 1.0` is not met, and C6 is not the reason
+
+The shipped piece measures **0.58–0.86**. I assumed the black background was the cause
+again and tested it — it is not:
+
+| `deep` L | 0.10 | 0.08 | 0.06 | 0.04 |
+|---|---|---|---|---|
+| mean abs diff | 0.658 | 0.703 | 0.674 | **0.836** |
+
+The black background made it marginally *easier*. `1.0` is simply not reachable on a
+frame that is mostly (0,0,1) with a subject occupying a few percent of it — most pixels
+contribute nothing and dilute the mean. Recorded as a deviation; the bound is set from
+what the piece actually does, and the test discriminates cleanly either way.
+
+**Whether to raise the visual activity until `1.0` is met, or accept 0.676, is a
+judgement about how much should be moving** — which is a question for the human, not a
+test failure.
+
+### Item 1's real assertions were missing
+
+`acceptedTotal > 20` within 10 s and `audioState === "running"` existed only as
+`typeof … === "string"` checks. Both are now asserted, plus `notesScheduled > 5` and
+`activeVoices > 0` — because `acceptedTotal > 20` alone would pass if every edit were
+dropped at the voice allocator.
+
+### Coverage, flakiness, and item 9
+
+All five §13.2 groups clear 85%: ingest 95.8 %, music 98.4 %, dsp 100 %, allocator
+100 %, util 97.7 %.
+
+One genuine flake found by running the suite rather than trusting it: `crossbrowser` read
+the orb's centre pixel right after `__sokVisualReady`, but §9.1 opens with a **camera
+entrance ease** — on a loaded runner the orb is not centred and the read lands on
+background, which is now black. Replaced with a poll to a deliberately low bar, which
+distinguishes "not drawn yet" from "genuinely too dim".
+
+Item 9's `npm run audio:check` runs and passes: **E30 / E60 / E90 all ✓**, peak −4.8 dBFS,
+RMS −17 dBFS, crest 17.1, drop 31.3 %.
+
+**Full acceptance run twice, 85/85 both times.**

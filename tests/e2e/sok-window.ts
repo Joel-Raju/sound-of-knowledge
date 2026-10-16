@@ -41,6 +41,9 @@ export interface SokMetrics {
   acceptedTotal: number;
   notesScheduled: number;
   visualQueueLen: number;
+  /** §5.5 — voices currently allocated in the pool. */
+  activeVoices: number;
+  droppedNotes: number;
 }
 
 export interface SokVisual {
