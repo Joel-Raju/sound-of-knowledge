@@ -18,6 +18,7 @@
     "check:projects": "tsx scripts/check-projects.ts",
     "test:soak": "playwright test tests/e2e/soak.spec.ts",
     "audio:check": "tsx scripts/render-audio.ts",
+    "og:image": "tsx scripts/make-og-image.ts",
     "bench": "tsx scripts/bench.ts",
     "probe:stream": "tsx scripts/probe-stream.ts",
     "probe:shader": "tsx scripts/probe-shader-compile.ts",

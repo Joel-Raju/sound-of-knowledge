@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- §14.3 — `img-src 'self'`, so no external reference. The background matches the
+       palette's `deep` at L = 0.04 (C6): black, not navy. -->
+  <rect width="32" height="32" fill="#05050a"/>
+  <!-- The core: one ring for the orb, one for the halo. -->
+  <circle cx="16" cy="16" r="7" fill="#c9a27a"/>
+  <circle cx="16" cy="16" r="7" fill="none" stroke="#f0d3ae" stroke-width="1.2" opacity="0.8"/>
+  <circle cx="16" cy="16" r="10.5" fill="none" stroke="#6f86b8" stroke-width="1" opacity="0.35"/>
+</svg>

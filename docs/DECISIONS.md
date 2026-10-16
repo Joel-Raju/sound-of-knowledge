@@ -3097,3 +3097,79 @@ making the guarded thing actually happen*.
 - One called `errors.assertClean()` on a test that **deliberately aborts the stream** —
   asserting that the thing under test did not happen. It now asserts that the *only*
   failures are the stream.
+
+## T5.4 — security headers, metadata, deploy config
+
+### Headers verified, not assumed
+
+```
+$ npm run build && npx next start -p 3111
+$ curl -sI http://127.0.0.1:3111/
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+X-Frame-Options: DENY
+Content-Security-Policy-Report-Only: default-src 'self'; connect-src 'self'
+  https://stream.wikimedia.org https://vitals.vercel-insights.com; ...
+```
+
+`Permissions-Policy` adds `payment=(), usb=()` to §14.3's three. Declaring permissions
+the piece never uses means a browser cannot be talked into *offering* them, which is the
+failure mode a browser permission prompt enables and a denial afterwards does not.
+
+### The CSP test was verified against a deliberately broken policy
+
+A CSP test that passes because no CSP was applied proves nothing — the same shape as
+every other dead instrument in this log. So the policy was tightened to
+`worker-src 'none'` and the test run:
+
+```
+✘  + "worker-src http://127.0.0.1:3112/engine/ingest.worker.js"
+```
+
+It catches violations, and it caught a real one on the first try.
+
+### §14.3's precondition for enforcing is met — the decision is left to you
+
+§14.3 says to ship report-only first and "if e2e shows zero violations, switch to
+enforcing". **The full 77-test e2e suite passes unchanged under the enforcing variant**,
+run against `next start`, with the policy identical apart from the header name.
+
+So the choice is not technical, it is about what the suite cannot see: Vercel's own
+injected scripts on a real deployment, which are covered here by `va.vercel-scripts.com`
+in `script-src` but are not actually present in a local run. Shipped as **report-only**,
+per §14.3's current wording, with the switch being one header name and the evidence
+recorded next to it.
+
+### Fonts were never a choice
+
+`layout.tsx` loaded **Geist and Geist Mono** — what `create-next-app` writes. §11.4 asks
+for **Inter and JetBrains Mono**. Nothing had overridden the default; the default simply
+stood there looking like a decision.
+
+The mono is the one that matters: §9.9's labels and §11.4's ticker are monospaced so a
+title clipped by the pool boundary still reads as a clipped word.
+
+### `og.png` is a real capture, and the fallback needed no new dependency
+
+`npm run og:image` drives the debug harness at 1200×630, fires §10.2's full flavor
+rotation, waits for sparks to be mid-flight and screenshots the canvas. §5.4's fallback —
+"a plain dark gradient with the title" — is drawn by **the same browser** as a second
+page render, not through the `canvas` package. That package is not a dependency and adding
+a native one for a path that should never run is a bad trade when a browser is already
+in hand. The fallback's background is `deep` at L = 0.04, so both paths look like the
+same product.
+
+### Stale deploy config, pointed at nothing
+
+`vercel.json` routed `/api/wiki-stream` → `/api/wiki-stream` for a directory deleted in
+T0.x. It is now a minimal `framework: nextjs` config, and the path **redirects to `/`**
+rather than 404ing — a stale bookmark should land somewhere real.
+
+The `create-next-app` placeholder SVGs are gone too; `public/icon.svg` replaces them.
+
+### §12.x — the two bundled workers are `must-revalidate`
+
+`/engine/*` ships the ingest worker and the audio worklet as static files. Caching those
+across a deploy means a stale worker keeps parsing a protocol the new one has moved past,
+which fails in a way that looks like a data bug rather than a cache.
