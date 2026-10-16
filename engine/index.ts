@@ -23,7 +23,7 @@ import { Orb } from "./visual/orb";
 import { Sparks } from "./visual/sparks";
 import { Rings } from "./visual/rings";
 import { Dust } from "./visual/dust";
-import { LabelLayer } from "./visual/labels";
+import { LabelLayer, type NotableEvent } from "./visual/labels";
 import { VisualDirector } from "./visual/fire";
 import { VisualQueue } from "./visual/visual-queue";
 
@@ -32,6 +32,7 @@ import { Scheduler } from "./music/scheduler";
 import { Harmony, type HarmonyEvent } from "./music/harmony";
 import { IngestClient } from "./ingest/ingest-client";
 import { defaultIngestConfig } from "./ingest/ingest-core";
+import { validateSettings, saveSettings } from "./settings";
 import { mulberry32 } from "./util/random";
 
 /** §5.5 — `stats` is emitted at 4 Hz; React must not re-render faster (§1, line 61). */
@@ -77,7 +78,13 @@ export interface EngineEvents {
     fps: number;
     tier: Tier;
   };
-  notable: { edit: NormalizedEdit };
+  /**
+   * §5.5 — the ticker feed. Carries the already-built `href` and `text` from
+   * §9.9's `LabelLayer` rather than only the edit, so the HUD does not re-derive the
+   * URL. Two copies of `buildArticleHref` is two places for the space→underscore
+   * ordering to drift, and that ordering is load-bearing.
+   */
+  notable: NotableEvent;
   error: { code: "webgl" | "audio" | "worklet" | "stream" | "unknown"; message: string };
 }
 
@@ -88,22 +95,6 @@ export interface EngineOptions {
   /** from `?debug=1` */
   debug?: boolean;
 }
-
-/** §11.3 — settings live in `localStorage` under this key. */
-export const SETTINGS_KEY = "sok.settings.v2";
-
-export const DEFAULT_SETTINGS: Settings = {
-  volume: 0.8,
-  muted: false,
-  source: "wikipedias",
-  langs: [],
-  density: "normal",
-  quality: "auto",
-  spatialAudio: true,
-  showTitles: true,
-  reduceMotion: false,
-  avSyncMs: 0,
-};
 
 export class Engine {
   // --- construction --------------------------------------------------------
@@ -274,7 +265,7 @@ export class Engine {
     const labels = new LabelLayer(document, (e) => {
       this.notableSeen++;
       // §5.5's `notable` event — throttled already, inside `LabelLayer`.
-      this.emit("notable", { edit: e.edit });
+      this.emit("notable", e);
     });
     this.labels = labels;
     this.container.appendChild(labels.layer);
@@ -496,14 +487,11 @@ export class Engine {
   // --- settings ------------------------------------------------------------
 
   setSettings(patch: Partial<Settings>): void {
-    this.settings = { ...this.settings, ...patch };
+    this.settings = validateSettings({ ...this.settings, ...patch }, this.settings);
     const s = this.settings;
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
-    } catch {
-      // Private browsing rejects `localStorage`. Losing persistence is survivable;
-      // throwing here would take the whole engine down over a settings write.
-    }
+    // Persisting is best-effort: private browsing rejects `localStorage`, and losing
+    // persistence must never take the engine down over a settings write.
+    saveSettings(s);
 
     this.audio?.setVolume(s.volume);
     this.audio?.setMuted(s.muted);
@@ -564,27 +552,5 @@ export class Engine {
   }
 }
 
-// --- settings persistence (§11.3) ---------------------------------------------
-
-export function loadSettings(): Settings {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<Settings>;
-    // Validated field by field: a stored value from an older version, or a hand-edited
-    // one, must not be able to put the engine into a state it cannot recover from.
-    const out = { ...DEFAULT_SETTINGS };
-    for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
-      const v = parsed[key];
-      if (v === undefined || v === null) continue;
-      if (typeof v === typeof DEFAULT_SETTINGS[key]) {
-        (out as Record<string, unknown>)[key] = v;
-      }
-    }
-    return out;
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
-}
-
 export type { Tier };
+export { SETTINGS_KEY, DEFAULT_SETTINGS, loadSettings, saveSettings } from "./settings";

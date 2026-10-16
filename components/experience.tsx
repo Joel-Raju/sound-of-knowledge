@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Engine, loadSettings, type Metrics } from "@/engine";
 import { StartOverlay } from "./start-overlay";
+import { Hud } from "./hud";
 
 /**
  * T5.1 — the production shell: an `Engine` in a `useEffect`, disposed on unmount.
@@ -35,6 +36,8 @@ export function Experience({ debug = false }: { debug?: boolean }): React.JSX.El
   const [entered, setEntered] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [engine, setEngine] = useState<Engine | null>(null);
+  const [hudHidden, setHudHidden] = useState(false);
 
   useEffect(() => {
     if (debug) return;
@@ -57,6 +60,10 @@ export function Experience({ debug = false }: { debug?: boolean }): React.JSX.El
           return;
         }
         engineRef.current = engine;
+        // Held in state as well as a ref: the HUD renders from it, and a ref change
+        // does not re-render. Two sources on purpose — the ref is for the imperative
+        // gesture path, the state is for rendering.
+        setEngine(engine);
 
         engine.on("error", (p) => {
           // §11.2 — an audio failure keeps the visuals running, muted. A blank canvas
@@ -88,6 +95,7 @@ export function Experience({ debug = false }: { debug?: boolean }): React.JSX.El
       cancelled = true;
       engineRef.current?.dispose();
       engineRef.current = null;
+      setEngine(null);
     };
   }, [debug]);
 
@@ -133,6 +141,9 @@ export function Experience({ debug = false }: { debug?: boolean }): React.JSX.El
           onEnter={enter}
         />
       )}
+      {/* §11.4 — the HUD appears once the piece has started, so it does not compete
+          with the overlay for the only thing the visitor is looking at. */}
+      {entered && <Hud engine={engine} hidden={hudHidden} onHiddenChange={setHudHidden} />}
     </div>
   );
 }

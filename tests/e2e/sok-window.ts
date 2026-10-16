@@ -30,6 +30,19 @@ export interface SokNotable {
   href: string;
 }
 
+/** §5.5's `Metrics`, as the live piece reports it. */
+export interface SokMetrics {
+  fps: number;
+  muted: boolean;
+  audioState: string;
+  streamState: string;
+  mode: string;
+  keyName: string;
+  acceptedTotal: number;
+  notesScheduled: number;
+  visualQueueLen: number;
+}
+
 export interface SokVisual {
   engine: unknown;
   status: string;
@@ -59,7 +72,24 @@ export interface SokVisual {
 declare global {
   interface Window {
     __sokVisualReady?: boolean;
-    __sok?: { visual?: SokVisual };
+    /**
+     * One handle, two owners, decided by the URL:
+     *
+     *  `?debug=1` → `visual` — the T4 harness, with its spawn helpers.
+     *  otherwise  → the T5.1 engine facade's fields.
+     *
+     * Declaring both here rather than per spec file is the whole point of this module:
+     * interface merging demands identical types, so two files declaring `__sok` with
+     * the subset they needed made `tsc` fail pointing at accesses that were perfectly
+     * valid in the file that owned them.
+     */
+    __sok?: {
+      visual?: SokVisual;
+      engine?: { dispose(): void };
+      metrics?: () => SokMetrics;
+      setSettings?: (p: Record<string, unknown>) => void;
+      injectEdits?: (edits: unknown[]) => void;
+    };
   }
 }
 

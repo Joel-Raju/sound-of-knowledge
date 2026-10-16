@@ -2847,3 +2847,74 @@ React 19 mounts effects twice in development. Three guards: a `cancelled` flag s
 disposed engine; and the engine in a ref rather than state. The e2e asserts production
 has exactly **one** canvas — two would halve the frame budget with nothing in the code
 explaining why.
+
+## T5.2 — HUD, settings panel, shortcuts, ticker
+
+### The threat model for `localStorage` is a hand-edited value, not a network
+
+`engine/settings.ts` validates every field against its own *shape* on load, and the rule
+throughout is **fall back rather than throw**. A corrupt preference must never be able to
+stop the piece starting; uninteresting is a strictly better failure than none.
+
+Two decisions worth stating:
+
+- **`volume` is clamped, `source` is rejected.** A volume of `5` is a UI bug and the
+  user's intent is still legible, so it clamps to 1. An unknown `source` is
+  uninterpretable and falls back to the default.
+- **`langs` is filtered, not rejected.** One bad entry must not discard a valid list —
+  and §14.2 matters here: these come from the stream's own language tags, so they are
+  not curated data.
+
+### A real bug the unit tests caught
+
+```ts
+const seedRaw = Number(p.get("seed"));   // Number(null) === 0, not NaN
+```
+
+An **absent** `?seed` silently became seed **0** rather than the default 1. That is a
+different PRNG stream from the intended one — precisely the invisible reproducibility
+difference a seed parameter exists to prevent, and exactly the kind of number that would
+have been reported as "the synthetic source is non-deterministic" with no obvious cause.
+
+### Two text formats that must not be shared
+
+§9.9's labels read `LANG␣␣Title` — two spaces, an anchor floating in space beside the
+orb. §11.4's ticker reads `LANG · Title` — a middot, a line of prose. Different surfaces,
+different formats, so the HUD builds its own string.
+
+The **href**, though, is shared: it comes from `LabelLayer` already built. Re-deriving it
+in the HUD would have been a second copy of `buildArticleHref`, and §9.9's ordering —
+spaces to underscores *before* `encodeURIComponent` — is load-bearing. The e2e asserts
+the encoded URL contains no `%20`, which is what pins the ordering from the outside.
+
+### `window.__sok` carries two shapes, so it is declared once
+
+`?debug=1` gets the T4 visual handle; the live path gets the engine facade's fields.
+Two spec files each declaring the subset they needed made `tsc` fail pointing at
+accesses that were perfectly valid in the file that owned them — interface merging
+demands identical types. I reintroduced this a second time in `hud.spec.ts` before
+remembering, which is a fair measure of how invisible the rule is.
+
+### A test that asserted on the wrong thing
+
+"a corrupt stored value does not stop the piece starting" read `localStorage` to check
+the bad fields had been replaced. Nothing rewrites storage until a setting is actually
+*changed*, so the corrupt bytes are still sitting there — the assertion was about bytes
+nobody writes, not about what the engine did with them. It now asserts the panel's own
+state, which is the behaviour that matters.
+
+### Accessibility floor, asserted rather than assumed
+
+- Touch targets measured at ≥ 44 px. A 24 px icon button is the most common way a HUD
+  is unusable on a phone, and it is invisible until someone tries to tap it.
+- The polite live region is sampled for 10 s and must not change more than a handful of
+  times — §11.6 caps announcements at 10 s, far below the 4 Hz `stats` rate, because a
+  screen reader reading a number four times a second is unusable.
+- Focus is trapped in the open panel. Tabbing out into the HUD behind it leaves keyboard
+  users with no visible focus and no way back.
+- `H` hides the UI but leaves a restore button. A "hide UI" that cannot be undone is a
+  trap.
+
+§13.4 item 6's XSS case is covered at the HUD as well as the label: an injected
+`<img src=x onerror=…>` title renders as literal text, produces no `<img>`, leaves
+`window.__pwned` undefined, and still yields a correctly encoded article URL.
