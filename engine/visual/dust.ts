@@ -35,14 +35,36 @@ export const DUST_DRIFT = 0.4;
 export const DUST_HI_BOOST = 0.5;
 
 /**
- * The base opacity §9.7's twinkle formula is multiplied by. **Not in the spec** —
- * see the `uBaseAlpha` uniform's comment for why, and for the sweep that chose it.
+ * The base opacity §9.7's twinkle formula is multiplied by. **Not in the spec** — see
+ * the `uBaseAlpha` uniform's comment for why it had to be chosen.
  *
- * Deviation from §9.7 as written, recorded in `DECISIONS.md`. Chosen by eye over a
- * six-candidate contact sheet; the only acceptance criterion that changed sign was
- * T4.4's corner-patch std-dev, from 6.12 (over the ceiling of 6) to 2.16.
+ * **0.75, and it was 0.35 until the human said the dust was invisible.**
+ *
+ * 0.35 was a good number for a background that no longer exists. It was chosen in T4.4
+ * against §9.3's `deep` at L = 0.10, which rendered as **(0,4,18) — navy**. Dust is
+ * *additive*: on a background that is already emitting, adding a small amount reads as
+ * a change in brightness. On a near-black background the same small amount is the only
+ * light there is, and below about 1/20 of full scale it is indistinguishable from the
+ * grain dither.
+ *
+ * Two later decisions removed the ground from under it without touching this line:
+ *
+ *  - **C6** moved `deep` to L = 0.04, which renders as (0,0,1).
+ *  - **C11** dropped absorption 3.2 → 1.2 and emission 1.0 → 0.55, so the orb stopped
+ *    lighting its own surroundings as much as it did.
+ *
+ * Measured on the live path at 0.35, the brightest mote **outside the orb** was **13 of
+ * 255**, against a grain floor of 2 and 0.025 % of pixels lit. That is not dust; it is
+ * noise. At 0.75 it reaches ~70 and the motes read as a starfield while the orb stays
+ * the subject — which is what T4.4's original wording asked for ("read as depth around
+ * the orb, not a second subject"), now on a background that can carry it.
+ *
+ * **The lesson is in the test, not the number.** `dust-visibility.spec.ts` measures the
+ * dust's *contribution* — with it switched off and diffed — rather than asserting this
+ * constant. A constant test would have kept passing through both the invisible period
+ * and this fix.
  */
-export const DUST_BASE_ALPHA = 0.35;
+export const DUST_BASE_ALPHA = 0.75;
 
 export interface DustOptions {
   tier?: Tier;

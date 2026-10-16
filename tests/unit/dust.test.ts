@@ -215,21 +215,35 @@ describe("Dust constants", () => {
 
 describe("Dust — the C11b base opacity", () => {
   it("defaults to the value chosen by eye, not the spec's implicit 1.0", () => {
-    // §9.7 never says what the twinkle multiplies. At 1.0 the motes render at full
-    // strength and 30 000 of them additive on dark read as a starfield rather than
-    // as dust around the orb. 0.35 is the sweep's chosen value.
-    expect(DUST_BASE_ALPHA).toBeCloseTo(0.35);
+    // §9.7 never says what the twinkle multiplies. 0.75 is the sweep's chosen value —
+    // 0.35 until T5.4, when the human said the dust was invisible.
+    expect(DUST_BASE_ALPHA).toBeCloseTo(0.75);
     const d = new Dust({ tier: "high" });
     expect(d.material.uniforms.uBaseAlpha!.value).toBeCloseTo(DUST_BASE_ALPHA);
     d.dispose();
   });
 
   it("stays in the band where dust reads as depth rather than as subject", () => {
-    // The sweep measured corner-patch std-dev: 1.0 → 6.12 (a starfield, and over
-    // T4.4's ceiling of 6), 0.35 → 2.16, 0.15 → 0.56 (barely present at all). The
-    // useful band is between "competing subject" and "invisible".
-    expect(DUST_BASE_ALPHA).toBeGreaterThan(0.15);
-    expect(DUST_BASE_ALPHA).toBeLessThan(0.6);
+    // **The upper bound moved and the lower bound is a measurement.**
+    //
+    // This band was 0.15–0.6, derived from T4.4's corner-patch std-dev against a
+    // background rendering as (0,4,18) — navy. Two later decisions invalidated the
+    // whole calibration: C6 moved `deep` to L = 0.04, rendering as (0,0,1), and C11
+    // dimmed the orb so it stopped lighting its surroundings. Dust is *additive*; on a
+    // background that is already emitting, a small addition reads as a change in
+    // brightness, and on a near-black background it does not.
+    //
+    // At 0.35 on the new background the brightest mote outside the orb measured **13 of
+    // 255**, against a grain floor of 2 — indistinguishable from dither. So the lower
+    // bound has to exclude it, and the upper bound is relaxed because the failure mode
+    // it was guarding against (dust competing with the orb) is unchanged but the
+    // *cost* of the dust being invisible is now higher.
+    //
+    // The real guard is `dust-visibility.spec.ts`, which measures the dust's
+    // contribution rather than reading this constant. This test only keeps the number
+    // from drifting outside a plausible range.
+    expect(DUST_BASE_ALPHA).toBeGreaterThan(0.35);
+    expect(DUST_BASE_ALPHA).toBeLessThanOrEqual(1);
   });
 
   it("is overridable, so the choice can be revisited without a code change", () => {

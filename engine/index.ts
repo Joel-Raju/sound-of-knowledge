@@ -124,6 +124,15 @@ export interface EngineOptions {
   /** from `?debug=1` */
   debug?: boolean;
   /**
+   * The page's raw query string.
+   *
+   * Passed in rather than read from `window` inside the engine, for the same reason
+   * `app/page.tsx` resolves it on the server: reading `window.location` during render
+   * is a hydration mismatch (React #418, T5.1). The engine is not rendering, but
+   * threading the value keeps one answer to "where does the query string live".
+   */
+  search?: string;
+  /**
    * §11.3 — `?source=live|replay|synthetic` and `?seed=`. **Not persisted.**
    *
    * Until this was wired, the e2e suite had no offline source at all: every test asked
@@ -143,7 +152,11 @@ export class Engine {
     private readonly opts: EngineOptions,
   ) {
     this.settings = opts.settings;
+    /** §11.3 URL overrides. Read once here; a query string cannot change mid-session. */
+    this.search = new URLSearchParams(opts.search ?? "");
   }
+
+  private readonly search: URLSearchParams;
 
   /**
    * §5.5 — renderer + shader warm-up. **Does not create an AudioContext.**
@@ -275,6 +288,23 @@ export class Engine {
     const sparks = new Sparks({ tier: engine.tier });
     const rings = new Rings();
     const dust = new Dust({ tier: engine.tier });
+
+    // `?dustAlpha=`, `?dustDensity=` and `?nodust=1` — the same sweep handles the debug
+    // harness has had since T4.4. They were missing here, which is not a cosmetic gap:
+    // without them the dust's contribution **cannot be separated from the grain** in the
+    // live path, because the only way to attribute a pixel is to switch it off and
+    // diff. "The dust looks invisible" and "the dust is invisible" are different claims
+    // and only one measurement distinguishes them.
+    const dustAlphaArg = Number(this.search.get("dustAlpha"));
+    if (Number.isFinite(dustAlphaArg) && this.search.get("dustAlpha") !== null) {
+      dust.setBaseAlpha(Math.max(0, Math.min(1, dustAlphaArg)));
+    }
+    const dustDensityArg = Number(this.search.get("dustDensity"));
+    if (Number.isFinite(dustDensityArg) && this.search.get("dustDensity") !== null) {
+      dust.setDensity(Math.max(0, Math.min(4, dustDensityArg)));
+    }
+    const dustOff = this.search.get("nodust") === "1";
+    if (dustOff) dust.points.visible = false;
     this.orb = orb;
     this.sparks = sparks;
     this.rings = rings;

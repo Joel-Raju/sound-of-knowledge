@@ -3173,3 +3173,58 @@ The `create-next-app` placeholder SVGs are gone too; `public/icon.svg` replaces 
 `/engine/*` ships the ingest worker and the audio worklet as static files. Caching those
 across a deploy means a stale worker keeps parsing a protocol the new one has moved past,
 which fails in a way that looks like a data bug rather than a cache.
+
+## C11b re-opened — the dust was invisible, and 0.35 was never wrong when it was chosen
+
+The human ran the piece and said the star dust was not visible. It was not. Measured on
+the **live** path, peak channel value *outside the orb*:
+
+| `dustAlpha` | peak | % pixels lit |
+|---|---|---|
+| 0 (off) | 2 | 0.000 % |
+| **0.35 (was)** | **13** | 0.025 % |
+| **0.75 (now)** | **~70** | — |
+
+13 of 255 against a grain floor of 2 is not dust. It is dither.
+
+### The dust file never changed. The ground under it did.
+
+Dust is **additive**, and additive behaves differently depending on what it adds to:
+
+- **C6** moved `deep` from L = 0.10 — rendering as navy **(0,4,18)** — to L = 0.04,
+  rendering as **(0,0,1)**. On a background that is already emitting, a small addition
+  reads as a change in brightness. On near-black it does not.
+- **C11** dropped absorption 3.2 → 1.2 and emission 1.0 → 0.55, so the orb stopped
+  lighting its own surroundings.
+
+0.35 was "read as depth around the orb, not a second subject" **on a background that no
+longer exists**. Nothing about `dust.ts` changed, so nothing about a test on `dust.ts`
+fired. That is the same shape as the four dead guards in this log, and the first one
+where the guarded code was *correct* and the *calibration* had gone stale.
+
+Chosen by eye at **0.75**, over 0.35 / 0.55 / 0.75 / 1.0 rendered on the live path.
+
+### The sweep handles were only on the debug harness
+
+`?dustAlpha=`, `?dustDensity=` and a way to switch the dust off existed for `shot.ts`
+since T4.4 and **not on the live path** — so the dust's contribution could not be
+separated from the grain where it actually renders. "The dust looks invisible" and "the
+dust is invisible" are different claims and only one measurement distinguishes them. All
+three now work in production too, which is why the diagnosis took ten minutes longer
+than it should have.
+
+### The guard is a differential, and a `litFraction` bound was deleted
+
+`dust-visibility.spec.ts` renders with the dust, renders without it, and measures what
+the dust **adds**. A test asserting `=== 0.35` would have passed through the whole
+invisible period and would pass again after the next background change.
+
+A second test asserts that the **grain alone does not clear the bound**. Without it, a
+test that passes in both states is measuring the grain.
+
+And a `litFraction > 0.0004` bound was written, then **removed**: it measured 0.035 % at
+0.75 and 0.025 % at 0.35 — it cannot distinguish them. Area barely moves for something
+sparse while brightness moves 5×. **A bound that cannot fail for the reason it exists
+only fails when the suite is busy**, which is worse than no bound at all.
+
+Verified by re-introducing 0.35: the test fails with `peak outside the orb was 13`.

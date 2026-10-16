@@ -78,6 +78,7 @@ export function Experience({
           // mismatch (React #418, seen in T5.1).
           settings: urlSettings,
           data: { mode: dataMode, seed: seed },
+          search: search,
           debug: false,
         });
         if (cancelled) {
@@ -151,7 +152,7 @@ export function Experience({
     // `urlSettings` / `dataMode` / `seed` are derived from `search` by `useMemo`, so
     // they are stable for a given URL and re-running on them only rebuilds the engine
     // when the query string actually changed — which is the point of listing them.
-  }, [debug, urlSettings, dataMode, seed]);
+  }, [debug, urlSettings, dataMode, seed, search]);
 
   /**
    * §11.2 — `start()` runs **inside the click handler**, because that is the only

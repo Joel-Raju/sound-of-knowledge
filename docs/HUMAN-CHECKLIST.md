@@ -138,8 +138,8 @@ This file is the authoritative list. It is populated as the build progresses.
       sweep at 3.2 / 2.0 / 1.2 / 0.7 and found 1.2 and 0.7 both better than the spec's
       3.2; 1.2 is the default because the orb still reads as a luminous body there,
       and 0.7 is one `?absorb=` away.
-- [x] **C11b.** ✅ **Resolved — the dust reads as dust.** _(T4.4. Decided by eye over a
-      six-candidate contact sheet, `shot.ts --dust-sweep`.)_
+- [x] **C11b.** ⚠️ **Re-opened and re-closed — the 0.35 figure was tuned against a
+      background that no longer existed.** _(T4.4; re-measured T5.4.)_
 
       §9.7 specifies 30 000 points and a twinkle spanning [0.25, 1.0] but **never says
       what the twinkle multiplies**. At 1.0 the motes render at full strength and the
@@ -149,10 +149,37 @@ This file is the authoritative list. It is populated as the build progresses.
       a corner std-dev *identical* to having no dust at all (0.34): cutting the count
       deletes the depth cue rather than thinning it. Only dimming keeps it.
 
-      **Chosen: base alpha 0.35.** Judged on whether the motes read as depth around the
-      orb or as a competing subject. At 0.35 they read as tiny dust particles around the
-      orb and the orb stays the subject. Corner std-dev **6.12 → 1.85**, and T4.4's
-      acceptance now passes.
+      **Chosen in T4.4: base alpha 0.35.** Then the human ran the piece and said
+      **the star dust was not visible** — which was true. Measured on the live path, the
+      brightest mote *outside the orb* was **13 of 255** against a grain floor of 2, with
+      0.025 % of pixels lit. That is not dust; that is dither.
+
+      **Two later decisions had moved the ground without touching the dust.** Dust is
+      *additive*, and additive behaves differently depending on what it adds to:
+
+      - **C6** moved `deep` from L = 0.10 — rendering as navy **(0,4,18)** — to
+        L = 0.04, rendering as **(0,0,1)**. On a background that is already emitting, a
+        small addition reads as a change in brightness; on near-black it does not.
+      - **C11** dropped absorption 3.2 → 1.2 and emission 1.0 → 0.55, so the orb stopped
+        lighting its own surroundings.
+
+      0.35 was "read as depth, not a second subject" **on a background that is gone**.
+      The decision was not wrong when it was made.
+
+      **Chosen now: base alpha 0.75**, by eye over 0.35 / 0.55 / 0.75 / 1.0 on the live
+      path. Peak outside the orb goes 2 → 13 → ~70.
+
+      **The guard is a differential, not a constant.** `dust-visibility.spec.ts` renders
+      with the dust and without it (`?nodust=1`) and measures what the dust *adds*. A
+      test asserting `=== 0.35` would have passed through the entire invisible period,
+      and would still pass after the background changed again. The second test asserts
+      that the grain alone does **not** clear the bound — without it, a test passing in
+      both states would be measuring the grain.
+
+      A `litFraction` bound was written and then **removed**: it measured 0.035 % at 0.75
+      and 0.025 % at 0.35, which cannot distinguish them. Area barely moves for something
+      sparse while brightness moves 5×; a bound that cannot fail for the reason it exists
+      only fails when the suite is busy.
 
       Sweep, for the record: as-specified 6.14 · alpha 0.35 → 2.16 · alpha 0.15 → 0.56
       · density 0.35 → 0.34 (= dust off). Still overridable via `?dustAlpha=` without a
