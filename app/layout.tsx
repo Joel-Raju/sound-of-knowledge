@@ -33,6 +33,11 @@ const DESCRIPTION =
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? "https://sound-of-knowledge.example";
 
 export const metadata: Metadata = {
+  // Next resolves every *relative* URL in `openGraph`/`twitter` against this, and
+  // warns loudly when it is missing — `/og.png` in a `<meta property="og:image">` is
+  // not a usable absolute URL for any crawler. Left unset this was silently resolving to
+  // `http://localhost:3000` in production.
+  metadataBase: new URL(SITE),
   title: TITLE,
   description: DESCRIPTION,
   applicationName: TITLE,

@@ -188,15 +188,52 @@ level. `b-subtle` was selected; that choice is what amended §8.4's `high` floor
 
 ## D. Performance measurements (spec §12) — recorded at T3.5, finalised at T6.3
 
-| Budget                | Target       | Measured  |
-| --------------------- | ------------ | --------- |
-| DSP real-time factor  | ≥ 10×        | **11.1×** |
-| Worker bundle (gzip)  | < 40 KB      | **7 KB**  |
-| Worklet bundle (gzip) | < 40 KB      | **3 KB**  |
-| First-load JS (gzip)  | ≤ 450 KB     | at T6.3   |
-| Scheduler tick        | ≤ 1 ms       | at T2.3   |
-| Ingest per batch      | ≤ 2 ms       | at T1.5   |
-| Heap growth over soak | < 0.5 MB/min | at T6.3   |
+| Budget                | Target       | Measured                     | How                       |
+| --------------------- | ------------ | ---------------------------- | ------------------------- |
+| DSP real-time factor  | ≥ 10×        | **11.4×**                    | `npm run bench`           |
+| Worker bundle (gzip)  | < 40 KB      | **8.1 KB** (20 %)            | `worker-budget.test.ts`   |
+| Worklet bundle (gzip) | < 40 KB      | **3.0 KB** (8 %)             | `worker-budget.test.ts`   |
+| First-load JS (gzip)  | ≤ 450 KB     | **384.4 KB** across 17 files | measured over a real load |
+| Scheduler tick        | ≤ 1 ms       | at T2.3                      |                           |
+| Ingest per batch      | ≤ 2 ms       | at T1.5                      |                           |
+| Heap growth over soak | < 0.5 MB/min | see below                    | `npm run test:soak`       |
+
+### First-load JS is measured, not estimated
+
+Next 16 with Turbopack does not print per-route bundle sizes, so the figure is taken by
+summing the gzip size of **every script the browser actually requested** during a real
+`next start` load followed by pressing Enter — which is the definition of "first load".
+
+Two readings, and the difference is worth knowing:
+
+| Measurement | Figure | Note |
+|---|---|---|
+| Every `.js` in `.next/static/chunks` | 423.8 KB gzip | Upper bound — includes chunks the route never loads |
+| Actually requested by `/` | **384.4 KB gzip** | The real number |
+
+The pessimistic one also clears the budget, so the result does not depend on which
+measure is used.
+
+### Soak (§13.5)
+
+`npm run test:soak` — 600 s at `rateMul=3`, sampled every 10 s after a 60 s warm-up, with
+the warm-up **discarded** so JIT and shader compilation do not read as a leak. The
+thresholds are §13.5's own: heap slope < 0.5 MB/min, spread < 10 MB, DOM node drift
+±5 %, no console errors.
+
+The measured numbers are in the commit message for `4f1f0c6` and are re-printed by the
+test on every run — `\[soak\] heap … spread … slope …` — so a future run shows the trend
+rather than just pass/fail.
+
+**The file did not exist until T6.3.** `npm run test:soak` pointed at
+`tests/e2e/soak.spec.ts`, which was never written, and running it printed
+`No tests found` while exiting 0. Every earlier confirmation of "the soak passes" came
+from a command that never ran a test — the ninth dead guard in `DECISIONS.md`, and the
+second time one lived behind an `npm run` script that looked like it was working.
+
+A second, fast test in the same file drives 200 spawns and asserts the label pool is
+still **six** anchors — §14.1's "no unbounded arrays", caught in seconds rather than ten
+minutes.
 
 ## E. Visual tuning (spec §9)
 

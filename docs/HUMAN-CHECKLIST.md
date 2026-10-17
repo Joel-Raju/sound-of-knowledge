@@ -5,6 +5,16 @@ Every other acceptance criterion in the spec is automated.
 
 This file is the authoritative list. It is populated as the build progresses.
 
+> **This is §16's `HUMAN-CHECK` list and nothing else.** Every item below needs a pair
+> of ears, a pair of eyes, or a device the agent does not have. The eight automated §16
+> criteria are verified by `npm run check`, `npm run test:e2e` and `npm run audio:check`,
+> and their state is in `docs/PROGRESS.md`.
+>
+> **Nothing here can be closed by the agent, including by reasoning about the code.**
+> Four of this project's real defects were found by a human *looking at the screen* while
+> every automated assertion was green. An item below is closed by someone noticing, not
+> by a test passing.
+
 ---
 
 ## A. First impression (§2.2) — the 60-second walkthrough
