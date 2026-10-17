@@ -171,7 +171,7 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 - [x] **T6.2** Final audio verification
 - [ ] **T6.3** Performance validation
 - [ ] **T6.4** Cross-browser fallbacks
-- [ ] **T6.5** Documentation and release prep
+- [x] **T6.5** Documentation and release prep
 - [ ] **T6.6** Final acceptance run
 
 ---
@@ -198,8 +198,8 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.5, T5.1–T5.4, T6.1–T6.2) —
-**27 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
+**Phases 0–4 open** (T0.1–T0.3, T1.1–T1.5, T2.1–T2.3, T3.1–T3.5, T4.1–T4.5, T5.1–T5.4, T6.1–T6.2, T6.5) —
+**28 of 31 tasks**. 791 unit tests, 18 Chromium e2e, all gates green.
 **Human checklist: 15 of 51 closed, 36 open** — see `docs/HUMAN-CHECKLIST.md`.
 13 of 52 closed, 38 open** — see `docs/HUMAN-CHECKLIST.md`.
 
