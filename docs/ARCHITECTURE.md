@@ -147,8 +147,13 @@ End to end, for one edit:
    ```ts
    note: (n) => audio.trigger(n) && visualQueue.push(n)
    ```
-8. **`router.ts`** decides the voice; **`pitch.ts`** picks the pitch from the article
-   title's hash, so the same article always sounds the same.
+8. **`router.ts`** decides the voice; **`pitch.ts`** picks the pitch from the candidate
+   pool for that voice, weighted by `magnitude` and jittered by `gaussianish(rng)`.
+   **Pitch is stochastic, not derived from the title** — an earlier version of this
+   document claimed "the same article always sounds the same", which is false and was
+   written without reading `pickPitch`'s signature. The PRNG is
+   `mulberry32(0x5eed)`, so the *sequence* is reproducible within a session, but any
+   given note lands on a different pitch each time it fires.
 9. **`audio.trigger`** allocates a slot from `allocator.ts` (priority = importance +
    per-kind bonus; a failed allocation for a low-importance note is a silent drop,
    counted in `droppedNotes`) and posts to the worklet.

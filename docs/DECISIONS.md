@@ -3774,3 +3774,79 @@ It also cited checklist item **B10, which does not exist**.
 change that. The honest position: **four rules are enforced, one of which was inert until
 today, and the category that has drifted most — narrative prose — has no coverage at
 all.**
+
+## A4 — "I see random comets" is correct, and my first method for verifying it was wrong
+
+The human passed A1–A3 and asked how to verify A4 (each sound comes from the direction its
+comet came from), reporting "random comets". Three probes were written to answer it.
+Two of my assumptions were wrong and one of my claims was false.
+
+### What is actually true, measured
+
+`scripts/probe-a4-direction.ts` — `SpatialMapper` is pure maths, so this needed no browser:
+
+| Question | Answer |
+|---|---|
+| Is direction deterministic? | **Yes — bit-for-bit identical** across runs |
+| Does the wiki move it? | **Yes — 6 wikis gave 6 distinct directions** (homes are per-wiki) |
+| Does the title move it? | Slightly — `hashUniforms(\`${title}:${id}\`)` drives a 0.3 rad jitter |
+
+`placeEdit` hashes `title:id`, so **the same edit always sounds from the same place.**
+
+### Correction 1 — I overstated the auto-orbit as the obstacle
+
+I claimed the camera's `CAMERA_YAW_RATE = 0.03` rad/s (**1.72°/s, 103°/min**) made
+screen-relative direction unusable as an anchor.
+
+The probe's own output refuted the strong form: over a 3 s comet flight the frame turns
+**5.2°**. That is not a serious confound for tracking one comet. The real obstacle is
+correlation among *many* simultaneous events, and the frame rotating at all. The orbit is
+real and does make a durable mental map impossible — but it is not why a single comet
+cannot be followed.
+
+### Correction 2 — the method I proposed first does not work
+
+I suggested injecting one edit at a time and listening for one sound.
+`scripts/probe-a4-inject.ts` measured it: **the delta was 10 notes, not 1.**
+
+```
+baseline  notesScheduled 11   acceptedTotal 26
++1 edit   notesScheduled 21   acceptedTotal 62   droppedNotes 8
+```
+
+`?source=synthetic&density=sparse` still delivers roughly **10 notes per 2.5 s**. There is
+no quiet data mode — `DataMode.mode` is `live | replay | synthetic` and none of them stops
+traffic. So "fire one edit, hear one sound" is not achievable in the current build, and I
+would have handed the human an object literal that produces a sound indistinguishable from
+the stream around it.
+
+The injection itself works and is not in doubt: `window.__sok.injectEdits` is assigned by
+`experience.tsx` on the **normal** page (not just `?debug=1` — that renders the debug
+harness, which has no Enter button, and cost one failed run), and the edit's effect is
+visible in the metrics.
+
+### Correction 3 — a false claim I wrote into the docs at T6.5
+
+`docs/ARCHITECTURE.md` said *"`pitch.ts` picks the pitch from the article title's hash, so
+the same article always sounds the same."*
+
+**False.** `pickPitch(candidates, magnitude, gaussian, sigma)` takes no title. Pitch is
+`gaussianish(rng)`-jittered, weighted by magnitude. The PRNG is `mulberry32(0x5eed)`, so
+the sequence is reproducible within a session but a given note gets a different pitch each
+time it fires.
+
+This was written during the T6.5 documentation pass and never checked against the
+signature — the same failure as the README's `/api/wiki-stream`, and the reason the task
+existed. Corrected in place. **Consequence for A4:** the "learn one pitch, call it left"
+method is unavailable, and any verification plan that assumed a per-article timbre was
+built on this.
+
+### What is left for A4
+
+Verified facts: direction is deterministic per edit, homes are per-wiki, and panning
+measures **5.7–6.4 dB** between channels. Unverified: whether it *reads* as "over there."
+
+The only method that needs no new code is to fire an identical edit repeatedly. Direction
+is stable while pitch varies, so a stable directional impression across repeats is
+evidence the pan is real — and an unstable one is evidence it is not. That is a weaker
+claim than A4 asks for, and it is the honest limit of what the current build supports.
