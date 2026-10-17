@@ -26,6 +26,23 @@ This file is the authoritative list. It is populated as the build progresses.
 - [ ] **A3.** Within seconds, comets streak from around you into the core and
       dissolve into it, rippling its surface.
 - [ ] **A4.** Each sound comes **from the direction its comet came from**.
+      _**Now answerable — a calibration rig exists (T6.6).** `_Run_` npm run dev `,`
+      _open `http://localhost:3000`, press Enter, headphones, then in the console:_
+
+      ```js
+      __sok.runA4Calibration({ gapMs: 3000 })
+      ```
+
+      _It freezes the camera, pauses stream delivery, and fires six notes, 3 s apart._
+      _Each one's title is the direction it is supposed to arrive from — the screen shows_
+      _`A4 LEFT`, and the only question is whether the sound arrives on your left._
+      _Expect `FRONT`, `RIGHT`, `LEFT`, `BEHIND`, `ABOVE`, `BELOW` in that order._
+      _Undo with `__sok.endA4Calibration()`._
+
+      _Report per direction: "RIGHT → right" or "RIGHT → front". Every step is placed by_
+      _the same `SpatialMapper` the scheduler uses and asserted within 22° of its named_
+      _direction, so a mismatch is the panner or the listener, not the plan. `LEFT` and_
+      _`RIGHT` swapping is the most likely real failure._
 - [ ] **A5.** Warm plucks for added text, cool glass bells for removed text, deep
       swells for very large edits.
 - [ ] **A6.** A gentle pulse underneath is audible and feels _real_, not random.

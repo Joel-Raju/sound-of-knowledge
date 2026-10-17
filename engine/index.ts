@@ -35,6 +35,7 @@ import { defaultIngestConfig } from "./ingest/ingest-core";
 import { validateSettings, saveSettings } from "./settings";
 import { OUTPUT_LATENCY_FALLBACK } from "./config";
 import { mulberry32 } from "./util/random";
+import { a4Basis, planA4, type A4Step } from "./debug/a4-calibration";
 
 /** §5.5 — `stats` is emitted at 4 Hz; React must not re-render faster (§1, line 61). */
 const STATS_INTERVAL_SEC = 0.25;
@@ -199,6 +200,8 @@ export class Engine {
   private started = false;
   private warmStartedAt = 0;
   private disposed = false;
+  /** DEBUG ONLY — A4 calibration gate on stream delivery. See `runA4Calibration`. */
+  private ingestPaused = false;
 
   // scratch, reused so a note allocates nothing on the way to the visuals (§12.1)
   private readonly shellPos = new THREE.Vector3();
@@ -552,7 +555,13 @@ export class Engine {
           langs: this.settings.langs,
         }),
         handlers: {
-          onBatch: (edits) => scheduler.onBatch(edits),
+          // A4 calibration pauses the stream so its edits are not buried under ~10
+          // notes per 2.5 s of live traffic. Ingest keeps *running* — the worker and the
+          // SSE connection are untouched — only delivery into the scheduler is gated.
+          onBatch: (edits) => {
+            if (this.ingestPaused) return;
+            scheduler.onBatch(edits);
+          },
           onStats: (s) => this.onIngestStats(s),
           onStatus: (state, detail) => {
             this.streamState = state;
@@ -740,6 +749,59 @@ export class Engine {
   /** DEBUG ONLY (`?debug=1`) — feeds the scheduler as if the stream had produced them. */
   injectEdits(edits: NormalizedEdit[]): void {
     this.scheduler?.onBatch(edits);
+  }
+
+  /**
+   * A4 calibration — freeze the frame, quiet the stream, and fire one edit per named
+   * direction. DEBUG ONLY; not reachable from `Settings` or any URL parameter.
+   *
+   * See `engine/debug/a4-calibration.ts` for why each of the three obstacles makes A4
+   * unanswerable without this.
+   */
+  runA4Calibration(opts: { gapMs?: number } = {}): A4Step[] {
+    const gapMs = opts.gapMs ?? 3_000;
+    const rig = this.visuals?.rig;
+    if (!rig) return [];
+
+    // Freeze first: the plan is computed from the pose the rig is *held* at, so the
+    // direction a note is planned for is the direction it will actually be heard from.
+    rig.setAutoOrbit(false);
+    this.ingestPaused = true;
+
+    const basis = a4Basis(rig.forward);
+    const steps = planA4(basis);
+
+    for (const step of steps) {
+      window.setTimeout(() => {
+        this.scheduler?.onBatch([
+          {
+            id: step.id,
+            ts: Date.now(),
+            wiki: step.wiki,
+            host: `${step.wiki}.example.org`,
+            lang: "en",
+            project: "wikipedia",
+            ns: 0,
+            title: step.title,
+            actor: "registered",
+            kind: "edit",
+            minor: false,
+            delta: 800,
+            absDelta: 800,
+            magnitude: 0.5,
+            importance: 0.9,
+            revNew: 1,
+          } satisfies NormalizedEdit,
+        ]);
+      }, 600 + steps.indexOf(step) * gapMs);
+    }
+    return steps;
+  }
+
+  /** Undo `runA4Calibration`'s freeze and pause. */
+  endA4Calibration(): void {
+    this.visuals?.rig.setAutoOrbit(true);
+    this.ingestPaused = false;
   }
 
   /** For T5.2's HUD and the debug handle. */

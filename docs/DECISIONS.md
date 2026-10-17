@@ -3719,7 +3719,7 @@ checking what `check:docs` actually enforces rather than trusting its green.
 | `**N of M tasks**` vs real ticks | ✅ verified by falsification |
 | checklist `N of M closed, K open` vs real checkboxes | ✅ verified by falsification |
 | phase parenthetical vs ticked tasks | ❌ **deleted — see below** |
-| `<!-- sok-resolved: X -->` vs checklist | ⚠️ **accepted ids that don't exist** |
+| a `sok-resolved` marker vs checklist | ⚠️ **accepted ids that don't exist** |
 
 ### The phase-list guard: I strengthened it, then deleted it an hour later
 
@@ -3748,7 +3748,7 @@ if (new RegExp(`^- \\[ \\] \\*\\*${id}\\.\\*\\*`, "m").test(checklist)) { fail }
 ```
 
 It failed only when the item was **still open**. An id that has never existed is not open,
-so it passed. `<!-- sok-resolved: ZZZ -->` was clean.
+so it passed. A marker naming `ZZZ` was clean.
 
 A guard that accepts an item which was never written down is not verifying that the item
 was resolved — it is verifying that a string is absent. The docstring above it said "must
@@ -3850,3 +3850,71 @@ The only method that needs no new code is to fire an identical edit repeatedly. 
 is stable while pitch varies, so a stable directional impression across repeats is
 evidence the pan is real — and an unstable one is evidence it is not. That is a weaker
 claim than A4 asks for, and it is the honest limit of what the current build supports.
+
+## A4 calibration rig — the one item that was not answerable, made answerable
+
+Asked for "definitive". The honest position before this: A4 had **no method a human could
+execute**, and every shortcut failed for a reason that had to be measured first.
+
+### The three obstacles, all verified rather than assumed
+
+1. **Correlation.** ~10 notes per 2.5 s at `density=sparse`; `DataMode.mode` is
+   `live | replay | synthetic` and none of them stops traffic. Injecting one edit produces
+   a sound indistinguishable from the stream around it.
+2. **The frame rotates.** `CAMERA_YAW_RATE` = 0.03 rad/s, unconditionally, and
+   `reduceMotion` does not gate it. So no durable left/right map. (Correct for the piece —
+   it is the parallax. Wrong for testing it.)
+3. **Nothing labels a direction.** A comet arriving left is indistinguishable from one
+   arriving in front, so there is no reference to check against even in principle.
+
+### What was built
+
+- **`CameraRig.setAutoOrbit`** — freezes the orbit. Debug-only, not reachable from
+  `Settings` or any URL parameter, and **asserted to be opt-in**.
+  `reduceMotion` deliberately does *not* stop the orbit (§9.11 damps drift and shake,
+  not parallax) — which is a unit test, because it is surprising and it is the reason the
+  freeze had to exist.
+- **`engine/debug/a4-calibration.ts`** — pure planner. For each of six named directions it
+  searches the real `SpatialMapper` for an edit that *actually* lands there, and names the
+  edit's **title** after that direction. So the screen states the expected answer and the
+  only thing left is for the ear to confirm it.
+- **`Engine.runA4Calibration()` / `endA4Calibration()`** — freeze, pause delivery, fire on
+  a timer, and be reversible.
+- **`window.__sok.runA4Calibration`** — on the **normal** page after Enter.
+
+Nothing fabricates a position. The plan calls the same `placeEdit` the scheduler calls, so
+if it says an edit comes from the right, the scheduler's own lookup agrees; and a unit test
+asserts the recorded `dir` **is** what `placeEdit` returns for that triple.
+
+### Three tests, all proven to fail before being trusted
+
+| Test | Proved by |
+|---|---|
+| every step lands within 22° of its name | shrinking the candidate search 220 → 3 wikis made FRONT **31.1° off** and failed |
+| stream genuinely paused | neutering `if (this.ingestPaused) return;` failed exactly that test |
+| orbit held and restored | asserted on `orbitYaw`, not on position |
+
+Plus 14 unit tests on the geometry: basis orthogonality, the degenerate forward case,
+determinism, no edit reused across two directions, and the NaN guard.
+
+### Two of my own test expectations were wrong, and the implementation was right
+
+- **Asserted `acceptedTotal` stops moving.** It doesn't, and shouldn't: the pause gates
+  delivery into the scheduler while ingest keeps running and keeps counting what it
+  accepts — which is what the doc comment on the gate says it does. The test contradicted
+  the design. Fixed to assert on `notesScheduled`.
+- **Asserted a frozen orbit has `yaw === 0`.** It doesn't: the freeze stops the yaw
+  *advancing*, it does not rewind the camera, and by the time Enter resolves the rig has
+  already orbited for a second or two. Fixed to capture yaw at freeze time and assert it
+  is unchanged.
+
+Both would have been "fixes" that broke working code if I had not read which side was
+wrong. They are the same failure as `readPixels` outside a draw returning garbage.
+
+### And the guard strengthened earlier today immediately caught my own prose
+
+Writing this section, `check:docs` failed twice: the `sok-resolved` guard I had rewritten
+an hour earlier parsed the literal marker syntax **inside this write-up** as two genuine
+resolutions of items `X` and `ZZZ` that do not exist. The guard is deliberately
+conservative — it cannot tell prose from a declaration — and that is the correct bias for
+a marker that has to be trustworthy. Reworded to stop spelling the syntax literally.

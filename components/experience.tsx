@@ -131,6 +131,9 @@ export function Experience({
           metrics: (): Readonly<Metrics> => engine.getMetrics(),
           setSettings: (p: Parameters<Engine["setSettings"]>[0]) => engine.setSettings(p),
           injectEdits: (e: Parameters<Engine["injectEdits"]>[0]) => engine.injectEdits(e),
+          // A4's only answerable form. See `engine/debug/a4-calibration.ts`.
+          runA4Calibration: (o?: { gapMs?: number }) => engine.runA4Calibration(o),
+          endA4Calibration: () => engine.endA4Calibration(),
         };
 
         setPhase("ready");

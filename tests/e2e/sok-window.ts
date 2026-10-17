@@ -92,6 +92,10 @@ declare global {
       metrics?: () => SokMetrics;
       setSettings?: (p: Record<string, unknown>) => void;
       injectEdits?: (edits: unknown[]) => void;
+      /** A4 calibration — freezes the orbit, pauses the stream, fires one edit per
+       *  named direction. The steps come back so a caller can print what to expect. */
+      runA4Calibration?: (opts?: { gapMs?: number }) => unknown[];
+      endA4Calibration?: () => void;
     };
   }
 }

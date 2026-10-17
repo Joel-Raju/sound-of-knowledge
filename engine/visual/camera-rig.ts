@@ -159,6 +159,17 @@ export class CameraRig {
   private smoothedDistance: number = CAMERA.distance;
   private trauma = 0;
   private traumaClock = 0;
+  /**
+   * A4 calibration (debug only). §9.1's auto-orbit is unconditional — it is not gated
+   * on `reduceMotion`, because reduced motion damps the *drift* and the *shake*, not
+   * the slow orbit that gives the piece its parallax.
+   *
+   * That is correct for the piece and wrong for testing it: the orbit turns the frame
+   * 1.72°/s, so "left of screen" is not a fixed reference and a human cannot correlate a
+   * sound with the comet they saw. Freezing it is therefore necessary for A4 to be
+   * answerable at all, and it must never be reachable from `Settings`.
+   */
+  private autoOrbit = true;
 
   constructor(opts: CameraRigOptions = {}) {
     this.seed = opts.seed ?? 1;
@@ -171,6 +182,24 @@ export class CameraRig {
   /** §9.11 — whether the reduced-motion preference is currently in force. */
   get reduceMotionEnabled(): boolean {
     return this.reduceMotion;
+  }
+
+  /** DEBUG ONLY — the A4 calibration freeze. Not reachable from `Settings`. */
+  get autoOrbitEnabled(): boolean {
+    return this.autoOrbit;
+  }
+  setAutoOrbit(on: boolean): void {
+    this.autoOrbit = on;
+  }
+
+  /**
+   * Accumulated auto-orbit angle, in radians. Exposed so the freeze can be asserted
+   * directly: a frozen rig still dollies in for its 2.5 s entrance and still drifts
+   * (§9.11), so `position` is never constant and asserting on it would test the wrong
+   * thing. The orbit angle is exactly what the freeze governs.
+   */
+  get orbitYaw(): number {
+    return this.yaw;
   }
 
   setReduceMotion(on: boolean): void {
@@ -242,8 +271,10 @@ export class CameraRig {
     this.t += dtSec;
     this.energy = clamp(energy, 0, 1);
 
-    // Auto-orbit continues underneath the user's offset (spec §9.1).
-    this.yaw += CAMERA.orbitRate * dtSec;
+    // Auto-orbit continues underneath the user's offset (spec §9.1). Suppressed only by
+    // the A4 calibration freeze — `reduceMotion` deliberately does not stop it, because it
+    // damps drift and shake, not the parallax orbit.
+    if (this.autoOrbit) this.yaw += CAMERA.orbitRate * dtSec;
 
     // Inertia after release.
     if (!this.dragging) {
