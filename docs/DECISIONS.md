@@ -3637,3 +3637,140 @@ reads as reassurance.
 --project=webkit-smoke`. Roughly five minutes of machine time and eight tagged tests.
 It is the cheapest remaining item in the entire project, and it is the only one that
 would move F2 or F3.
+
+## T6.6 — `npm run test:e2e` is red, and the cause is not the product
+
+**Decision (human):** leave it red and document. Do not install Firefox/WebKit, and do
+not rename or split the script to make it green.
+
+### The §16 acceptance run, as it actually came out
+
+| §16 step | rc | |
+|---|---|---|
+| `npm ci` (from a deleted `node_modules`) | 0 | 435 packages, 42 s |
+| `npm run typecheck` | 0 | |
+| `npm run lint` | 0 | |
+| `npm run test:cov` | 0 | **934 tests, 34 files** |
+| `npm run build` | 0 | no warnings |
+| **`npm run test:e2e`** | **1** | **91 passed, 8 failed** |
+| `npm run audio:check` | 0 | E30/E60/E90 all pass |
+
+`audio:check` at the three energies: peak −4.6/−4.8/−5.0 dBFS, rms −16.1/−17.0/−17.6 dBFS,
+crest 11.5/12.2/12.6 dB, scheduler drop 0.0/8.4/31.3 %. All within §8.4.
+
+### The 8 failures are missing binaries
+
+All 8 are the 4 `@crossbrowser` tests × `firefox-smoke` and `webkit-smoke`.
+`~/Library/Caches/ms-playwright/` contains `chromium-1248`, `chromium_headless_shell-1248`
+and `ffmpeg-1013` — and nothing else.
+
+**No product code is implicated.** The same four tests pass on Chromium, which is the
+same build of the same engine.
+
+### Why §16's command can never be green as written
+
+`playwright.config.ts` defines three projects, and `test:e2e` is
+`npm run check:projects && playwright test` — with **no `--project` filter**. So the
+command named in §16 runs all three. Its exit code is therefore a function of whether two
+browsers happen to be installed on the machine, which is not a property of the software.
+
+**This makes deferring T6.4 strictly worse than it first appeared.** The cost is not only
+that F1–F5 lose coverage. It is that **§16's first automated item cannot be ticked at
+all**, and the human chose to accept that rather than install the browsers.
+
+### A claim of mine that was never true
+
+Every prior report in this project has said "`npm run test:e2e` green". It was not, and
+the reason is structural:
+
+```
+npm run check = typecheck && lint && check:projects && check:docs && test
+```
+
+**`test:e2e` is not in it.** Every green gate this project has ever reported excluded the
+e2e suite by construction. The "90 Chromium e2e" figure was always
+`--project=chromium`, reported in the same breath as a green gate as though the gate
+included it.
+
+The real Chromium count is **91**, not 90. The static `test()` count of 133 was an
+artefact of matching `test.skip(` as well as `test(`.
+
+This is the **second** time a healthy-looking `npm run` script did not do what its name
+said. The first was `test:soak`, which pointed at a file that did not exist and exited 0.
+`check:docs` verifies that the documents agree with each other; nothing has ever
+verified that a script's name describes what it runs.
+
+### §16 item 1 is left unticked, permanently, on purpose
+
+The other seven automated items are ticked on their own evidence. Item 1 stays open
+because it is not satisfiable on this machine by choice, and ticking it would put a false
+statement in the acceptance record — which is the one artefact whose whole value is that
+it is not false.
+
+## Two doc guards audited — one was silently inert, one accepted nonsense
+
+Asked mid-session whether progress was being tracked properly. The honest answer required
+checking what `check:docs` actually enforces rather than trusting its green.
+
+### Audit result
+
+| Rule | Bites? |
+|---|---|
+| `**N of M tasks**` vs real ticks | ✅ verified by falsification |
+| checklist `N of M closed, K open` vs real checkboxes | ✅ verified by falsification |
+| phase parenthetical vs ticked tasks | ❌ **deleted — see below** |
+| `<!-- sok-resolved: X -->` vs checklist | ⚠️ **accepted ids that don't exist** |
+
+### The phase-list guard: I strengthened it, then deleted it an hour later
+
+It compared ticked tasks against a hand-maintained parenthetical in the Status section.
+It originally checked only `.pop()` — the **last** ticked task — and passed while **T6.3
+was ticked and absent**, because T6.5 is ticked after it and is listed. Rewritten to check
+every ticked task with ranges expanded, and verified to fail on both a middle hole and the
+last row.
+
+**Then the Status rewrite dropped the parenthetical it anchored on.** `phaseLine` became
+`null`, the `if` body never ran, and a guard I had just proved bites began passing
+unconditionally while still being reported as part of `check:docs`.
+
+Deleted rather than repaired. The parenthetical was a hand-maintained *restatement* of the
+checkbox list, which is the single source of truth, and the count rule already validates
+the only number the summary claims. A guard whose subject is a duplicate of something
+already checked earns nothing and can be switched off by editing one sentence.
+
+**The second time in this session that strengthening a guard is not the same as
+fixing it.** The fix is to not have a hand-maintained duplicate at all.
+
+### The `sok-resolved` guard accepted items that do not exist
+
+```ts
+if (new RegExp(`^- \\[ \\] \\*\\*${id}\\.\\*\\*`, "m").test(checklist)) { fail }
+```
+
+It failed only when the item was **still open**. An id that has never existed is not open,
+so it passed. `<!-- sok-resolved: ZZZ -->` was clean.
+
+A guard that accepts an item which was never written down is not verifying that the item
+was resolved — it is verifying that a string is absent. The docstring above it said "must
+actually be ticked", which is a **different assertion** from the one implemented.
+
+Now both halves are checked: the id must name an existing item, and that item must be
+ticked. Verified by falsification —
+
+| Input | Before | After |
+|---|---|---|
+| `sok-resolved: ZZZ` (no such item) | ✓ passed | ✗ **fails** |
+| `sok-resolved: B5` (real, open) | ✗ fails | ✗ fails |
+| `sok-resolved: C6` (real, closed) | ✓ passed | ✓ passes |
+
+### What remains unguarded, stated plainly
+
+**Prose claims are not checked and cannot be.** This section's Status rewrite was
+necessary because four separate prose claims were false: "791 unit tests" (934), "18
+Chromium e2e" (91), "Phases 0–4 open" (Phase 6), and "T5.1, which is unbuilt" (built).
+It also cited checklist item **B10, which does not exist**.
+
+`check:docs` counts checkboxes. It cannot read a sentence, and no guard added here will
+change that. The honest position: **four rules are enforced, one of which was inert until
+today, and the category that has drifted most — narrative prose — has no coverage at
+all.**

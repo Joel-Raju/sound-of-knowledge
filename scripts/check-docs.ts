@@ -73,20 +73,33 @@ if (!clStatus) {
   }
 }
 
-// --- phase list ------------------------------------------------------------
-// The parenthetical after "Phases 0–4 open" must name the last ticked task.
-const phaseLine = progress.match(/\(T0\.1–T0\.3.*?\)/);
-const lastTicked = taskLines.filter((m) => m[1] === "x").pop()?.[2];
-if (phaseLine && lastTicked) {
-  // Annotated explicitly: `?? []` after a regex match infers `never[]`, and
-  // `.includes(string)` against that does not compile under strict mode.
-  const phases: string[] = phaseLine[0].match(/T\d\.\d/g) ?? [];
-  if (!phases.includes(lastTicked)) {
-    failures.push(
-      `phase list "${phaseLine[0]}" omits ${lastTicked}, the last ticked task`,
-    );
-  }
-}
+// --- phase list: REMOVED ---------------------------------------------------
+/**
+ * This block used to assert that every ticked task appears in a hand-maintained
+ * parenthetical in the Status section, and it was rewritten at T6.6 to check all of
+ * them rather than just the last. **It was then deleted, in the same session, by an
+ * unrelated edit to the Status prose.**
+ *
+ * The mechanism: the guard anchored on a literal regex, `/\(T0\.1–T0\.3.*?\)/`. When
+ * the Status rewrite dropped that parenthetical, `phaseLine` became `null`, the
+ * `if (phaseLine && …)` body never ran, and the guard began passing unconditionally —
+ * while still being reported as part of `check:docs`.
+ *
+ * **This is the failure mode this file already documents twice**, and it is worse than
+ * having no guard: a missing guard is visible, a silently-disabled one reads as
+ * coverage. Two guards in this script were previously found inert for exactly this
+ * reason — one matched `**C11.** ✅` in a file where that string occurs zero times, and
+ * `test:soak` pointed at a spec that did not exist and exited 0.
+ *
+ * **Why it is deleted rather than repaired.** The parenthetical was a *restatement* of
+ * the checkbox list. The checkbox list is the single source of truth, and the count
+ * assertion above already validates the only number the summary makes a claim about.
+ * A guard whose subject is a hand-maintained duplicate of something already checked
+ * earns nothing and can be switched off by editing a sentence.
+ *
+ * If a phase summary is ever wanted again, it should be **derived** in this script and
+ * compared, not maintained by hand beside the thing it duplicates.
+ */
 
 /**
  * Every item `DECISIONS.md` declares resolved must actually be ticked.
@@ -117,8 +130,26 @@ if (declared.length === 0) {
   );
 }
 
+/**
+ * A declared-resolved id must (a) name an item that actually exists and (b) be ticked.
+ *
+ * **Why this changed at T6.6.** The original asserted only "is not still `- [ ]`", which
+ * a nonexistent id satisfies vacuously — `<!-- sok-resolved: ZZZ -->` passed clean. A
+ * guard that accepts an item which has never existed is not checking that the item was
+ * resolved; it is checking that a string is absent. Both halves are now asserted, and
+ * the assertion was verified to fail on `ZZZ` before this comment was written.
+ */
 for (const id of declared) {
-  if (new RegExp(`^- \\[ \\] \\*\\*${id}\\.\\*\\*`, "m").test(checklist)) {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const anyForm = new RegExp(`^- \\[[ x]\\] \\*\\*${escaped}\\.?\\*\\*`, "m");
+  const stillOpen = new RegExp(`^- \\[ \\] \\*\\*${escaped}\\.?\\*\\*`, "m");
+
+  if (!anyForm.test(checklist)) {
+    failures.push(
+      `DECISIONS.md declares ${id} resolved, but no such item exists in ` +
+        `HUMAN-CHECKLIST.md — the marker is checking a string, not an item`,
+    );
+  } else if (stillOpen.test(checklist)) {
     failures.push(`declared resolved in DECISIONS.md but still unticked: ${id}`);
   }
 }
