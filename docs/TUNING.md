@@ -214,22 +214,29 @@ Two readings, and the difference is worth knowing:
 The pessimistic one also clears the budget, so the result does not depend on which
 measure is used.
 
-### Soak (§13.5)
+### Soak (§13.5) — measured
 
-`npm run test:soak` — 600 s at `rateMul=3`, sampled every 10 s after a 60 s warm-up, with
-the warm-up **discarded** so JIT and shader compilation do not read as a leak. The
-thresholds are §13.5's own: heap slope < 0.5 MB/min, spread < 10 MB, DOM node drift
-±5 %, no console errors.
+`npm run test:soak`, 601 s at `rateMul=3`, 54 samples every 10 s after a 60 s warm-up
+that is **discarded**, so JIT and shader compilation do not read as a leak.
 
-The measured numbers are in the commit message for `4f1f0c6` and are re-printed by the
-test on every run — `\[soak\] heap … spread … slope …` — so a future run shows the trend
-rather than just pass/fail.
+| Measurement | Budget | Measured |
+| --- | --- | --- |
+| Heap slope | < 0.5 MB/min | **−0.070 MB/min** |
+| Heap spread (max − min) | < 10 MB | **1.41 MB** (7.1 – 8.5 MB) |
+| DOM node drift | ±5 % | **0 %** (68 → 68) |
+| Console errors | none | none |
+
+The heap **slope is negative** — the heap shrinks slightly over the run, which is what a
+program with no retained garbage does. GC runs, nothing is put back.
+
+The test re-prints these on every run (`[soak] heap … spread … slope …`, `[soak] DOM
+nodes …`), so a future run shows the trend rather than only pass/fail.
 
 **The file did not exist until T6.3.** `npm run test:soak` pointed at
 `tests/e2e/soak.spec.ts`, which was never written, and running it printed
-`No tests found` while exiting 0. Every earlier confirmation of "the soak passes" came
-from a command that never ran a test — the ninth dead guard in `DECISIONS.md`, and the
-second time one lived behind an `npm run` script that looked like it was working.
+`No tests found` while exiting **0**. Every earlier confirmation of "the soak passes"
+came from a command that never ran a test — the ninth dead guard in `DECISIONS.md`, and
+the second time one lived behind an `npm run` script that looked like it was working.
 
 A second, fast test in the same file drives 200 spawns and asserts the label pool is
 still **six** anchors — §14.1's "no unbounded arrays", caught in seconds rather than ten
