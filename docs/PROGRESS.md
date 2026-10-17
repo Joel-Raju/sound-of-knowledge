@@ -170,7 +170,14 @@ A task is ticked **only** when its acceptance criteria pass. Notes are 1–3 lin
 - [x] **T6.1** Test completion and coverage
 - [x] **T6.2** Final audio verification
 - [x] **T6.3** Performance validation
-- [ ] **T6.4** Cross-browser fallbacks
+- [ ] **T6.4** Cross-browser fallbacks — ⏸️ **DEFERRED by choice, not done.**
+      `crossbrowser.spec.ts` exists with 4 tests, all tagged `@crossbrowser`, and the
+      `firefox-smoke` / `webkit-smoke` projects correctly select them — the wiring is
+      verified, not assumed. They have **never been executed**: only
+      `chromium-1248` is in `~/Library/Caches/ms-playwright/`, and installing Firefox
+      and WebKit was declined. Accepting the task would have required running them, so
+      the task stays unticked. **Consequence: F1–F5 have no automated coverage at all
+      and must be verified by hand on real hardware.** See `DECISIONS.md`, T6.4.
 - [x] **T6.5** Documentation and release prep
 - [ ] **T6.6** Final acceptance run
 

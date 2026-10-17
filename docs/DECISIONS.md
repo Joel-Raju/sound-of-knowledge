@@ -3580,3 +3580,60 @@ machine, and I had already been told this once and did it again.
 
 The lesson generalises: a long-running measurement needs the machine to itself. The
 `[perf]` note above is the same fact arriving from the other direction.
+
+## T6.4 — DEFERRED by choice. The wiring was verified; the browsers were not run.
+
+**Decision:** skip the Firefox and WebKit runs. All 90 Chromium e2e tests stay green as
+the regression net. T6.4 is left **unticked**, because its acceptance required running
+the tests and they were not run.
+
+### What I verified rather than assumed
+
+The Firefox/WebKit projects were a dead guard earlier this session — they grepped for a
+tag that no file carried, so they ran zero tests and reported green. Before deferring,
+the wiring was re-checked end to end:
+
+| Claim | Checked | Result |
+|---|---|---|
+| The spec file exists | `ls tests/e2e/` | `crossbrowser.spec.ts` present |
+| It has tests | count `test(` | 4 |
+| They carry the tag the projects grep for | `grep -n @crossbrowser` | all 4, on the test titles |
+| Both projects exist | `playwright.config.ts` | `firefox-smoke`, `webkit-smoke` |
+| The browsers are absent | `ls ~/Library/Caches/ms-playwright/` | `chromium-1248` only |
+
+So the tests are **correctly wired and have never executed**. That is a materially
+different claim from "there is nothing there", and the difference is the whole reason
+this entry exists.
+
+### The real consequence
+
+**F1–F5 now have no automated coverage whatsoever.** Everything the rewrite knows about
+Safari and Firefox is a §8.2 fallback that has never been exercised on either engine.
+
+The specific risks, now unmitigated:
+
+- **Firefox has no `AudioContext.outputLatency`** — the §8.2 `baseLatency` fallback is
+  written and asserted-in-principle but has never run against the one browser that
+  needs it.
+- **Safari's `interrupted` state** — §11.2's start/unlock path is written against it and
+  has never seen it.
+- **`EventSource` inside a dedicated worker** — Firefox-specific support questions, and
+  the whole ingest architecture depends on it.
+
+This is a coverage gap, not a defect. Nothing is known to be broken. But "not known to
+be broken" and "verified" have been kept distinct in every document, because this
+session produced fifteen instances of the first being reported as the second.
+
+### And a stale number, found while checking
+
+`HUMAN-CHECKLIST.md` F1 claimed CI covers the Chromium suite with "**18 tests**". The
+suite is **90**. Written early, never updated across four phases of growth. A checklist
+that understates its own coverage is worse than one that admits to none, because it
+reads as reassurance.
+
+### What reopens it
+
+`npx playwright install firefox webkit && npx playwright test --project=firefox-smoke
+--project=webkit-smoke`. Roughly five minutes of machine time and eight tagged tests.
+It is the cheapest remaining item in the entire project, and it is the only one that
+would move F2 or F3.
