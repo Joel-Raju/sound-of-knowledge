@@ -96,6 +96,8 @@ declare global {
        *  named direction. The steps come back so a caller can print what to expect. */
       runA4Calibration?: (opts?: { gapMs?: number }) => unknown[];
       endA4Calibration?: () => void;
+      /** Which calibration steps have reached the scheduler, in order. */
+      getA4Fired?: () => string[];
     };
   }
 }

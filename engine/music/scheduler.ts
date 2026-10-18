@@ -209,6 +209,25 @@ export class Scheduler {
   }
   private density: "sparse" | "normal" | "dense" = "normal";
 
+  /**
+   * DEBUG ONLY (A4 calibration) — drop every pending edit without playing it.
+   *
+   * **Why, measured rather than assumed.** `pickBest` only considers the first
+   * `MELODIC_LOOKAHEAD_COUNT` entries, so an edit appended behind whatever was already
+   * queued can never be *selected*, and `prune` discards it at 4 s. With live traffic in
+   * the queues the A4 calibration lost about half its notes: instrumented with
+   * `getA4Fired()`, all six callbacks fired on schedule, but `notesScheduled` rose only 3
+   * across the last four. A calibration is meant to be isolated, so anything queued
+   * *before* it began is not part of it and has to go.
+   */
+  drain(): void {
+    this.melodicQ.clear();
+    this.subQ.clear();
+    this.gongQ.clear();
+    this.birthQ.clear();
+    this.botQ.clear();
+  }
+
   /** Intake: route each incoming edit into its queue (§7.7). */
   onBatch(edits: readonly NormalizedEdit[]): void {
     const now = this.deps.now();

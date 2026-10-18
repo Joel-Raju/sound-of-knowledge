@@ -3918,3 +3918,89 @@ an hour earlier parsed the literal marker syntax **inside this write-up** as two
 resolutions of items `X` and `ZZZ` that do not exist. The guard is deliberately
 conservative — it cannot tell prose from a declaration — and that is the correct bias for
 a marker that has to be trustworthy. Reworded to stop spelling the syntax literally.
+
+## The A4 rig played one note out of six, and every test I had passed
+
+The human ran the calibration twice, waited 120 s, and reported: one title, one sound, from
+the centre. **The rig was broken**, and it had been committed green.
+
+### What the tests checked, and why every one of them passed
+
+| Test | Asserts | Why it did not catch this |
+|---|---|---|
+| returns a plan for six directions | `planA4()` returns 6 steps with `errorDeg < 22` | The **plan** was perfect. The geometry was never the problem. |
+| the stream is genuinely paused | `notesScheduled` delta `=== 0` | Passes when **nothing** plays. It cannot distinguish "quiet" from "silent". |
+| the camera orbit is held | `orbitYaw` frozen, then restored | Unrelated. |
+
+**Not one of them asserted that six edits produce six notes.** The gap was obvious in
+hindsight and I wrote the whole rig without it.
+
+### Three hypotheses, all wrong, checked before guessing further
+
+1. **The melodic sampler drops them.** Computed the probability properly:
+   at `E=0`/`sparse`, `p = 0.09` per 0.125 s step, so P(picked within the 4 s stale
+   window) = **95.1%**. Six independent edits cannot leave one survivor. Wrong.
+2. **The label gate refuses them.** `importance 0.9 > 0.55`, `ns 0`, gap 3 s > 1.2 s —
+   all clear. Wrong.
+3. **My own probes were reading disconnected instruments, twice.**
+   - `__sok.visual` is assigned by `visual-harness.tsx`, which only mounts under
+     `?debug=1`. Reading `labelCounts()` on the normal page returned `undefined`, which
+     my probe defaulted to `{active: 0}` — and it reported **"0 labels"** for an entire
+     run. A confident number from an instrument that was not connected.
+   - §9.9's labels are 3D canvas anchors, not DOM text, so walking `document.body` found
+     nothing either.
+
+   And both probe runs used `gapMs` of 1000–1200 — **below `LABEL_MIN_INTERVAL_SEC` (1.2 s)
+   and far below `TICKER_MIN_INTERVAL_SEC` (2.5 s)**. I measured a configuration nobody was
+   ever going to use, then recommended a different one.
+
+### The actual cause, found by instrumenting rather than reasoning
+
+Added `Engine.getA4Fired()` — a debug-only list of which calibration callbacks reached the
+scheduler. That turned an unanswerable question ("did the timer fire, or did the scheduler
+drop it?") into a measurement:
+
+```
+t+3s  fired=[FRONT]                                  notes=16
+t+6s  fired=[FRONT,RIGHT]                            notes=20
+t+9s  fired=[FRONT,RIGHT,LEFT]                       notes=21
+t+12s fired=[FRONT,RIGHT,LEFT]                       notes=21
+t+15s fired=[FRONT,RIGHT,LEFT,BEHIND]                notes=21   <- fired, no note
+t+18s fired=[FRONT,RIGHT,LEFT,BEHIND,ABOVE]          notes=22
+t+21s fired=[FRONT,RIGHT,LEFT,BEHIND,ABOVE,BELOW]    notes=23
+t+24s fired=[...all six...]                          notes=24
+```
+
+**All six callbacks fired, correctly spaced.** `notesScheduled` rose 21 → 24 across the
+last four. The scheduler was dropping roughly half of them.
+
+The reason is queue **position**, not probability. `pickBest` only scans the first
+`MELODIC_LOOKAHEAD_COUNT` entries, so a calibration edit appended behind pre-pause backlog
+can never be *selected* at all — and `prune` then discards it at 4 s. A single injected
+edit into a quiet queue became a note in **0.5 s**, which is what pointed at the backlog
+rather than the sampler.
+
+### The fix
+
+- **`Scheduler.drain()`** — clear all five queues when the calibration starts. Anything
+  queued before it began is not part of the sequence.
+- **Re-offer until accepted.** `fireA4Step` reads `notesScheduled`, and retries every
+  120 ms until the scheduler has taken the edit (max 30 tries). The melodic gate is
+  probabilistic by design (§7.7), so one injection is a *request*, not a guarantee.
+  Retrying removes the dependency on sampler statistics **without bypassing anything** —
+  the note still goes through the real router, the real queue and the real panner, which
+  is the only thing that makes the test worth running.
+
+### And the test that should have existed from the start
+
+`all six notes ACTUALLY become notes` — asserts the fired sequence **and**
+`notesScheduled` advances by ≥ 6. Proven by reverting both halves of the fix: it fails with
+*"six calibration edits must produce six notes, not one"*, and the other three tests still
+pass. A regression test that only fires when one specific defect is present is still worth
+more than the three that never could.
+
+**The general failure, twice over.** First the rig was built with no end-to-end assertion
+on the thing it exists to produce. Then, when it failed, I reached for three explanations
+before measuring. The instrument existed by then — `getA4Fired()` is four lines — and the
+rule that keeps being relearned is that the cheapest next move is almost never another
+hypothesis.

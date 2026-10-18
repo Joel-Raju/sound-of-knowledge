@@ -202,6 +202,8 @@ export class Engine {
   private disposed = false;
   /** DEBUG ONLY — A4 calibration gate on stream delivery. See `runA4Calibration`. */
   private ingestPaused = false;
+  /** DEBUG ONLY — which calibration callbacks have fired, in order. Diagnostics only. */
+  private a4Fired: string[] = [];
 
   // scratch, reused so a note allocates nothing on the way to the visuals (§12.1)
   private readonly shellPos = new THREE.Vector3();
@@ -767,41 +769,72 @@ export class Engine {
     // direction a note is planned for is the direction it will actually be heard from.
     rig.setAutoOrbit(false);
     this.ingestPaused = true;
+    // Anything queued before the calibration began is not part of it. Leaving it there
+    // put the calibration edits behind the backlog, where `pickBest`'s lookahead could
+    // never reach them — measured as roughly half the notes silently lost.
+    this.scheduler?.drain();
+    this.a4Fired.length = 0;
 
     const basis = a4Basis(rig.forward);
     const steps = planA4(basis);
 
     for (const step of steps) {
-      window.setTimeout(() => {
-        this.scheduler?.onBatch([
-          {
-            id: step.id,
-            ts: Date.now(),
-            wiki: step.wiki,
-            host: `${step.wiki}.example.org`,
-            lang: "en",
-            project: "wikipedia",
-            ns: 0,
-            title: step.title,
-            actor: "registered",
-            kind: "edit",
-            minor: false,
-            delta: 800,
-            absDelta: 800,
-            magnitude: 0.5,
-            importance: 0.9,
-            revNew: 1,
-          } satisfies NormalizedEdit,
-        ]);
-      }, 600 + steps.indexOf(step) * gapMs);
+      window.setTimeout(() => this.fireA4Step(step), 600 + steps.indexOf(step) * gapMs);
     }
     return steps;
+  }
+
+  /**
+   * Emit one calibration edit, re-offering it until the scheduler has actually accepted
+   * it as a note.
+   *
+   * The melodic gate is probabilistic (§7.7: `rng() < p` per step), so a single injection
+   * is a *request*, not a guarantee. Retrying removes the dependency on sampler
+   * statistics entirely without bypassing anything — the note still goes through the real
+   * router, the real queue and the real panner, which is the whole point of the test.
+   */
+  private fireA4Step(step: A4Step): void {
+    const target = (this.getMetrics().notesScheduled ?? 0) + 1;
+    this.a4Fired.push(step.label);
+
+    const edit: NormalizedEdit = {
+      id: step.id,
+      ts: Date.now(),
+      wiki: step.wiki,
+      host: `${step.wiki}.example.org`,
+      lang: "en",
+      project: "wikipedia",
+      ns: 0,
+      title: step.title,
+      actor: "registered",
+      kind: "edit",
+      minor: false,
+      delta: 800,
+      absDelta: 800,
+      magnitude: 0.5,
+      importance: 0.9,
+      revNew: 1,
+    };
+
+    let tries = 0;
+    const offer = (): void => {
+      this.scheduler?.onBatch([edit]);
+      tries++;
+      if ((this.getMetrics().notesScheduled ?? 0) >= target || tries >= 30) return;
+      window.setTimeout(offer, 120);
+    };
+    offer();
   }
 
   /** Undo `runA4Calibration`'s freeze and pause. */
   endA4Calibration(): void {
     this.visuals?.rig.setAutoOrbit(true);
     this.ingestPaused = false;
+  }
+
+  /** DEBUG ONLY — the labels whose calibration callbacks have fired, in order. */
+  getA4Fired(): readonly string[] {
+    return this.a4Fired;
   }
 
   /** For T5.2's HUD and the debug handle. */

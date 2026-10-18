@@ -56,6 +56,46 @@ test.describe("A4 calibration rig", () => {
     await page.evaluate(() => window.__sok!.endA4Calibration?.());
   });
 
+  test("all six notes ACTUALLY become notes — the test that was missing", async ({ page }) => {
+    // The assertion whose absence cost the human two attempts. The rig looked correct,
+    // returned a six-step plan, and fired six callbacks on schedule — and still played
+    // only one note, because the scheduler is a probabilistic sampler and the edits were
+    // queued behind pre-pause backlog that `pickBest`'s lookahead could not reach.
+    // "returns six steps" checks the plan; "the stream is paused" checks the gate.
+    // Neither checks that anything was *heard*.
+    const before = (await metrics(page)).notesScheduled;
+
+    await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 700 }));
+
+    const fired = await page.evaluate(async () => {
+      const deadline = Date.now() + 40_000;
+      while (Date.now() < deadline) {
+        const f = (window.__sok!.getA4Fired?.() ?? []) as string[];
+        if (f.length >= 6) return f;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return (window.__sok!.getA4Fired?.() ?? []) as string[];
+    });
+    expect(fired, "every calibration step must reach the scheduler").toEqual([
+      "FRONT",
+      "RIGHT",
+      "LEFT",
+      "BEHIND",
+      "ABOVE",
+      "BELOW",
+    ]);
+
+    // Six callbacks is not six notes — this is the assertion that would have caught it.
+    await page.waitForTimeout(4_000);
+    const after = (await metrics(page)).notesScheduled;
+    expect(
+      after - before,
+      "six calibration edits must produce six notes, not one",
+    ).toBeGreaterThanOrEqual(6);
+
+    await page.evaluate(() => window.__sok!.endA4Calibration?.());
+  });
+
   test("the stream is genuinely paused, not merely quiet", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));

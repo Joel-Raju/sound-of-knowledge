@@ -33,11 +33,18 @@ This file is the authoritative list. It is populated as the build progresses.
       __sok.runA4Calibration({ gapMs: 3000 })
       ```
 
-      _It freezes the camera, pauses stream delivery, and fires six notes, 3 s apart._
-      _Each one's title is the direction it is supposed to arrive from — the screen shows_
-      _`A4 LEFT`, and the only question is whether the sound arrives on your left._
-      _Expect `FRONT`, `RIGHT`, `LEFT`, `BEHIND`, `ABOVE`, `BELOW` in that order._
-      _Undo with `__sok.endA4Calibration()`._
+      _It freezes the camera, pauses stream delivery, drains the scheduler queues, and
+      fires six notes, 3 s apart — re-offering each until the scheduler has actually
+      accepted it, so the sequence cannot be silently truncated._ _Each one's title is the
+      direction it is supposed to arrive from — the scene shows `A4 LEFT`, and the only
+      question is whether the sound arrives on your left._ _Expect `FRONT`, `RIGHT`,
+      `LEFT`, `BEHIND`, `ABOVE`, `BELOW` in that order._ _Undo with
+      `__sok.endA4Calibration()`; `__sok.getA4Fired()` reports how many steps actually
+      reached the scheduler, and must read 6._
+
+      _**If it does not** — a shorter run here is a bug, not a flaky result. The first
+      version truncated to one note and the e2e suite passed it for two attempts because
+      nothing asserted that six edits produce six notes._
 
       _Report per direction: "RIGHT → right" or "RIGHT → front". Every step is placed by_
       _the same `SpatialMapper` the scheduler uses and asserted within 22° of its named_
