@@ -131,36 +131,62 @@ test.describe("A4 calibration rig", () => {
   });
 
   test("the camera orbit is held for the duration and restored after", async ({ page }) => {
-    const orbitYaw = () =>
+    const pose = () =>
       page.evaluate(() => {
         const e = window.__sok!.engine as unknown as {
-          visualEngine?: { rig?: { orbitYaw: number; autoOrbitEnabled: boolean } };
+          visualEngine?: {
+            rig?: {
+              orbitYaw: number;
+              autoOrbitEnabled: boolean;
+              freezePoseEnabled: boolean;
+              position: { x: number; y: number; z: number };
+              forward: { x: number; y: number; z: number };
+            };
+          };
         };
         const rig = e?.visualEngine?.rig;
-        return rig ? { yaw: rig.orbitYaw, enabled: rig.autoOrbitEnabled } : null;
+        return rig
+          ? {
+              yaw: rig.orbitYaw,
+              enabled: rig.autoOrbitEnabled,
+              frozen: rig.freezePoseEnabled,
+              pos: { ...rig.position },
+              fwd: { ...rig.forward },
+            }
+          : null;
       });
 
-    const before = await orbitYaw();
+    const before = await pose();
     expect(before, "the rig must be reachable for the freeze to be assertable").not.toBeNull();
     expect(before!.enabled, "auto-orbit is on by default — the freeze is opt-in").toBe(true);
 
-    await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 200 }));
+    await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 700 }));
     await page.waitForTimeout(400);
 
     // The yaw accumulated before the freeze is KEPT — the freeze stops it advancing, it
     // does not rewind the camera. Asserting `yaw === 0` was wrong: by the time Enter has
     // resolved the rig has already orbited for a second or two, and that is correct.
-    const atFreeze = await orbitYaw();
+    const atFreeze = await pose();
     expect(atFreeze!.enabled, "the calibration must freeze the orbit").toBe(false);
+    expect(atFreeze!.frozen, "the calibration must freeze the whole pose").toBe(true);
 
-    await page.waitForTimeout(1_500);
-    const during = await orbitYaw();
+    await page.waitForTimeout(2_000);
+    const during = await pose();
     expect(during!.yaw, "a frozen orbit must not advance").toBe(atFreeze!.yaw);
+    // The listener's POSITION must not move either — the entrance dolly and the drift
+    // both change the direction a fixed world source is heard from.
+    expect(during!.pos.x).toBe(atFreeze!.pos.x);
+    expect(during!.pos.y).toBe(atFreeze!.pos.y);
+    expect(during!.pos.z).toBe(atFreeze!.pos.z);
+    expect(during!.fwd.x).toBe(atFreeze!.fwd.x);
+    expect(during!.fwd.y).toBe(atFreeze!.fwd.y);
+    expect(during!.fwd.z).toBe(atFreeze!.fwd.z);
 
     await page.evaluate(() => window.__sok!.endA4Calibration?.());
     await page.waitForTimeout(400);
-    const after = await orbitYaw();
+    const after = await pose();
     expect(after!.enabled, "ending the calibration must restore the orbit").toBe(true);
+    expect(after!.frozen, "ending the calibration must release the pose").toBe(false);
     expect(
       after!.yaw,
       "a restored orbit must actually resume advancing",

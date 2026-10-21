@@ -170,6 +170,26 @@ export class CameraRig {
    * answerable at all, and it must never be reachable from `Settings`.
    */
   private autoOrbit = true;
+  /**
+   * A4 calibration — hold the camera at ONE fixed pose.
+   *
+   * Freezing the orbit alone is not enough. Three things still moved the listener while
+   * a calibration ran:
+   *
+   *  - the **entrance dolly** (radius 9 → 5.5 over 2.5 s). The listener's *position*
+   *    changes, so the direction from the listener to a fixed world source changes with
+   *    it — by up to ~17° for a source at radius 12.
+   *  - the **pitch oscillation**, `pitchBase 0.18 ± pitchWobble 0.12` at rate 0.05 —
+   *    a 20 s period, the same as the gap between calibration notes. The plan was
+   *    computed against a pose that no longer held by the time note six fired.
+   *  - the **drift**, `CAMERA.drift = 0.15` of positional noise.
+   *
+   * A calibration that plans against a moving camera is a calibration whose answers
+   * drift with it. So the pose is frozen outright.
+   */
+  private freezePose = false;
+  private frozenPos: Vec3 = { x: 0, y: 0, z: 0 };
+  private frozenFwd: Vec3 = { x: 0, y: 0, z: 0 };
 
   constructor(opts: CameraRigOptions = {}) {
     this.seed = opts.seed ?? 1;
@@ -190,6 +210,47 @@ export class CameraRig {
   }
   setAutoOrbit(on: boolean): void {
     this.autoOrbit = on;
+  }
+
+  /**
+   * DEBUG ONLY — freeze the camera at a single fixed pose, and snap it to its *arrived*
+   * pose so the entrance dolly is not part of the calibration at all.
+   *
+   * The pose is the one the camera reaches after the 2.5 s entrance, with the pitch at
+   * its base value and the drift evaluated once. Deterministic, and identical for all
+   * six notes.
+   */
+  setFreezePose(on: boolean): void {
+    this.freezePose = on;
+    if (!on) return;
+
+    const t = CAMERA.entranceSec;
+    const distance = distanceForEnergy(this.energy);
+    const yaw = this.yaw + this.yawOffset;
+    const pitch = clamp(CAMERA.pitchBase + this.pitchOffset, -1.5, 1.5);
+    composeYawPitch(distance, yaw, pitch, this.frozenPos);
+
+    // The drift is applied once, at the frozen instant, so the pose is a real one the
+    // camera could genuinely hold.
+    this.frozenPos.x += driftNoise(t, this.seed) * CAMERA.drift;
+    this.frozenPos.y += driftNoise(t, this.seed + 5) * CAMERA.drift * 0.6;
+    this.frozenPos.z += driftNoise(t, this.seed + 9) * CAMERA.drift;
+
+    const len = Math.hypot(this.frozenPos.x, this.frozenPos.y, this.frozenPos.z) || 1;
+    this.frozenFwd.x = -this.frozenPos.x / len;
+    this.frozenFwd.y = -this.frozenPos.y / len;
+    this.frozenFwd.z = -this.frozenPos.z / len;
+
+    this.position.x = this.frozenPos.x;
+    this.position.y = this.frozenPos.y;
+    this.position.z = this.frozenPos.z;
+    this.forward.x = this.frozenFwd.x;
+    this.forward.y = this.frozenFwd.y;
+    this.forward.z = this.frozenFwd.z;
+  }
+
+  get freezePoseEnabled(): boolean {
+    return this.freezePose;
   }
 
   /**
@@ -268,6 +329,18 @@ export class CameraRig {
    * camera.
    */
   update(dtSec: number, energy: number): void {
+    if (this.freezePose) {
+      // Hold the pose. Everything below this line is pose-affecting: the entrance
+      // dolly, the distance easing, the pitch oscillation and the drift.
+      this.energy = clamp(energy, 0, 1);
+      this.position.x = this.frozenPos.x;
+      this.position.y = this.frozenPos.y;
+      this.position.z = this.frozenPos.z;
+      this.forward.x = this.frozenFwd.x;
+      this.forward.y = this.frozenFwd.y;
+      this.forward.z = this.frozenFwd.z;
+      return;
+    }
     this.t += dtSec;
     this.energy = clamp(energy, 0, 1);
 

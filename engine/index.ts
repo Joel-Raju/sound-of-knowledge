@@ -768,6 +768,9 @@ export class Engine {
     // Freeze first: the plan is computed from the pose the rig is *held* at, so the
     // direction a note is planned for is the direction it will actually be heard from.
     rig.setAutoOrbit(false);
+    // Freeze the pose outright, and snap past the entrance dolly. The plan is computed
+    // from this pose, so the pose has to still be this pose when note six fires.
+    rig.setFreezePose(true);
     this.ingestPaused = true;
     // Anything queued before the calibration began is not part of it. Leaving it there
     // put the calibration edits behind the backlog, where `pickBest`'s lookahead could
@@ -828,6 +831,7 @@ export class Engine {
 
   /** Undo `runA4Calibration`'s freeze and pause. */
   endA4Calibration(): void {
+    this.visuals?.rig.setFreezePose(false);
     this.visuals?.rig.setAutoOrbit(true);
     this.ingestPaused = false;
   }

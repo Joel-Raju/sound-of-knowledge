@@ -33,9 +33,10 @@ This file is the authoritative list. It is populated as the build progresses.
       __sok.runA4Calibration({ gapMs: 3000 })
       ```
 
-      _It freezes the camera, pauses stream delivery, drains the scheduler queues, and
-      fires six notes, 3 s apart — re-offering each until the scheduler has actually
-      accepted it, so the sequence cannot be silently truncated._ _Each one's title is the
+      _It freezes the camera **completely** — pose, position and forward vector — pausing
+      stream delivery, draining the scheduler queues, and firing six notes 3 s apart,
+      re-offering each until the scheduler has actually accepted it, so the sequence
+      cannot be silently truncated._ _Each one's title is the
       direction it is supposed to arrive from — the scene shows `A4 LEFT`, and the only
       question is whether the sound arrives on your left._ _Expect `FRONT`, `RIGHT`,
       `LEFT`, `BEHIND`, `ABOVE`, `BELOW` in that order._ _Undo with

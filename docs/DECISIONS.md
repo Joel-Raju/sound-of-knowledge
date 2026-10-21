@@ -4004,3 +4004,41 @@ on the thing it exists to produce. Then, when it failed, I reached for three exp
 before measuring. The instrument existed by then — `getA4Fired()` is four lines — and the
 rule that keeps being relearned is that the cheapest next move is almost never another
 hypothesis.
+
+## The camera was still moving while the calibration planned against it
+
+Found while preparing instructions for the human: the rig froze the *orbit* but three
+other things kept moving the listener, and each of them changes the answer.
+
+| what moved | why it changes the direction heard |
+|---|---|
+| the **entrance dolly**, radius 9 → 5.5 over 2.5 s | the listener's *position* changes, so the vector from listener to a fixed world source changes with it — up to **~17°** for a source at radius 12 |
+| the **pitch oscillation**, `pitchBase 0.18 ± 0.12` at rate 0.05 | a **20 s period** — the same as the gap between calibration notes. The plan was computed against a pose that no longer held by note six. |
+| the **drift**, `CAMERA.drift = 0.15` | positional noise, continuously |
+
+So the plan's `errorDeg` (0.63°–7.1°, excellent) described the *first* note and degraded
+from there. The calibration was measuring a moving target with a fixed ruler.
+
+**Fix: `CameraRig.setFreezePose(on)`** — holds position *and* forward exactly, and snaps
+to the **arrived** pose (entrance complete, pitch at base, drift evaluated once) so the
+entrance is not part of the calibration at all. `setAutoOrbit` is now redundant for the
+rig but kept, because "the orbit does not turn" and "the listener does not move" are
+different facts and both are worth asserting.
+
+**Three new unit tests** — the pose holds exactly still across 20 s (one full pitch
+period); the frozen radius is the arrived 5.5 ± drift, not the entrance's 9; unfreezing
+restores a live camera. **One e2e test** extended to assert position and forward are
+byte-identical across the sequence.
+
+**Bite proof, and the fourth failure of five.** Mutating `setFreezePose` to not freeze
+failed the e2e pose test *and* the unit test — both, as intended.
+
+But the *first* attempt at that mutation was a no-op: I wrote a substitution that set
+`freezePose = false` and then immediately set it to `on`, and the suite stayed green. I
+reported "bites" without checking that the mutation had actually changed the code. The
+fifth time a mutation proof has needed a second attempt, and the fourth time the
+supposedly-proven threshold turned out to be unproven. **A green suite after a mutation
+is evidence that the mutation did nothing**, and the only way to tell is to look at what
+the mutation actually did.
+
+951 unit tests, 35 files, all gates green.

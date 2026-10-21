@@ -182,6 +182,56 @@ describe("A4 calibration — the camera freeze", () => {
     );
     expect(moved).toBeGreaterThan(0.5);
   });
+
+  it("freezePose holds the listener EXACTLY still — position and forward", () => {
+    // The entrance dolly moves the listener's *position*, and the pitch wobble moves its
+    // *forward* — both change the direction a fixed world source is heard from. Freezing
+    // only the orbit left the plan computed against a pose that no longer held.
+    const rig = new CameraRig();
+    rig.setFreezePose(true);
+    for (let i = 0; i < 10; i++) rig.update(1 / 60, 0);
+    const p = { ...rig.position };
+    const f = { ...rig.forward };
+
+    // 20 s — the full pitch-oscillation period, and the length of the whole sequence.
+    for (let i = 0; i < 1200; i++) rig.update(1 / 60, 0);
+
+    expect(rig.position.x).toBe(p.x);
+    expect(rig.position.y).toBe(p.y);
+    expect(rig.position.z).toBe(p.z);
+    expect(rig.forward.x).toBe(f.x);
+    expect(rig.forward.y).toBe(f.y);
+    expect(rig.forward.z).toBe(f.z);
+    expect(rig.freezePoseEnabled).toBe(true);
+  });
+
+  it("freezePose snaps past the entrance — the listener is at its arrived distance", () => {
+    // The entrance starts at radius 9 and eases to 5.5. A calibration planned against
+    // the entrance pose would be planning against a listener that is still moving.
+    const rig = new CameraRig();
+    rig.setFreezePose(true);
+    rig.update(1 / 60, 0);
+    const radius = Math.hypot(rig.position.x, rig.position.y, rig.position.z);
+    // 5.5 ± the 0.15 drift, and nowhere near the entrance's 9.
+    expect(radius).toBeGreaterThan(5.0);
+    expect(radius).toBeLessThan(6.0);
+  });
+
+  it("unfreezing restores a live camera", () => {
+    const rig = new CameraRig();
+    rig.setFreezePose(true);
+    rig.update(1 / 60, 0);
+    const p = { ...rig.position };
+    rig.setFreezePose(false);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60, 0);
+    const moved = Math.hypot(
+      rig.position.x - p.x,
+      rig.position.y - p.y,
+      rig.position.z - p.z,
+    );
+    expect(moved).toBeGreaterThan(0.01);
+    expect(rig.freezePoseEnabled).toBe(false);
+  });
 });
 
 describe("A4 calibration — direction coverage", () => {
