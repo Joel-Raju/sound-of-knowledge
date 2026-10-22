@@ -242,6 +242,32 @@ A second, fast test in the same file drives 200 spawns and asserts the label poo
 still **six** anchors — §14.1's "no unbounded arrays", caught in seconds rather than ten
 minutes.
 
+## F. Spatial audio (spec §8.9) — measured at T6.6
+
+The listener is the camera. **Measured on the live page, with a real `AudioContext`**,
+not in the offline harness — because the offline harness was the only place the
+listener was ever moved, and the live path was wrong for a whole session.
+
+| source | channel difference | spectral difference vs FRONT |
+|---|---|---|
+| **RIGHT** | **+10.4 dB** on the right | — |
+| **LEFT** | **+13.9 dB** on the left | — |
+| **ABOVE** | 0 dB (elevation is not azimuth) | **−2.6 dB** in 2–8 kHz — the head's shadow |
+| **BELOW** | 0 dB | +0.2 dB — nothing |
+| FRONT / BEHIND | 0 dB (both centred in stereo) | BEHIND not yet judged |
+
+**Only azimuth produces an interaural level difference.** Elevation and front/back are
+conveyed, if at all, as a change of *timbre* — and only under HRTF. The `low` tier uses
+`equalpower` (§12's table), where elevation is **bit-identical** to front: no cue at
+all. Every Mac gets HRTF (`detectTier` over the real GPU strings: Apple M1 → high,
+Intel Iris/UHD → medium), so the elevation cue exists on the machines most people will
+use, and does not exist on phones.
+
+The human confirmed the same thing by ear, on a matched A/B (the same bell, same pitch,
+same waveform, only the position changed): the FRONT repeats were **identical** — the
+control — and ABOVE was **"slightly different, duller"**, which is what the −2.6 dB high
+band predicts.
+
 ## E. Visual tuning (spec §9)
 
 Recorded at T4.2–T4.5 and T6.3.

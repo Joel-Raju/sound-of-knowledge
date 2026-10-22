@@ -50,11 +50,18 @@ rather than when it was scheduled.
 
 Each edit gets a **home direction** from its wiki, chosen from 64 points on a Fibonacci
 sphere and jittered slightly per-edit, and a **radius** of 7–13 world units. The listener
-sits at the centre, so a German edit and a Japanese edit arrive from genuinely different
-places.
+is the camera (§8.9), so it sits *inside* the shell at radius 5.5 and a German edit and
+a Japanese edit arrive from genuinely different places.
 
-Measured: a single bell hard to the right is **5.7–6.4 dB** louder on the right channel
-([`tests/e2e/spatial-pan.spec.ts`](tests/e2e/spatial-pan.spec.ts)).
+Measured on the live page, with a real `AudioContext`: a source to the listener's right
+lands **10.4 dB** louder on the right channel, and one to the left **13.9 dB** louder on
+the left ([`tests/e2e/live-pan.spec.ts`](tests/e2e/live-pan.spec.ts)).
+
+Elevation is subtler, and honestly so: a source overhead is **2.6 dB duller** in the
+2–8 kHz band (the head's shadow) and one below is indistinguishable from one in front.
+That is a property of two-channel audio — only *azimuth* produces an interaural level
+difference — and the piece is built to be listened to on headphones rather than
+measured.
 
 ---
 
