@@ -110,12 +110,29 @@ This file is the authoritative list. It is populated as the build progresses.
       `avSyncMs` (`?debug=1`) and record the value used here: `______ ms`.
 - [ ] **B7.** Harmony never sounds random — it always sounds like one piece.
 - [ ] **B8.** Silence between events reads as a feature, not a dropout.
-- [ ] **B9.** ⚠️ **Aeolian/violet is actually reachable.** `EPS_REF = 15` (calibrated
-      at T1.1) puts typical traffic at E ≈ 0.70, and Aeolian needs E < 0.22
-      (< ~0.7 edits/s). If the mode never drifts into Aeolian during a normal
-      listening session, **raise `EPS_REF` in `engine/config.ts`** — the
-      provisional 60 would put typical traffic at E ≈ 0.47. Record the chosen
-      value here: `EPS_REF = ____`.
+- [x] **B9.** ✅ **Aeolian/violet is actually reachable. `EPS_REF = 15`.** _(T6.6.)_
+      _**Answered by measurement, not by judgement.** The energy was never alive at all
+      when this item was written — the `EnergyTracker` was not fed, so `E` was 0 and
+      Aeolian was reachable for the wrong reason. With it fed correctly (§7.4's bands:
+      `aeolian E<0.22 | dorian E<0.45 | mixolydian E<0.70 | lydian else`):_
+
+      _**§7.3's rule applied to the engine's own numbers**, read from the HUD's own
+      readout over 60 s of live traffic: mean 4.73 edits/s, p50 4.00, p90 10.00, **p95
+      10.00**, max 12.00, giving `E` 0.339 … 0.680._
+
+      _**`EPS_REF = 1.5 × p95(eps) = 1.5 × 10 = 15`** — which is exactly the value
+      already in `engine/config.ts`. The constant was right; what made it look wrong was
+      that the tracker was never fed and then was fed wrongly. Raising it would have
+      "fixed" a symptom and destroyed a correct calibration._
+
+      _**All four modes are reachable** at this rate: p50 → mixolydian, p95 → lydian,
+      the measured minimum → dorian, and Aeolian at startup and in genuinely quiet
+      stretches. A five-minute live run held the energy at 0.53–0.68 — one band — so the
+      mode changed **once**; 28.2 s is the floor on the interval, not a schedule._
+
+      _The one caveat: Aeolian needs `E < 0.22`, i.e. under ~0.85 edits/s sustained. It
+      is reached at startup and in quiet periods, but it is the least likely of the four
+      on a busy day._
 
 ## C. Visual quality
 

@@ -4655,3 +4655,73 @@ With `E` alive, the note density follows the traffic instead of sitting at the f
 **The live piece is now busier than it has ever been**, and the human should say whether
 that is right. The offline mix measurements are unaffected — they choose their own
 `rateMul` — but the *live* character has changed.
+
+## The harmony's intervals, measured — and the EPS_REF calibration, finally done properly
+
+### The intervals, on the live stream
+
+Five minutes, sampled every 250 ms (`scripts/probe-harmony-intervals.ts`):
+
+| what | measured | spec | floor? |
+|---|---|---|---|
+| **MODE** | 28.0 s | 28.2 s (8 bars) | yes — a *floor* |
+| **KEY** | 112.9 s (3 changes) | 112.9 s (32 bars) | — |
+| **CHORD** | 14.1 s (22 changes) | 14.1 s (4 bars) | — |
+
+At `BPM = 68` a bar is 3.53 s. The spec's intervals reproduce to a tenth of a second.
+
+**But the mode changed ONCE in five minutes**, because the energy sat at **0.53–0.68** —
+one band — the whole time. 28.2 s is the *floor* on the interval, not a schedule: the
+mode can only change *at* a phrase boundary, and only if the energy has crossed a band
+boundary.
+
+The run also showed the mode **skipping Dorian** (aeolian → mixolydian), because
+aeolian and mixolydian are not adjacent bands, so there is no boundary for the ±0.04
+hysteresis to veto.
+
+### §7.3's calibration, from the engine's own numbers
+
+`EPS_REF ≈ 1.5 × p95(eps)`, measured over 60 s of live traffic — **read from the HUD's
+own readout**, because `metrics.eps` does not exist on the `Metrics` interface (it is on
+the `stats` event), and an earlier version of this probe read `metrics.eps`, got
+`undefined`, defaulted it to 0, and reported "mean 0.00". **Another number from an
+instrument that was not connected.**
+
+| | measured |
+|---|---|
+| mean | 4.73 edits/s |
+| p50 | 4.00 |
+| p90 | 10.00 |
+| **p95** | **10.00** |
+| max | 12.00 |
+| resulting `E` range | 0.339 … 0.680 |
+
+**§7.3's rule gives `EPS_REF = 1.5 × 10 = 15` — exactly the value already in
+`engine/config.ts`.**
+
+So the constant was right all along. What made it look wrong was that the tracker was
+never fed, and then was fed wrongly. A constant that looks wrong for the wrong reason
+is the most dangerous kind: the obvious response (change the constant) would have
+"fixed" a symptom and destroyed the calibration that was actually correct.
+
+### What each mode's band means at this rate
+
+With `EPS_REF = 15`:
+
+| | energy | mode |
+|---|---|---|
+| p50 | 0.58 | mixolydian |
+| mean | 0.63 | mixolydian |
+| p95 | 0.86 | **lydian** |
+| measured minimum | 0.34 | **dorian** |
+
+So **all four modes are reachable**: lydian in traffic bursts, dorian in quiet periods,
+aeolian at startup and in genuinely quiet stretches, mixolydian in between.
+
+**B9's answer, with the number it asked for: `EPS_REF = 15`.** It is §7.3's own rule
+applied to the engine's own measurement, and it is already the value in the config.
+
+### What the human heard
+
+`Aeolian in C → Mixolydian in C → Mixolydian in F` — a mode change followed by a key
+change, exactly as the two clocks predict. The harmony drifts.
