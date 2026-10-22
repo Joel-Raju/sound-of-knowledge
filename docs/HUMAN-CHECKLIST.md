@@ -77,11 +77,23 @@ This file is the authoritative list. It is populated as the build progresses.
       position track on screen. The FRONT repeats are the **control**: if they sound
       identical, the listener can detect a difference of this kind, so a target that
       sounds the same genuinely is the same._
-- [ ] **A5.** Warm plucks for added text, cool glass bells for removed text, deep
-      swells for very large edits.
+- [x] **A5.** ✅ **Warm plucks for added text, cool glass bells for removed text, deep
+      swells for very large edits.** _(T6.6. Human-verified 2026-10-22.)_
+      _Checked with `__sok.playFlavorDemo()`, which fires one edit of each §10.2
+      flavour through the real path. The human reports it works as described._
+      _The routing behind it is §7.5's cascade: `delta > 0` → pluck, `delta ≤ 0` → bell,
+      `magnitude ≥ 0.60` → sub. Measured: +1 note each, 0 dropped._
 - [ ] **A6.** A gentle pulse underneath is audible and feels _real_, not random.
-- [ ] **A7.** Reverts land as a deep metallic gong with an expanding shockwave ring.
-- [ ] **A8.** New pages appear as a rising little arpeggio and a radial star burst.
+- [x] **A7.** ✅ **Reverts land as a deep metallic gong with an expanding shockwave ring.**
+      _(T6.6. Human-verified 2026-10-22.)_
+      _`__sok.playFlavorDemo()` fires a revert through the real path. The human reports
+      it works as described. Measured: the revert spawns **+1 ring and 0 sparks**, and
+      every other flavour spawns 0 rings — so the ring is specific to the revert, not a
+      side effect of any note arriving._
+- [x] **A8.** ✅ **New pages appear as a rising little arpeggio and a radial star burst.**
+      _(T6.6. Human-verified 2026-10-22.)_
+      _Same demo. Measured: a new page schedules **+4 notes** — the arpeggio — and
+      **+24 sparks**, the burst. The human reports it works as described._
 - [ ] **A9.** Every ~30 s the harmony drifts; mode and colour shift with global
       activity (calm → Aeolian/violet, busy → Lydian/gold).
 - [ ] **A10.** Article titles fade in occasionally and are clickable; a ticker shows

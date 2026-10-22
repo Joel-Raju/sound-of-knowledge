@@ -229,7 +229,7 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 **Phase 6** — **30 of 31 tasks**. 934 unit tests (34 files) · 91 Chromium e2e · build
 clean · `audio:check` E30/E60/E90 all ✓.
-**Human checklist: 16 of 51 closed, 35 open** — `docs/HUMAN-CHECKLIST.md`.
+**Human checklist: 19 of 51 closed, 32 open** — `docs/HUMAN-CHECKLIST.md`.
 
 **Two tasks are unticked and both are deliberate.** `T6.4` is deferred — Firefox and
 WebKit are not installed, and the human chose not to install them. `T6.6` is ticked
