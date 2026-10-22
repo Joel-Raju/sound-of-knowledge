@@ -4498,3 +4498,160 @@ with the demo. The pause is what makes the demo a *test* rather than a spectacle
 `Engine.getVisualCounts()` was added for the same reason as `getPannerStates`: the layer
 handles were private, so the visual half of A7 and A8 could not be checked from outside
 except by looking — which is the human's job, not the machine's.
+
+## The HUD's mode and key were frozen at placeholder values — the human's A9 report
+
+A6 passed ("the pulse underneath — it is audible and feels real, not random").
+
+**A9 failed**: the human watched the live piece for 3–4 minutes and reported the harmony
+as **not changing** — "always showing num edits/s Lydian in —".
+
+### The bug
+
+`metrics.mode` and `metrics.keyName` were **read** by the HUD and by the `stats` event,
+and **assigned nowhere**. The HUD therefore showed the hardcoded initial values —
+`"lydian"` and `"—"` — for the entire session, whatever the engine was doing.
+
+`grep -n "this.metrics.mode" engine/index.ts` returns exactly two hits, both **reads**.
+
+**"Lydian in —"** is not a plausible reading of a working instrument: `rootPc` starts at
+0, which is C, and `keyName(0)` is `"C"`. The `—` is a placeholder for "no key yet",
+and it was never replaced.
+
+### This is the second empty stub in the same file
+
+`refreshIngestMetrics` was an empty stub until T5.3, which made the HUD read **"0
+edits/s"** no matter how much traffic arrived. The mode and key are the same failure:
+a readout that reports a constant looks like data, and is worse than no readout at all
+because it invites trust.
+
+**A HUD that never changes is a lie, and it is indistinguishable from a working one
+until someone watches it for four minutes.** That is what happened here.
+
+### The fix
+
+The harmony handler now assigns both:
+
+```ts
+this.metrics.mode = e.state.mode;
+this.metrics.keyName = keyName(e.state.rootPc);
+```
+
+`keyName` was already exported from `engine/config.ts` and was simply not imported.
+
+### And a second question the report raises
+
+§7.4 makes the mode a **function of energy** — `E < 0.22 → aeolian`, `< 0.45 → dorian`,
+`< 0.70 → mixolydian`, else lydian — so a frozen mode would *also* follow from a frozen
+energy. The live traffic rate is fairly steady, and the energy tracker smooths over
+6 s, so a permanently busy stream can legitimately sit above 0.70 and hold lydian.
+
+Which of the two it was could not be answered from the HUD, because the HUD was the
+broken thing. `Engine.getHarmonyStats()` was added to read the scheduler's own state
+directly, and `scripts/probe-harmony-drift.ts` samples the live page for three minutes,
+printing the HUD's readout and the harmony's own state side by side.
+
+**A measurement of the broken instrument cannot answer the question the broken instrument
+was asked.** The fix is to read the source, not the display.
+
+## A9 — "the harmony is not changing" was three bugs, and the energy was never alive
+
+The human's A9 report: the mode did not change over 3-4 minutes, and the HUD read
+**"always showing num edits/s Lydian in —"**. Three defects, all the same shape: **a value
+is read somewhere, and the thing that should write it is never wired.**
+
+### Bug 1 — the HUD's mode and key were assigned nowhere
+
+`metrics.mode` and `metrics.keyName` were read by the HUD and by the `stats` event, and
+**assigned nowhere**. `grep -n "this.metrics.mode" engine/index.ts` returned exactly two
+hits, both reads. The HUD showed the hardcoded initial values — `"lydian"` and `"—"` — for
+the whole session.
+
+`—` is not a key. `rootPc` starts at 0, which is C, and `keyName(0)` is `"C"`. The
+readout was frozen at a placeholder that happened to look plausible.
+
+**Fix:** the harmony handler now assigns both, and `keyName` (already exported from
+`engine/config.ts`) is imported.
+
+### Bug 2 — the scheduler's `EnergyTracker` was never fed
+
+`Engine.onIngestStats` updated the metrics and **never called `scheduler.onStats(...)`**.
+So `E` was permanently **0**, and with it:
+
+- `E = 0` pins the mode at **aeolian** (the band is `E < 0.22`) — the harmony could never
+  drift, and the palette never shifted. **This is A9.**
+- `targetNotesPerSec` = `lerp(1.2, 6.0, 0)` — the **minimum** note rate, so the live
+  piece had been playing at its floor density regardless of the traffic.
+- §8.8's pad cutoff and air gain follow energy — stuck at their quietest.
+- `botNorm` was 0, so the bot percussion had nothing to scale by.
+
+**The mix was tuned offline at E ≈ 0.9 (§13.3's renders) while the live piece ran at
+E = 0.** Everything the human had been hearing live was the floor of the range.
+
+### Bug 3 — the tracker divided a *cumulative* total by the window
+
+`IngestCore.counters.accepted` is incremented per event and **never reset** — it is a
+lifetime total. The tracker's first version computed `accepted / windowSec`, which grew
+without bound: at 20 s the total was ~300 and the window 0.5 s, so the "rate" read
+**600/s**. `rateToEnergy` clamps to 1, so `E` pinned at **1.000** within seconds.
+
+So fixing bug 2 immediately exposed bug 3, and the symptom changed rather than
+disappearing: from `E ≡ 0` to `E ≡ 1`. **A saturated energy and a dead energy look
+identical from the outside — both are constants** — and the second one only became
+visible because the first was fixed.
+
+**Fix:** the rate is the *difference* between successive cumulative totals, divided by the
+elapsed time. The first message seeds the EMAs with 0, because one cumulative total
+carries no rate.
+
+### What the live page does now
+
+Measured on the real stream, after all three fixes:
+
+| | before | after |
+|---|---|---|
+| `E` | 0.000, constant | **0.097 … 0.664**, moving |
+| mode | aeolian, forever | **aeolian → mixolydian** |
+| HUD readout | `Lydian in —` | `Aeolian in C` → `Mixolydian in C` |
+| key | never shown | C, and it walks every 32 bars |
+| chords | — | iv7, i7add9, bIIImaj7, bVIIadd9, bVImaj7 |
+
+**B9 is now answerable** — and for the first time *questionable*. The modes below lydian
+are reachable because `E` moves at all; before, aeolian was reachable only because `E`
+was 0, and lydian only because it was 1. **The whole range was unreachable.**
+
+### The tests that encoded the bug
+
+`tests/unit/music-core.test.ts`'s `EnergyTracker` helper fed a **constant** `accepted` per
+window, which under the correct semantics means "no new events at all". It passed only
+because the tracker was dividing the lifetime total by the window.
+
+**The tests encoded the bug, and they were the only place the tracker's behaviour was
+ever exercised** — because in production it was never fed. A unit test on a component
+that the product never calls is a test of the test.
+
+The helper now accumulates. Plus a new `tests/unit/energy-tracker.test.ts` (5 tests) that
+asserts the delta semantics directly, and `tests/e2e/hud-harmony.spec.ts` (4 tests) that
+asserts the HUD's readout is live, matches the source of truth, and that the energy is
+neither zero nor saturated.
+
+Both new suites were proven to fail before being trusted: reverting the tracker fix fails
+3 of the 5 unit tests (with a "rate" of 1907/s), and reverting the metrics assignment
+fails the key test on the placeholder `—`.
+
+### `?rateMul=` is now in the URL
+
+The synthetic source at its default rate is a **stress test** — 14 events/s base, up to
+22/s, which saturates `E` at 1.000 legitimately. §7.3's energy curve is a function of
+the traffic rate, and the only way to exercise the middle of the curve from a URL is to
+scale the rate. `?rateMul=0.2` gives `E` 0.054 … 0.547.
+
+This parameter was already used by the offline harness and the soak; it was just never
+wired into the live path, where it is actually useful.
+
+### And the live piece now sounds different
+
+With `E` alive, the note density follows the traffic instead of sitting at the floor.
+**The live piece is now busier than it has ever been**, and the human should say whether
+that is right. The offline mix measurements are unaffected — they choose their own
+`rateMul` — but the *live* character has changed.

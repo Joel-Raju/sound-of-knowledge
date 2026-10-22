@@ -296,8 +296,18 @@ describe("router — priority order (§7.5)", () => {
 describe("EnergyTracker", () => {
   function feed(t: EnergyTracker, eps: number, botRatio = 0.2, seconds = 60): void {
     // Feed 500 ms windows until the EMA has settled.
+    //
+    // The counters are **cumulative** — `IngestCore.counters.accepted` is incremented
+    // per event and never reset — so the helper accumulates. The original version fed
+    // a *constant* `accepted`, which under the correct semantics means "no new events
+    // at all", and it passed only because the tracker was dividing the lifetime total
+    // by the window. **The tests encoded the bug.**
+    let accepted = 0;
+    let bot = 0;
     for (let i = 0; i < seconds * 2; i++) {
-      t.update({ accepted: eps * 0.5, botAccepted: eps * botRatio * 0.5, windowMs: 500 });
+      accepted += eps * 0.5;
+      bot += eps * botRatio * 0.5;
+      t.update({ accepted, botAccepted: bot, windowMs: 500 });
     }
   }
 

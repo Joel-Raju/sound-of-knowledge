@@ -33,7 +33,7 @@ import { Harmony, type HarmonyEvent } from "./music/harmony";
 import { IngestClient } from "./ingest/ingest-client";
 import { defaultIngestConfig } from "./ingest/ingest-core";
 import { validateSettings, saveSettings } from "./settings";
-import { OUTPUT_LATENCY_FALLBACK } from "./config";
+import { OUTPUT_LATENCY_FALLBACK, keyName } from "./config";
 import { mulberry32 } from "./util/random";
 import { a4Basis, planA4, a4Target, A4_DIRECTIONS, type A4Direction, type A4Step } from "./debug/a4-calibration";
 
@@ -153,6 +153,8 @@ export interface EngineEvents {
 export interface DataSource {
   mode?: "live" | "replay" | "synthetic";
   seed?: number;
+  /** `?rateMul=` — scales the synthetic source's arrival rate. */
+  rateMul?: number;
 }
 
 export interface EngineOptions {
@@ -595,6 +597,21 @@ export class Engine {
         harmony: (e) => {
           audio.onHarmony(e);
           if (e.kind === "mode" || e.kind === "key") this.applyHarmony(e);
+          // **The HUD's mode and key were never updated.**
+          //
+          // `metrics.mode` and `metrics.keyName` were read by the HUD and by the `stats`
+          // event, and **assigned nowhere**. The HUD therefore showed the hardcoded
+          // initial values — `"lydian"` and `"—"` — for the whole session, whatever the
+          // engine was actually doing.
+          //
+          // The human reported it as "always showing ... Lydian in —". A key of `—` is
+          // not a key: `rootPc` starts at 0, which is C, and `keyName(0)` is `"C"`. The
+          // readout was frozen at a placeholder.
+          //
+          // This is the same shape as `refreshIngestMetrics` being an empty stub, which
+          // made the HUD read "0 edits/s" no matter how much traffic arrived.
+          this.metrics.mode = e.state.mode;
+          this.metrics.keyName = keyName(e.state.rootPc);
         },
       });
       this.scheduler = scheduler;
@@ -608,6 +625,7 @@ export class Engine {
           // once opened a test link.
           mode: this.opts.data?.mode ?? "live",
           seed: this.opts.data?.seed ?? 1,
+          rateMul: this.opts.data?.rateMul ?? 1,
           source: this.settings.source,
           langs: this.settings.langs,
         }),
@@ -685,6 +703,26 @@ export class Engine {
     const seconds = Math.max(0.001, s.windowMs / 1000);
     this.metrics.acceptedTotal = s.accepted;
     this.metrics.droppedTotal = s.dropped;
+
+    // **Feed the scheduler's EnergyTracker.** It was not fed at all, so `E` was
+    // permanently 0 — and with it, the whole §7.3/§7.4 chain:
+    //
+    //   - `E = 0` pins the mode at **aeolian** (the band is `E < 0.22`), so the
+    //     harmony never drifts and the palette never shifts. **This is A9.**
+    //   - `targetNotesPerSec` = `lerp(1.2, 6.0, 0)` = the *minimum* note rate, so the
+    //     piece was playing at its floor density regardless of the traffic.
+    //   - §8.8's pad cutoff and air gain follow energy, so they were stuck at their
+    //     quietest setting.
+    //   - `botNorm` was 0, so the bot percussion never had anything to scale by.
+    //
+    // The third empty stub in this file, after `refreshIngestMetrics` and the frozen
+    // HUD mode — and the same shape each time: a value is read, and the thing that
+    // should write it is never wired.
+    this.scheduler?.onStats({
+      accepted: s.accepted,
+      botAccepted: s.botAccepted,
+      windowMs: s.windowMs,
+    });
 
     // All three readouts are over the **delta** since the last window, not the
     // lifetime totals. `botAccepted / accepted` as cumulative counts is an average
@@ -1072,6 +1110,31 @@ export class Engine {
   /** DEBUG ONLY — the labels whose calibration callbacks have fired, in order. */
   getA4Fired(): readonly string[] {
     return this.a4Fired;
+  }
+
+  /**
+   * DEBUG ONLY — the scheduler's own view of the harmony, straight from the source.
+   *
+   * The HUD's mode and key were frozen at placeholder values, so the only way to know
+   * whether the *harmony* was drifting was to read the harmony itself rather than the
+   * readout. `getStats()` is §11.9's existing accessor; this just exposes it.
+   */
+  getHarmonyStats(): {
+    mode: string;
+    keyName: string;
+    chordName: string;
+    energy: number;
+    bar: number;
+  } | null {
+    const s = this.scheduler?.getStats();
+    if (!s) return null;
+    return {
+      mode: s.mode,
+      keyName: s.keyName,
+      chordName: s.chordName,
+      energy: s.energy,
+      bar: s.bar,
+    };
   }
 
   /**

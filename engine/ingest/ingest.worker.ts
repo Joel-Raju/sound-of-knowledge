@@ -72,7 +72,7 @@ async function startReplay(cfg: IngestConfig, isFallback = false): Promise<void>
   } catch {
     // No recording available — fall back to the deterministic synthetic stream
     // so the experience still works offline (§3.2: no backend required).
-    core?.setSource(new SyntheticSource({ seed: cfg.seed }));
+    core?.setSource(new SyntheticSource({ seed: cfg.seed, rateMul: cfg.rateMul }));
     setStatus("replay", "No recording available — using synthetic stream");
   }
 }
@@ -81,7 +81,7 @@ async function startReplay(cfg: IngestConfig, isFallback = false): Promise<void>
 function startSynthetic(cfg: IngestConfig): void {
   stopSse();
   currentMode = "synthetic";
-  core?.setSource(new SyntheticSource({ seed: cfg.seed }));
+  core?.setSource(new SyntheticSource({ seed: cfg.seed, rateMul: cfg.rateMul }));
   setStatus("live", "Synthetic stream");
 }
 

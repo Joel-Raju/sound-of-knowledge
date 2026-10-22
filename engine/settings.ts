@@ -56,6 +56,8 @@ export interface DataMode {
   mode: "live" | "replay" | "synthetic";
   seed: number;
   debug: boolean;
+  /** `?rateMul=` — scales the synthetic source's arrival rate. Default 1. */
+  rateMul: number;
 }
 
 /**
@@ -185,9 +187,18 @@ export function readUrlOverrides(
   const mode: DataMode["mode"] =
     sourceParam === "replay" || sourceParam === "synthetic" ? sourceParam : "live";
 
+  // `?rateMul=` scales the synthetic source's arrival rate. §7.3's energy curve is a
+  // function of the traffic rate, and the synthetic source at its default rate is a
+  // *stress test* — it saturates `E` at 1.000, which pins the mode at lydian. Scaling
+  // it is the only way to exercise the middle of the curve from a URL, and it is what
+  // the soak harness already does.
+  const rateMulRaw = p.get("rateMul");
+  const rateMulNum = rateMulRaw === null ? Number.NaN : Number(rateMulRaw);
+  const rateMul = Number.isFinite(rateMulNum) && rateMulNum > 0 ? rateMulNum : 1;
+
   return {
     settings,
-    data: { mode, seed, debug: p.get("debug") === "1" },
+    data: { mode, seed, debug: p.get("debug") === "1", rateMul },
   };
 }
 

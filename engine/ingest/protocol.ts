@@ -14,6 +14,8 @@ export interface IngestConfig {
   streamUrl: string;
   replayUrl: string;
   seed: number;
+  /** `?rateMul=` — scales the synthetic source's arrival rate. Default 1. */
+  rateMul: number;
   source: "wikipedias" | "no-wikidata" | "all";
   langs: string[];
   namespaces: "main" | "all";
@@ -26,6 +28,7 @@ export const DEFAULT_INGEST_CONFIG: IngestConfig = {
   streamUrl: "https://stream.wikimedia.org/v2/stream/recentchange",
   replayUrl: "/replay/sample.ndjson",
   seed: 1,
+  rateMul: 1,
   source: "wikipedias",
   langs: [],
   namespaces: "main",

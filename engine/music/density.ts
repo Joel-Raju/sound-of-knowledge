@@ -23,18 +23,56 @@ export class EnergyTracker {
   private readonly epsEma: Ema;
   private readonly botEma: Ema;
   private dtSec = 0;
+  /** Whether a previous cumulative total has been seen — see `update`. */
+  private havePrevious = false;
+  private lastAccepted = 0;
+  private lastBotAccepted = 0;
 
   constructor() {
     this.epsEma = new Ema(ENERGY_TAU_SEC);
     this.botEma = new Ema(ENERGY_TAU_SEC);
   }
 
-  /** Feed one worker stats message (spec §6.5, every 500 ms). */
+  /**
+   * Feed one worker stats message (spec §6.5, every 500 ms).
+   *
+   * **The counters are CUMULATIVE.** `IngestCore.counters.accepted` is incremented per
+   * event and never reset — it is a lifetime total, not a per-window count. So the
+   * instantaneous rate is the *difference* between this message and the last one,
+   * divided by the elapsed time.
+   *
+   * The first version divided the cumulative total by the window, which produced a
+   * number that grew without bound: at 20 s the total was ~300 and the window 0.5 s,
+   * so the "rate" was 600/s. `rateToEnergy` clamps to 1, so `E` was pinned at **1.000**
+   * within seconds — which pinned the mode at lydian, the note density at its maximum,
+   * and the pad's cutoff at its brightest.
+   *
+   * The bug was invisible until the tracker was *fed at all* (it never was — see
+   * `Engine.onIngestStats`), and then it showed up as a saturated energy rather than as
+   * an obviously wrong number.
+   */
   update(stats: { accepted: number; botAccepted: number; windowMs: number }): void {
     const windowSec = Math.max(stats.windowMs, 1) / 1000;
     this.dtSec = windowSec;
-    this.epsEma.push(stats.accepted / windowSec, windowSec);
-    this.botEma.push(stats.botAccepted / windowSec, windowSec);
+
+    // First message: there is no previous total, so the rate is unknown. Seed the
+    // EMAs with zero rather than dividing a lifetime total by a window.
+    if (!this.havePrevious) {
+      this.havePrevious = true;
+      this.lastAccepted = stats.accepted;
+      this.lastBotAccepted = stats.botAccepted;
+      this.epsEma.push(0, windowSec);
+      this.botEma.push(0, windowSec);
+      return;
+    }
+
+    const dAccepted = Math.max(0, stats.accepted - this.lastAccepted);
+    const dBot = Math.max(0, stats.botAccepted - this.lastBotAccepted);
+    this.lastAccepted = stats.accepted;
+    this.lastBotAccepted = stats.botAccepted;
+
+    this.epsEma.push(dAccepted / windowSec, windowSec);
+    this.botEma.push(dBot / windowSec, windowSec);
   }
 
   /** Accepted events per second (EMA, τ = 6 s). */

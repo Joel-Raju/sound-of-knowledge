@@ -50,6 +50,7 @@ export function Experience({
   );
   const dataMode = data.mode;
   const seed = data.seed;
+  const rateMul = data.rateMul;
 
   const [phase, setPhase] = useState<"preparing" | "ready" | "failed">("preparing");
   const [fatal, setFatal] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function Experience({
           // down, because reading `window.location` during render is a hydration
           // mismatch (React #418, seen in T5.1).
           settings: urlSettings,
-          data: { mode: dataMode, seed: seed },
+          data: { mode: dataMode, seed: seed, rateMul: rateMul },
           search: search,
           debug: false,
         });
@@ -162,7 +163,7 @@ export function Experience({
     // `urlSettings` / `dataMode` / `seed` are derived from `search` by `useMemo`, so
     // they are stable for a given URL and re-running on them only rebuilds the engine
     // when the query string actually changed — which is the point of listing them.
-  }, [debug, urlSettings, dataMode, seed, search]);
+  }, [debug, urlSettings, dataMode, seed, rateMul, search]);
 
   /**
    * §11.2 — `start()` runs **inside the click handler**, because that is the only
