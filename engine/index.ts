@@ -16,7 +16,7 @@
  */
 import * as THREE from "three";
 
-import type { ModeId, NoteEvent, NormalizedEdit, Settings, Tier } from "./types";
+import type { ModeId, NoteEvent, NormalizedEdit, Settings, Tier, Vec3 } from "./types";
 
 import { VisualEngine } from "./visual/renderer";
 import { Orb } from "./visual/orb";
@@ -35,7 +35,18 @@ import { defaultIngestConfig } from "./ingest/ingest-core";
 import { validateSettings, saveSettings } from "./settings";
 import { OUTPUT_LATENCY_FALLBACK } from "./config";
 import { mulberry32 } from "./util/random";
-import { a4Basis, planA4, type A4Step } from "./debug/a4-calibration";
+import { a4Basis, planA4, a4Target, A4_DIRECTIONS, type A4Direction, type A4Step } from "./debug/a4-calibration";
+
+/**
+ * How long to wait after a calibration note is scheduled, before the next step.
+ *
+ * A bell rings for `MELODIC_DUR_TAU` = 3.5 s, so a shorter gap means the previous
+ * note is still ringing while the next one is measured — and the previous step's pan
+ * contaminates the next step's reading. Measured: with a 3.5 s gap the RIGHT step
+ * read +10.4 dB on the right in one run and +0.5 dB in the next, because the LEFT
+ * step's window was full of the RIGHT note's tail.
+ */
+const A4_SETTLE_MS = 4_800;
 
 /** §5.5 — `stats` is emitted at 4 Hz; React must not re-render faster (§1, line 61). */
 const STATS_INTERVAL_SEC = 0.25;
@@ -75,6 +86,32 @@ export interface EngineEvents {
   status: {
     stream: "connecting" | "live" | "reconnecting" | "replay" | "error";
     detail?: string;
+  };
+  /**
+   * DEBUG ONLY — the A4 calibration's current step.
+   *
+   * The 3D label cannot be the reference: §9.1 puts the camera at radius 5.5 inside the
+   * 7-13 edit shell, so five of the six calibration directions project **outside the
+   * frustum** (measured: RIGHT at 118 % of screen width, LEFT at -16 %, BEHIND behind
+   * the camera, ABOVE at -88 %, BELOW at 198 %). Only FRONT is on screen.
+   *
+   * The HUD ticker is DOM and always visible, but it is throttled at 2.5 s and
+   * *replaces* rather than queues, so it showed 3 of 6 steps.
+   *
+   * So the calibration needs its own always-visible readout, and it needs to be driven
+   * by the step rather than by the note — the step is what the human is judging.
+   */
+  a4Step: {
+    label: string;
+    index: number;
+    total: number;
+    errorDeg: number;
+    /** `direction` — the note's direction is what is being judged.
+     *  `timbre` — the notes are matched and only the *character* differs. */
+    mode?: "direction" | "timbre";
+    /** For `timbre`: the whole sequence, so the readout can show a position track and
+     *  the listener can see the structure they are judging against. */
+    seq?: string[];
   };
   stats: {
     eps: number;
@@ -290,6 +327,19 @@ export class Engine {
       onContextRestored: () => {
         window.clearTimeout(this.glRestoreTimer);
         this.emit("gl", { restored: true });
+      },
+      // §8.9 — "the listener is the camera". The `AudioListener` otherwise sits at the
+      // browser default `(0, 0, 0)` facing `(0, 0, -1)` for the whole session, while the
+      // camera orbits at radius 5.5. The panner positions were always correct in world
+      // space, but the frame the listener heard them in never moved — so a note to the
+      // camera's left was not heard on the left.
+      //
+      // The human's ears found this: "left on both left and right airpods, same with
+      // right". No automated test covered it, because the *offline* harness does call
+      // `setListener` — so the one measurement of this feature was made through the
+      // path that worked.
+      onPose: (pose) => {
+        this.audio?.setListener(pose.position, pose.forward);
       },
     });
     this.visuals = engine;
@@ -777,6 +827,10 @@ export class Engine {
     // from this pose, so the pose has to still be this pose when note six fires.
     rig.setFreezePose(true);
     this.ingestPaused = true;
+    // Silence the centred pad/drone bed. It is continuous and in the middle, so it
+    // drowns out any measurement of a single note's direction — the same reason the
+    // offline harness has a `notes-only` scenario.
+    this.audio?.setContinuousMuted(true);
     // Anything queued before the calibration began is not part of it. Leaving it there
     // put the calibration edits behind the backlog, where `pickBest`'s lookahead could
     // never reach them — measured as roughly half the notes silently lost.
@@ -788,10 +842,46 @@ export class Engine {
     const basis = a4Basis(rig.forward);
     const steps = planA4(basis);
 
-    for (const step of steps) {
-      window.setTimeout(() => this.fireA4Step(step), 600 + steps.indexOf(step) * gapMs);
-    }
+    // **The steps are chained, not parallel.**
+    //
+    // The first version fired all six on independent timers. That has two failures:
+    //
+    //  1. A **race**. Step N's re-offer loop drains the scheduler queue before each
+    //     offer — and if step N+1's edit had already been queued, that drain threw it
+    //     away. The result was a step whose note sometimes never sounded, which made
+    //     the measurement of that direction read as "centred".
+    //  2. **Tail overlap.** A bell rings for `MELODIC_DUR_TAU` = 3.5 s, so with a
+    //     3.5 s gap the previous note was still ringing while the next step was being
+    //     measured, and the previous step's pan contaminated the next step's reading.
+    //
+    // Chaining fixes both: step N+1 does not begin until step N's note has actually
+    // been scheduled, and the gap is measured from that point.
+    this.a4Chain(steps, gapMs, 0, this.audio?.context.currentTime ?? 0);
     return steps;
+  }
+
+  /** Run the calibration steps one after another. See `runA4Calibration`. */
+  private a4Chain(
+    steps: A4Step[],
+    gapMs: number,
+    index: number,
+    t0: number,
+  ): void {
+    if (index >= steps.length) return;
+    const step = steps[index]!;
+    const dueAt = t0 + 0.6 + index * (gapMs / 1000);
+    const delay = Math.max(0, (dueAt - (this.audio?.context.currentTime ?? 0)) * 1000);
+    window.setTimeout(() => {
+      this.fireA4Step(step, () => {
+        // The note is scheduled. Wait for it to **decay** before the next step, or the
+        // previous note's tail is still ringing while the next one is measured — and a
+        // bell rings for `MELODIC_DUR_TAU` = 3.5 s.
+        const settleMs = Math.max(gapMs, A4_SETTLE_MS);
+        window.setTimeout(() => {
+          this.a4Chain(steps, gapMs, index + 1, t0);
+        }, settleMs);
+      });
+    }, delay);
   }
 
   /**
@@ -814,9 +904,16 @@ export class Engine {
    * `drain()` is safe here precisely because the stream is paused, so the only edits in
    * the queue are calibration edits.
    */
-  private fireA4Step(step: A4Step): void {
+  private fireA4Step(step: A4Step, onScheduled?: () => void): void {
     this.a4Fired.push(step.label);
     this.a4Expected += 1;
+    this.emit("a4Step", {
+      label: step.label,
+      index: this.a4Fired.length,
+      total: A4_DIRECTIONS.length,
+      errorDeg: step.errorDeg,
+      mode: "direction",
+    });
 
     const edit: NormalizedEdit = {
       id: step.id,
@@ -842,7 +939,15 @@ export class Engine {
       // Offer only if this step's note has not been scheduled yet — and REPLACE any
       // copy still sitting in the queue rather than adding to it.
       const scheduled = (this.getMetrics().notesScheduled ?? 0) - this.a4StartNotes;
-      if (scheduled >= this.a4Expected || tries >= 40) return;
+      if (scheduled >= this.a4Expected) {
+        onScheduled?.();
+        return;
+      }
+      if (tries >= 40) {
+        // Give up, but let the chain continue so the remaining steps still run.
+        onScheduled?.();
+        return;
+      }
       this.scheduler?.drain();
       this.scheduler?.onBatch([edit]);
       tries++;
@@ -855,12 +960,126 @@ export class Engine {
   endA4Calibration(): void {
     this.visuals?.rig.setFreezePose(false);
     this.visuals?.rig.setAutoOrbit(true);
+    this.audio?.setContinuousMuted(false);
     this.ingestPaused = false;
   }
 
   /** DEBUG ONLY — the labels whose calibration callbacks have fired, in order. */
   getA4Fired(): readonly string[] {
     return this.a4Fired;
+  }
+
+  /**
+   * DEBUG ONLY — play a **fixed** note at a named direction, for a matched A/B.
+   *
+   * **Why this exists.** The human can hear left/right separation but reports "not much
+   * with above and below". The measured reason: elevation produces **0 dB** of
+   * left/right level difference (only azimuth does), so under HRTF the difference is
+   * *spectral* — a change of colour, not of place.
+   *
+   * To test a spectral difference you need a **matched pair**: the same note, the same
+   * pitch, the same waveform, with only the panner's position changed. Two notes taken
+   * from the live stream differ in pitch, timbre and loudness, so any difference a
+   * listener hears could be any of those.
+   *
+   * So this bypasses the mapper and the sampler entirely and triggers the note
+   * directly, with a fixed voice, pitch and velocity.
+   */
+  playCalibrationNote(dir: Vec3, when: number, label?: string): boolean {
+    const audio = this.audio;
+    if (!audio) return false;
+    const MID = 69; // 440 Hz
+    const FREQ = 440;
+    const edit: NormalizedEdit = {
+      id: -1,
+      ts: Date.now(),
+      wiki: "calibration",
+      host: "calibration.invalid",
+      lang: "en",
+      project: "wikipedia",
+      ns: 0,
+      title: label ? `A4 ${label}` : "A4 calibration",
+      actor: "registered",
+      kind: "edit",
+      minor: false,
+      delta: 800,
+      absDelta: 800,
+      magnitude: 0.5,
+      importance: 0.9,
+      revNew: 1,
+    };
+    return audio.trigger({
+      when,
+      voice: "bell",
+      midi: MID,
+      freq: FREQ,
+      vel: 1,
+      dir: { x: dir.x, y: dir.y, z: dir.z },
+      radius: 10,
+      edit,
+      flavor: "remove",
+      visual: false,
+    });
+  }
+
+  /** Announce a calibration step on screen. */
+  private announceA4Step(
+    label: string,
+    total: number,
+    mode: "direction" | "timbre",
+    seq?: string[],
+  ): void {
+    this.a4Fired.push(label);
+    this.emit("a4Step", {
+      label,
+      index: this.a4Fired.length,
+      total,
+      errorDeg: 0,
+      mode,
+      seq,
+    });
+  }
+
+  /**
+   * DEBUG ONLY — the matched A/B sequence for elevation: FRONT, ABOVE, FRONT, BELOW,
+   * FRONT, with the reference (FRONT) bracketing each target so a listener has a
+   * reference immediately before and after.
+   */
+  playA4Timbres(gapSec = 1.8): void {
+    const rig = this.visuals?.rig;
+    if (!rig) return;
+    rig.setAutoOrbit(false);
+    rig.setFreezePose(true);
+    this.audio?.setContinuousMuted(true);
+
+    const basis = a4Basis(rig.forward);
+    // **FRONT, ABOVE, FRONT, BELOW, FRONT, ABOVE, FRONT.**
+    //
+    // The FRONT repeats are the **control**: they are the same note at the same place,
+    // so they must sound identical to each other. Without that, "ABOVE sounded the
+    // same" would be uninterpretable — it might mean the cue is absent, or that the
+    // listener simply cannot hear this kind of difference at all. Hearing the FRONTs
+    // as identical is the evidence that the test is sensitive enough to detect a
+    // difference if one were there.
+    //
+    // ABOVE is bracketed by FRONTs (notes 1/3 and 5/7) and repeated at 2 and 6, so a
+    // judgement rests on two separate comparisons rather than one.
+    const seq: A4Direction[] = ["FRONT", "ABOVE", "FRONT", "BELOW", "FRONT", "ABOVE", "FRONT"];
+    const t0 = this.audio!.context.currentTime + 0.8;
+    this.a4Fired.length = 0;
+    seq.forEach((label, i) => {
+      const target = a4Target(basis, label);
+      const at = t0 + i * gapSec;
+      this.playCalibrationNote(target, at, label);
+      // Announce when the note **sounds**, not when it is scheduled. Announcing at
+      // schedule time made all five labels appear at once, so the readout showed only
+      // the last one and the measurement could not attribute anything to a step.
+      const delayMs = Math.max(0, (at - this.audio!.context.currentTime) * 1000);
+      window.setTimeout(
+        () => this.announceA4Step(label, seq.length, "timbre", seq),
+        delayMs,
+      );
+    });
   }
 
   /** For T5.2's HUD and the debug handle. */

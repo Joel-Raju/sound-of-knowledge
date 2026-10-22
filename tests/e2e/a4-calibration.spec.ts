@@ -86,7 +86,9 @@ test.describe("A4 calibration rig", () => {
     ]);
 
     // Six callbacks is not six notes — this is the assertion that would have caught it.
-    await page.waitForTimeout(4_000);
+    // Wait for the schedule to settle, not for a fixed period: the steps are chained,
+    // so the last note lands long after the first.
+    await page.waitForTimeout(3_000);
     const delta = (await metrics(page)).notesScheduled - before;
 
     // And it must not be MANY more than six. The re-offer loop used to leave a copy of
@@ -125,11 +127,69 @@ test.describe("A4 calibration rig", () => {
 
     const before = (await metrics(page)).notesScheduled;
     await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 900 }));
-    await page.waitForTimeout(12_000);
+
+    // Wait for all SIX to have been scheduled, not for a fixed period. The steps are
+    // **chained** — each waits for the previous note to be scheduled and then for it
+    // to decay (a bell rings 3.5 s) — so the whole sequence takes ~35 s, and a fixed
+    // 12 s window caught only three steps.
+    const fired = await page.evaluate(async () => {
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const f = (window.__sok!.getA4Fired?.() ?? []) as string[];
+        if (f.length >= 6) return f;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      return (window.__sok!.getA4Fired?.() ?? []) as string[];
+    });
+    expect(fired, "all six steps must be reached").toHaveLength(6);
+
+    // Let the last note be scheduled.
+    await page.waitForTimeout(2_000);
     const delta = (await metrics(page)).notesScheduled - before;
 
     expect(delta, "six steps, and the retries must not multiply them").toBeLessThanOrEqual(8);
     expect(delta, "six steps must produce at least six notes").toBeGreaterThanOrEqual(5);
+
+    await page.evaluate(() => window.__sok!.endA4Calibration?.());
+  });
+
+  test("the on-screen readout names every step — the reference the human judges against", async ({ page }) => {
+    // The 3D label CANNOT be the reference. §9.1 puts the camera at radius 5.5 inside
+    // the 7-13 edit shell, so five of the six calibration directions project OUTSIDE the
+    // frustum: RIGHT at 118% of screen width, LEFT at -16%, BEHIND behind the camera,
+    // ABOVE at -88%, BELOW at 198%. Only FRONT is ever visible in the scene — which is
+    // exactly what the human reported seeing.
+    //
+    // The HUD ticker is DOM and always visible, but it is throttled at 2.5 s and
+    // REPLACES rather than queues, so it showed 3 of 6 steps.
+    //
+    // So the calibration needs its own always-visible readout, and it must show every
+    // step. This is the assertion that makes the human's task possible at all.
+    await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 700 }));
+
+    // Read the data attribute, NOT the rendered text. The first version parsed the
+    // text content and broke on the concatenation of the styled spans
+    // ("6BELOWlisten:"), which cost a debugging cycle and would have been flaky at
+    // every label boundary.
+    const seen = await page.evaluate(async () => {
+      const deadline = Date.now() + 90_000;
+      while (Date.now() < deadline) {
+        const el = document.querySelector('[data-testid="a4-readout"]');
+        const attr = el?.getAttribute("data-a4-seen");
+        if (attr) {
+          const parts = attr.split(",").filter(Boolean);
+          if (parts.length >= 6) return parts;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const el = document.querySelector('[data-testid="a4-readout"]');
+      return (el?.getAttribute("data-a4-seen") ?? "").split(",").filter(Boolean);
+    });
+
+    expect(
+      seen.sort(),
+      "every calibration direction must be named on screen",
+    ).toEqual(["ABOVE", "BEHIND", "BELOW", "FRONT", "LEFT", "RIGHT"]);
 
     await page.evaluate(() => window.__sok!.endA4Calibration?.());
   });

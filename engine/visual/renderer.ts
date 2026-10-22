@@ -68,6 +68,18 @@ export interface RendererOptions {
   onContextLost?: () => void;
   /** §11.8 — fired on `webglcontextrestored`, once GL resources are back */
   onContextRestored?: () => void;
+  /**
+   * §8.9 — the listener is the camera. Fired every frame with the rig's pose, so the
+   * `AudioListener` can be moved to match.
+   *
+   * **This was missing from the live path entirely.** `AudioListener` defaults to
+   * `(0, 0, 0)` facing `(0, 0, -1)` and never moved, while the camera orbits at radius
+   * 5.5. The panner positions were correct in world space, but the frame the listener
+   * heard them in was a fixed one, so a note camera-left of the listener was not heard
+   * on the left. The human's ears found it: "left on both left and right airpods, same
+   * with right".
+   */
+  onPose?: (pose: { position: Vec3; forward: Vec3 }) => void;
 }
 
 /**
@@ -266,9 +278,14 @@ export class VisualEngine {
 
   private readonly onLostCb: (() => void) | undefined;
   private readonly onRestoredCb: (() => void) | undefined;
+  /** §8.9 — the listener is the camera. See `RendererOptions.onPose`. */
+  private readonly onPose:
+    | ((pose: { position: Vec3; forward: Vec3 }) => void)
+    | undefined;
 
   constructor(opts: RendererOptions = {}) {
     this.onLostCb = opts.onContextLost;
+    this.onPose = opts.onPose;
     this.onRestoredCb = opts.onContextRestored;
     this.tier = opts.tier ?? detectTier(opts.env ?? readEnvironment());
 
@@ -482,6 +499,10 @@ export class VisualEngine {
 
     this.rig.update(dtSec, this.energy);
     this.applyRig();
+    // §8.9 — the listener is the camera, so the camera's pose has to reach the audio
+    // engine every frame. Without this the `AudioListener` sits at the browser default
+    // and the whole spatial model is measured against a frame that never moves.
+    this.onPose?.(this.readListenerPose());
 
     for (const layer of this.layers) layer.update?.(dtSec, this.time, this.camera);
 

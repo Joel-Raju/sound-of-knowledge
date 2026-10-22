@@ -95,18 +95,49 @@ describe("A4 calibration — the plan", () => {
     }
   });
 
-  it("the recorded dir is the one placeEdit returns for that exact triple", () => {
-    // Guards against the plan reporting a direction it did not actually compute.
+  it("the recorded dir is the one the RUNTIME lookup returns for that exact edit", () => {
+    // **This is the assertion whose absence let the whole feature fail.** The planner
+    // searched with `placeEdit(wiki, wiki, id)` — the wiki standing in for the title —
+    // but the runtime calls `placeEdit(edit.wiki, edit.title, edit.id)` with the real
+    // title `A4 ${label}`. `placeEdit` hashes `${title}:${id}` for its jitter, so the two
+    // hashes differ, the jitter differs by up to ~34 degrees, and the note played
+    // somewhere other than where the label claimed.
+    //
+    // The symptom: a note labelled RIGHT was heard on the LEFT, and the piece's one
+    // spatial feature looked broken in a way no number had detected.
     const m = new SpatialMapper();
     const basis = basisFor({ x: 0, y: 0, z: -1 });
     const scratch = { x: 0, y: 0, z: 0 };
     for (const step of planA4(basis)) {
+      // EXACTLY what the scheduler does: engine/music/scheduler.ts calls
+      // `placeEdit(edit.wiki, edit.title, edit.id, ...)`.
       m.placeEdit(step.wiki, step.title, step.id, scratch);
-      // `planA4` hashes `wiki` as the title too; check against the triple it recorded.
-      m.placeEdit(step.wiki, step.wiki, step.id, scratch);
       expect(scratch.x).toBeCloseTo(step.dir.x, 12);
       expect(scratch.y).toBeCloseTo(step.dir.y, 12);
       expect(scratch.z).toBeCloseTo(step.dir.z, 12);
+    }
+  });
+
+  it("the plan's title is the title the runtime uses — the hash depends on it", () => {
+    // A direct statement of the load-bearing fact, so the coupling cannot be broken by
+    // someone tidying the planner later.
+    const m = new SpatialMapper();
+    const basis = basisFor({ x: 0, y: 0, z: -1 });
+    const scratch = { x: 0, y: 0, z: 0 };
+    for (const step of planA4(basis)) {
+      expect(step.title).toBe(`A4 ${step.label}`);
+
+      // Using the wiki as the title — the earlier planner's mistake — must produce a
+      // DIFFERENT direction, or this test would be vacuous.
+      m.placeEdit(step.wiki, step.wiki, step.id, scratch);
+      const differs =
+        Math.abs(scratch.x - step.dir.x) > 1e-9 ||
+        Math.abs(scratch.y - step.dir.y) > 1e-9 ||
+        Math.abs(scratch.z - step.dir.z) > 1e-9;
+      expect(
+        differs,
+        "if this no longer differs, the title stopped mattering and the check above is vacuous",
+      ).toBe(true);
     }
   });
 

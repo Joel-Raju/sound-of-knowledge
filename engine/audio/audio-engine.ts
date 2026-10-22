@@ -223,9 +223,31 @@ export class AudioEngine {
         p.connect(this.voiceBus);
         this.panners.push(p);
       }
-      this.node.connect(this.panners[0]!);
+      this.node.connect(this.panners[0]!, 0);
       // The worklet has one output per voice; connect each to its panner.
-      for (let i = 1; i < params.voices; i++) this.node.connect(this.panners[i]!);
+      //
+      // **The output index is load-bearing.** `connect(destination)` with no `output`
+      // argument connects **every** output of the source to the destination — so all
+      // sixteen panners were fed by output 0, and voices 1-15 fed nothing at all.
+      //
+      // The symptom was "left on both left and right airpods, same with right": every
+      // note was panned by panner 0's position, and the panner's own position was only
+      // ever set for slot 0. It also explains why the *offline* §13.4 test passed — the
+      // `pan-right` scenario is a **single bell**, which lands in slot 0, whose output
+      // is the one that was connected. The one case that was tested was the one case
+      // that worked.
+      //
+      // Also: `params.voices` panners are created but the worklet may have fewer
+      // outputs than that on some tiers, so the loop is bounded by the real output
+      // count. A panner with no source is silent, and a voice with no panner is
+      // inaudible — the second is the worse failure, because it is invisible.
+      const outputs = Math.min(params.voices, this.node.numberOfOutputs);
+      for (let i = 1; i < outputs; i++) this.node.connect(this.panners[i]!, i);
+      if (outputs < params.voices) {
+        // More panners than outputs. They are silent but harmless; the voices that
+        // matter are the ones with a source.
+        this.panners.length = outputs;
+      }
     } else {
       // No PannerNode (not expected, but keeps the graph functional).
       this.node.connect(this.voiceBus);
@@ -266,6 +288,57 @@ export class AudioEngine {
 
   getPadLayer(): PadLayer | null {
     return this.pad;
+  }
+
+  /**
+   * DEBUG ONLY (A4 calibration) — silence the continuous layers for the duration.
+   *
+   * **Why.** The pad and drone are **centred and continuous**, so they dominate any
+   * whole-mix level measurement: the calibration note's pan is a few dB against a bed
+   * that is always in the middle. Measuring the live page that way reported every
+   * direction as "centred" and nearly every direction as "louder on LEFT" — a result
+   * that is entirely an artefact of the bed.
+   *
+   * This is the same mistake the offline harness avoids with its `notes-only`
+   * scenario, and the same one §13.4's first pan measurement made (whole-render RMS
+   * across the 2.5 s master fade).
+   *
+   * The buses are **disconnected**, not muted: `PadLayer` writes `bus.gain.value`
+   * directly (line 362 of `pad-layer.ts`), so a gain mute would be overwritten by the
+   * next harmony change. Disconnecting is unambiguous.
+   *
+   * The bed is restored by `endA4Calibration`; it is never left off.
+   */
+  private mutedBuses: Array<{ bus: GainNode; dest: AudioNode }> = [];
+
+  setContinuousMuted(on: boolean): void {
+    if (!this.fx) return;
+    if (on) {
+      if (this.mutedBuses.length > 0) return;
+      // The pad bus goes through §8.7's ducking node first, so its real destination is
+      // `padDuck`, not `mixBus`. The drone and air buses go straight to `mixBus`.
+      for (const [bus, dest] of [
+        [this.fx.padBus, this.fx.padDuck],
+        [this.fx.droneBus, this.fx.mixBus],
+        [this.fx.airBus, this.fx.mixBus],
+      ] as Array<[GainNode, AudioNode]>) {
+        try {
+          bus.disconnect();
+          this.mutedBuses.push({ bus, dest });
+        } catch {
+          // Already disconnected — nothing to restore.
+        }
+      }
+      return;
+    }
+    for (const { bus, dest } of this.mutedBuses) {
+      try {
+        bus.connect(dest);
+      } catch {
+        // Restoring is best-effort; a failure here is a silent bed, not a crash.
+      }
+    }
+    this.mutedBuses = [];
   }
 
   /** Adopt an externally-built worklet node (used by the offline harness). */
@@ -515,6 +588,54 @@ export class AudioEngine {
       // Some browsers throw on the deprecated methods once the AudioParams
       // exist; fall back silently rather than breaking the render loop.
     }
+  }
+
+  /**
+   * The last listener pose applied, for the e2e suite and for diagnostics.
+   *
+   * §8.9 says the listener is the camera. This makes that checkable from outside: the
+   * live path was found leaving the `AudioListener` at the browser default for a whole
+   * session, and the only way to catch that is to read the pose back.
+   */
+  get listenerState(): { position: Vec3; forward: Vec3 } {
+    return { position: { ...this.listenerPos }, forward: { ...this.listenerFwd } };
+  }
+
+  /**
+   * DEBUG ONLY — the output node, so a diagnostic can tap the live graph.
+   *
+   * The offline harness measures panning by rendering to a buffer; the **live** path was
+   * never measured that way, which is why a whole-session bug in the listener went
+   * unnoticed — the human's ears found it first.
+   */
+  get outputNode(): AudioNode | null {
+    return this.masterGain;
+  }
+
+  /** DEBUG ONLY — the live `AudioContext`. */
+  get context(): BaseAudioContext {
+    return this.ctx;
+  }
+
+  /**
+   * DEBUG ONLY — the panners' live positions, so the spatial wiring can be checked
+   * from outside. The A4 calibration's whole purpose is to compare a *label* with a
+   * *direction heard*, and the panner's position is the link between them.
+   */
+  getPannerStates(): Array<{
+    slot: number;
+    x: number;
+    y: number;
+    z: number;
+    model: string;
+  }> {
+    return this.panners.map((p, slot) => ({
+      slot,
+      x: p.positionX.value,
+      y: p.positionY.value,
+      z: p.positionZ.value,
+      model: p.panningModel,
+    }));
   }
 
   /** Spec §8.12 — the `spatialAudio` setting switches panning model live. */

@@ -123,10 +123,24 @@ export function planA4(basis: A4Basis, mapper: SpatialMapper = new SpatialMapper
   // dir → { alignment, wiki, id } for every candidate, per target.
   const best = new Map<A4Direction, { align: number; wiki: string; id: number }>();
 
-  for (const wiki of CANDIDATE_WIKIS) {
-    for (const id of CANDIDATE_IDS) {
-      mapper.placeEdit(wiki, wiki, id, dir);
-      for (const label of A4_DIRECTIONS) {
+  // **The title must be the one the runtime will actually use.**
+  //
+  // `placeEdit(wiki, title, id, out)` hashes `${title}:${id}` for its jitter, so the
+  // title is load-bearing. The first version of this planner searched with
+  // `placeEdit(wiki, wiki, id)` — the *wiki* standing in for the title — and then
+  // emitted an edit whose real title was `A4 ${label}`. The runtime hash therefore
+  // differed from the planning hash, the jitter differed by up to ~34 degrees, and the
+  // note landed somewhere other than where the label said.
+  //
+  // The symptom was the whole feature appearing broken: a note labelled RIGHT was
+  // heard on the left. The plan was not a plan for the thing that was actually played.
+  //
+  // So: search with the title that will be used, for each label separately.
+  for (const label of A4_DIRECTIONS) {
+    const title = `A4 ${label}`;
+    for (const wiki of CANDIDATE_WIKIS) {
+      for (const id of CANDIDATE_IDS) {
+        mapper.placeEdit(wiki, title, id, dir);
         const a = dot(dir, a4Target(basis, label));
         const prev = best.get(label);
         if (!prev || a > prev.align) best.set(label, { align: a, wiki, id });
@@ -145,18 +159,21 @@ export function planA4(basis: A4Basis, mapper: SpatialMapper = new SpatialMapper
     if (used.has(key)) continue;
     used.add(key);
 
-    mapper.placeEdit(hit.wiki, hit.wiki, hit.id, dir);
-    const errorDeg = (Math.acos(Math.min(1, Math.max(-1, hit.align))) * 180) / Math.PI;
+    // Recompute with the *runtime* title, so `dir` is what will really be played.
+    const title = `A4 ${label}`;
+    mapper.placeEdit(hit.wiki, title, hit.id, dir);
+    const align = dot(dir, a4Target(basis, label));
+    const errorDeg = (Math.acos(Math.min(1, Math.max(-1, align))) * 180) / Math.PI;
     steps.push({
       label,
       wiki: hit.wiki,
       // The title IS the expected direction, so the screen states the answer the ear
       // has to confirm.
-      title: `A4 ${label}`,
+      title,
       id: hit.id,
       dir: { x: dir.x, y: dir.y, z: dir.z },
       radius: mapper.radiusOf(hit.wiki, hit.id),
-      alignment: hit.align,
+      alignment: align,
       errorDeg,
     });
   }

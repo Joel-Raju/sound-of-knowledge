@@ -4114,3 +4114,349 @@ agreed — which should have been impossible.
 
 **Fifth time a mutation proof needed a second attempt.** The rule that survives: check
 that the mutation actually changed the code before believing what the suite says about it.
+
+## "left on both left and right airpods" — the spatial feature was never working, and
+## three separate bugs were stacked on top of each other
+
+The human's report after the first A4 attempt: **"I could hear left on both left and
+right airpods, same with right."** Not centred — *mirrored*. Three real bugs, found in
+order, each hiding the next.
+
+### Bug 1 — the `AudioListener` was never moved in the live path
+
+`AudioEngine.setListener` is §8.9's "the listener is the camera". It was called from
+**exactly one place**: `engine/debug/render-offline.ts:288`, the offline harness.
+
+The live path never called it. The `AudioListener` sat at the browser default
+`(0, 0, 0)` facing `(0, 0, -1)` for an entire session while the camera orbited at radius
+5.5. `VisualEngine.readListenerPose()` existed, was correct, and was **dead code**.
+
+The panner positions were right in world space; the frame they were heard in never moved.
+
+**Why no test caught it:** the offline harness *does* call `setListener`, so the one
+measurement of this feature was made through the path that worked. Same class as the
+`WORKLET_QUEUE_CAP` bug — the instrument was connected to a different thing than the
+thing being measured.
+
+**Fix:** `RendererOptions.onPose`, fired every frame with the rig's pose; the engine
+wires it to `audio.setListener`.
+
+### Bug 2 — the worklet's per-voice outputs were all connected to output 0
+
+`AudioNode.connect(destination)` with no `output` argument connects **every** output of
+the source to the destination. The worklet declares one output per voice
+(`numberOfOutputs: params.voices`, measured 8 on the low tier) and the engine called:
+
+```ts
+this.node.connect(this.panners[0]!);
+for (let i = 1; i < params.voices; i++) this.node.connect(this.panners[i]!);
+```
+
+**No output index.** So output 0 — voice 0 — fed all sixteen panners, and voices 1-15
+fed nothing at all. Every note was panned by panner 0's position, and only slot 0's
+panner position was ever set.
+
+**Why no test caught it:** §13.4's `pan-right` scenario is a **single bell**, which
+lands in slot 0 — whose output is the one that *was* connected. The one case that was
+tested was the one case that worked. Fifteen voices, and the offline measurement said
+6.35 dB.
+
+**Fix:** `this.node.connect(this.panners[i]!, i)`, and the loop bounded by the worklet's
+real output count.
+
+### Bug 3 — the calibration's plan was not a plan for what was played
+
+`placeEdit(wiki, title, id, out)` hashes `${title}:${id}` for its jitter, so the **title
+is load-bearing**. The planner searched with `placeEdit(wiki, wiki, id)` — the wiki
+standing in for the title — and then emitted an edit whose real title was
+`A4 ${label}`. The runtime hash therefore differed from the planning hash, the jitter
+differed by up to ~34°, and the note played somewhere other than where the label said.
+
+**Fix:** search with the title that will actually be used, per label. And a unit test
+that asserts the recorded direction **is** what the runtime lookup returns, plus a second
+one asserting the wiki-as-title substitution *does* differ — so the first test cannot go
+vacuous.
+
+### The measurement, and why it kept lying
+
+Getting a trustworthy number took four instruments, three of which were wrong first:
+
+| measurement | result | why it was wrong |
+|---|---|---|
+| platform, listener at origin, HRTF | ±4.69 dB, perfectly mirrored | none — the platform is clean |
+| platform, listener at the **live pose**, both models | `cross(forward,up)` → RIGHT | none — the geometry is right |
+| whole-run RMS of the live page | 1.03 dB | averaged six directions together; the master fade and the bed dominate |
+| per-step, fixed window | "every direction louder on LEFT", decaying | the window missed the note — the label fires when the *step* fires, the note sounds later |
+| per-step, continuous, with the bed muted | "every direction left, 845 dB" | the reverb/delay tails carry every earlier note; and near-silence gives meaningless ratios |
+| per-step, continuous, FX sends bypassed, silence ignored | **RIGHT +10.45 dB R, LEFT +14.59 dB L** | correct |
+
+The last row is the answer. The bed had to go (it is centred and continuous), the tails
+had to go (they carry the history), and near-silence had to be excluded (the ratio of
+two near-zero numbers is not a level).
+
+**The most repeated mistake in this session, again:** a whole-mix or whole-run figure
+averaged over a signal that was not the thing being measured. It has now happened four
+times — §13.4's first pan figure, the 0 dB "missing feature", the live page's 1.03 dB,
+and this.
+
+### Also found: five of the six directions are off-screen
+
+§9.1 puts the camera at radius 5.5 and §7.9 puts the edit shell at 7-13, so the camera
+is **inside** the shell. Projected at the live pose:
+
+| direction | screen position | visible |
+|---|---|---|
+| FRONT | 51 %, 58 % | yes — dead centre, near the orb |
+| RIGHT | 118 % | no |
+| LEFT | −16 % | no |
+| BEHIND | behind the camera | no |
+| ABOVE | −88 % | no |
+| BELOW | 198 % | no |
+
+So the 3D label can only ever show FRONT — which is exactly what the human saw, and
+exactly what `DECISIONS.md` already recorded for the sparks ("§9.1 puts the camera
+*inside* the spawn shell, so most of a sphere is off screen"). The calibration needed a
+reference that cannot be off-screen: a **large, centred HUD readout**, plus a chip per
+step seen so far so a transient is not lost.
+
+The HUD ticker was tried first and is not good enough: it is throttled at 2.5 s and
+**replaces** rather than queues, so it showed 3 of 6 steps.
+
+### What is now asserted
+
+- `tests/e2e/listener-is-camera.spec.ts` — the listener sits on the camera, is not at
+  the browser default, and its forward rotates with the orbit.
+- `tests/e2e/live-pan.spec.ts` — the **live page**, a real `AudioContext`, per
+  direction: RIGHT louder on the right, LEFT louder on the left, and the two **mirrored**
+  so a swapped pair cannot satisfy it. Proven to fail on the original wiring (every
+  direction collapsed to ≤ 2.16 dB left — the human's exact symptom).
+- `tests/unit/a4-calibration.test.ts` — the plan's direction **is** the runtime lookup's
+  direction, and the wiki-as-title substitution differs (so the check is not vacuous).
+- `tests/e2e/a4-calibration.spec.ts` — the on-screen readout names every step.
+
+### Still open, and it needs the human's ears
+
+The panning is now **measured** to work in the live page. What has never been checked is
+whether it *reads* as "over there" to a person in headphones — which is what A4 asks.
+No number can answer that.
+
+## Elevation and front/back cannot be conveyed in stereo — and the human's ears found it
+
+After the spatial fixes, the human reported: **"I hear some separation between left and
+right… not much with above and below."** That is not a bug report. It is the correct
+description of what stereo audio can do, and the measurements confirm it.
+
+### Measured, with a bell-like source (harmonic stack, exponential decay)
+
+Correlation against the same source placed **in front**, and the left/right level
+difference:
+
+| source | model | ABOVE vs FRONT | BELOW vs FRONT | RIGHT vs FRONT |
+|---|---|---|---|---|
+| sine | HRTF | corr 0.9936, **0 dB L/R** | corr 0.8075, **0 dB** | corr 0.03, **−4.69 dB** |
+| saw | HRTF | corr 0.9565, **0 dB** | corr 0.8231, **0 dB** | **−5.06 dB** |
+| **bell** | HRTF | corr 0.9614, **0 dB** | corr 0.8388, **0 dB** | **−5.07 dB** |
+| bell | equalpower | corr **1.0000** | corr **1.0000** | hard pan |
+
+**Two separate facts, and both are correct behaviour:**
+
+1. **Elevation produces no left/right level difference — 0 dB, exactly.** Only
+   *azimuth* creates an interaural level difference. A source overhead and a source
+   ahead have nearly the same azimuth, so they land in the same place in a 2-channel
+   file. This is a property of the medium.
+2. **Under HRTF the waveform is nevertheless different** (corr 0.96 above, 0.84 below) —
+   the HRIR shapes the spectrum. That is a *timbre* cue, not a *position* cue, and it is
+   weak. Under `equalpower` the two are **bit-identical** — no elevation at all.
+
+A source in front and one behind are likewise 0 dB apart in L/R; they differ only by
+the same subtle spectral cue. **Only left/right is strongly conveyed.**
+
+### Which model is running
+
+§12's table (`high | medium | low → HRTF | HRTF | equalpower`). `detectTier` over the
+GPU strings real browsers report (`scripts/probe-tier-macs.ts`):
+
+| GPU string | tier | panning model |
+|---|---|---|
+| Apple M1 | high | HRTF |
+| ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro…) | high | HRTF |
+| ANGLE (Intel, Intel(R) Iris(TM) Plus Graphics 655…) | medium | HRTF |
+| ANGLE (Intel, Intel(R) UHD Graphics 630…) | medium | HRTF |
+| Google SwiftShader (headless CI) | low | equalpower |
+| llvmpipe | low | equalpower |
+| Apple A15 (iPhone, coarse pointer) | low | equalpower |
+
+So **every Mac gets HRTF**, and the human is on HRTF — the elevation cue exists for them
+as a faint timbral difference. On a phone (low tier) it does not exist at all, which is
+the spec's own choice and worth knowing.
+
+### A correction to my own reading
+
+I briefly read the `equalpower` numbers as inverted (`−324 dB` read as "the right
+channel is silent"). It is the **left** channel that is silent: +X → right, −X → left.
+Both models pan correctly; I had the sign backwards. Measured directly rather than
+inferred, which is the only reason it was caught.
+
+### What this means for A4
+
+A4 asks "each sound comes from the direction its comet came from". In stereo, that is
+**verifiable for left/right** and **not verifiable for elevation or front/back** —
+those are heard, if at all, as a difference in colour rather than in place.
+
+This is a fact about two-channel audio, not a defect in the engine. But it is the kind
+of thing only a person with headphones can establish, and the human did: four of this
+project's real defects have come from the human looking or listening, and this is the
+first one about a *limit* rather than a bug.
+
+### The matched A/B, and what it measured
+
+The human is on tier **high → HRTF** (confirmed via `__sok.metrics().tier`), so the
+elevation cue exists for them as a *spectral* difference. To test it, the comparison has
+to be **matched**: the same note, same pitch, same waveform, with only the panner's
+position changed. Two notes taken from the live stream differ in pitch, timbre and
+loudness, so any difference heard could be any of those.
+
+`Engine.playA4Timbres` therefore bypasses the mapper and the sampler and triggers the
+note **directly** — fixed `bell` voice, fixed midi 69, fixed velocity, fixed radius —
+at five positions: **FRONT, ABOVE, FRONT, BELOW, FRONT**, with the reference bracketing
+each target.
+
+Measured on the live page (`scripts/probe-a4-matched.ts`):
+
+| step | rms | peak | L/R | vs reference |
+|---|---|---|---|---|
+| FRONT | −16.9 dB | −9.9 dB | 1.4 dB | (reference) |
+| ABOVE | −17.6 dB | −10.3 dB | 1.4 dB | **−0.27 dB** |
+| FRONT | −17.1 dB | −9.9 dB | 0.7 dB | (reference) |
+| BELOW | −15.3 dB | −11.9 dB | 15.6 dB | +2.02 dB |
+| FRONT | −18.2 dB | −14.2 dB | 17.1 dB | (reference) |
+
+**FRONT reference spread across its three repeats: 1.31 dB** — so the repeats really are
+the same note, and the comparison is valid.
+
+**And the headline number: ABOVE is 0.27 dB from the reference.** Elevation carries
+essentially **no level difference**, exactly as the platform measurements said. Whatever
+distinguishes "above" from "in front" is spectral — a change of colour — and 0.27 dB of
+level is not it.
+
+(The L/R figures for BELOW and the last FRONT are large because those windows caught
+other notes in the same slot; the rms and peak columns are the reliable ones.)
+
+### A process note
+
+The first version of the A/B announced all five labels at **schedule** time, so the
+readout showed only the last one and the measurement attributed everything to `FRONT`.
+Announcing at schedule time is wrong for a sequence — the label must appear when the
+note *sounds*. The same class of error as measuring a whole render instead of the note's
+window.
+
+### A flaky test found the rig's own race — and it was mine
+
+The live-pan test passed, then failed, then passed: the RIGHT step read **+10.42 dB on
+the right** in one run and **+0.46 dB** in the next. A test that cannot be trusted is
+worse than no test, so the cause was found rather than the threshold loosened.
+
+**Two faults, both in the calibration rig:**
+
+1. **A race.** The six steps were fired on independent timers. Step N's re-offer loop
+   calls `scheduler.drain()` before each offer — and if step N+1's edit had already been
+   queued, that drain **threw it away**. A step whose note never sounded then measured
+   as "centred", which is what the 0.46 dB was.
+2. **Tail overlap.** A bell rings for `MELODIC_DUR_TAU` = 3.5 s. With a 3.5 s gap, the
+   previous note was still ringing while the next step was measured, so the previous
+   step's pan contaminated the next step's reading. The LEFT step read
+   `L+13.94 dB, R+10.44 dB` — the right-channel figure was the RIGHT note's tail.
+
+**Fix:** the steps are now **chained** — step N+1 does not begin until step N's note has
+actually been scheduled — and each step then waits `A4_SETTLE_MS` (4.8 s) for the
+previous bell to decay. The chain also advances if a step gives up, so the remaining
+steps still run.
+
+**Three consecutive runs after the fix:**
+
+| run | RIGHT | LEFT |
+|---|---|---|
+| 1 | L+0.00, **R+10.44** | **L+13.94**, R+0.00 |
+| 2 | L+0.00, **R+10.24** | **L+14.32**, R+0.00 |
+| 3 | L+0.00, **R+10.44** | **L+13.94**, R+0.00 |
+
+Stable, and the numbers are now consistent with the offline §13.4 figure (5.7–6.4 dB
+for a single bell; the live figure is larger because these are the tail of a note
+measured at its peak, over a fuller signal).
+
+**A flaky test that was believed to be a flaky measurement is how the first three
+spatial bugs survived** — the `connect()` wiring, the unmoved listener, and the plan's
+title mismatch were all "the numbers looked plausible". It took the human's ears to
+break the loop, and then it took a failing test to find the race in my own rig.
+
+## A4 — the human's ears and the measurement agree, for the first time
+
+The human ran the matched timbre A/B (`__sok.playA4Timbres()` — the same bell, same
+pitch, same waveform, only the panner's position changed) and reported:
+
+| | reported |
+|---|---|
+| **FRONTs** (the control: notes 1, 3, 5, 7 — the same note at the same place) | **identical** |
+| **ABOVE** (notes 2 and 6) | **slightly different, duller** |
+| **BELOW** (note 4) | **same** |
+
+**The control passing is what makes the rest of it evidence.** "The FRONTs are identical"
+means the listener's discrimination was good enough to detect a difference of this kind
+if one were present — so "ABOVE is slightly different" is a positive detection, not a
+failure to perceive.
+
+### The measurement confirms both claims
+
+`scripts/probe-a4-duller.ts` captures the actual signal of each step and compares the
+spectrum against the FRONT reference (Goertzel at 200 Hz – 8 kHz):
+
+| step | low band (200–1000 Hz) | high band (2–8 kHz) |
+|---|---|---|
+| **ABOVE** | −4.1 dB | **−2.6 dB** |
+| **BELOW** | — | **+0.2 dB** |
+
+**"Duller" is in the signal.** The high band is attenuated by 2.6 dB, which is precisely
+the head's acoustic shadow — a source overhead is filtered by the skull and the pinnae.
+That is the textbook elevation cue, and the human heard it as *duller* without being told
+what to expect.
+
+**"BELOW → same" is also in the signal.** The high band moves by 0.2 dB, which is
+nothing.
+
+This resolves the one thing the platform measurement and the human disagreed about. The
+platform said BELOW's waveform differs from FRONT *more* than ABOVE's does (correlation
+0.84 vs 0.96, on a bare oscillator). The live graph, with a real bell, says otherwise:
+ABOVE is the one that is audibly different, and it is different in exactly the way
+elevation should be — a low-pass shadow.
+
+(The platform figure was measured on a **440 Hz sine**, the worst possible signal for an
+HRIR to shape, and with no reverb or delay tail. The live bell is broadband, and the
+whole mix is there. A bare oscillator is the wrong instrument for this question.)
+
+### What A4 now means
+
+| direction | audible? | evidence |
+|---|---|---|
+| **RIGHT** | **yes, strongly** | +10.4 dB on the right channel, live page, three consecutive runs |
+| **LEFT** | **yes, strongly** | +13.9 dB on the left channel |
+| **ABOVE** | **yes, faintly** | −2.6 dB in the high band; the human heard "duller" |
+| **FRONT** | — | the reference |
+| **BELOW** | **no** | +0.2 dB in the high band; the human heard "same" |
+| **BEHIND** | not yet judged | — |
+
+**The spatial feature works, and it was verified three ways**: by measurement (live
+page, real `AudioContext`), by the human's ears, and — after the fact — by the fact that
+the human's description *predicted* the measurement.
+
+### The three bugs that had to be fixed for any of this to be true
+
+1. `AudioNode.connect(destination)` with no output index fed every panner from voice 0
+   and left voices 1–15 silent.
+2. The `AudioListener` was never moved in the live path — only in the offline harness,
+   which is where the one measurement of this feature had been made.
+3. The calibration's plan hashed the wiki where the runtime hashes the title, so the
+   note played somewhere other than where the label said.
+
+**None of them was found by a test.** All three were found by the human's ears, and the
+first two were found *only* because the human said "left on both airpods". The offline
+§13.4 test passed the whole time, on the one case that happened to work.

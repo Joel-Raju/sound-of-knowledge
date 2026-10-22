@@ -56,6 +56,29 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
   const [faded, setFaded] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [settings, setSettings] = useState(() => engine?.getSettings() ?? null);
+  /**
+   * DEBUG ONLY — the A4 calibration readout.
+   *
+   * Large, centred, and unmistakable, because the 3D label cannot serve: §9.1 puts the
+   * camera at radius 5.5 inside the 7-13 edit shell, so five of the six calibration
+   * directions land **outside the frustum** and only FRONT is ever visible in the
+   * scene. Measured: RIGHT at 118 % of screen width, LEFT at -16 %, BEHIND behind the
+   * camera, ABOVE at -88 %, BELOW at 198 %.
+   *
+   * It keeps a chip for every step seen, not just the current one, so a step that
+   * flashes past is not lost — both for the human (they can see where they are in the
+   * sequence) and for the e2e test, which must not have to poll fast enough to catch a
+   * transient. Recovering the label by parsing rendered text was the first attempt and
+   * it broke on the concatenation of the styled spans.
+   */
+  const [a4, setA4] = useState<{
+    label: string;
+    index: number;
+    total: number;
+    seen: string[];
+    mode: "direction" | "timbre";
+    seq?: string[];
+  } | null>(null);
 
   // §11.4 — `role="status" aria-live="polite"`, and §11.6 caps the announced summary
   // at once every 10 s so a screen reader is not read a number four times a second.
@@ -105,6 +128,24 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
         href: n.href,
         text: `${n.edit.lang} · ${n.edit.title}`,
         edit: n.edit,
+      });
+    });
+  }, [engine]);
+
+  useEffect(() => {
+    if (!engine) return;
+    return engine.on("a4Step", (s) => {
+      setA4((prev) => {
+        const seen = prev ? [...prev.seen] : [];
+        if (!seen.includes(s.label)) seen.push(s.label);
+        return {
+          label: s.label,
+          index: s.index,
+          total: s.total,
+          seen,
+          mode: s.mode ?? "direction",
+          seq: s.seq,
+        };
       });
     });
   }, [engine]);
@@ -216,6 +257,63 @@ export function Hud({ engine, hidden, onHiddenChange }: HudProps): React.JSX.Ele
 
   return (
     <>
+      {/* DEBUG ONLY — the A4 calibration readout. Sits above the scene, centred, and
+          ignores the auto-fade, because it is the reference the human is judging
+          against and it must never be the thing that is hard to see. */}
+      {a4 && (
+        <div
+          data-testid="a4-readout"
+          data-a4-label={a4.label}
+          data-a4-seen={a4.seen.join(",")}
+          className="pointer-events-none fixed inset-x-0 top-[12vh] z-40 flex flex-col items-center gap-2"
+        >
+          <div className="rounded border border-amber-500/60 bg-black/80 px-6 py-3">
+            <div className="text-[11px] tracking-[0.3em] text-amber-500/80">
+              A4 · {a4.index} OF {a4.total}
+            </div>
+            <div className="text-4xl font-semibold tracking-widest text-amber-200">
+              {a4.label}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-1.5">
+            {a4.mode === "timbre" && a4.seq
+              ? // A **position track**, not a list of distinct labels. The whole point
+                // of the timbre test is that the FRONT notes bracket the others, and
+                // that structure is only visible if the repeats are shown.
+                a4.seq.map((s, i) => (
+                  <span
+                    key={`${s}-${i}`}
+                    data-a4-chip={s}
+                    className={
+                      s === a4.label
+                        ? "rounded border border-amber-400 bg-amber-400/20 px-2 py-0.5 text-[11px] tracking-widest text-amber-200"
+                        : "rounded border border-amber-900/70 px-2 py-0.5 text-[11px] tracking-widest text-amber-800"
+                    }
+                  >
+                    {s}
+                  </span>
+                ))
+              : a4.seen.map((s) => (
+                  <span
+                    key={s}
+                    data-a4-chip={s}
+                    className={
+                      s === a4.label
+                        ? "rounded border border-amber-400 bg-amber-400/20 px-2 py-0.5 text-[11px] tracking-widest text-amber-200"
+                        : "rounded border border-amber-900/70 px-2 py-0.5 text-[11px] tracking-widest text-amber-800"
+                    }
+                  >
+                    {s}
+                  </span>
+                ))}
+          </div>
+          <div className="text-[11px] text-amber-500/70">
+            {a4.mode === "timbre"
+              ? "same as the FRONT notes, or different?"
+              : "listen: which side?"}
+          </div>
+        </div>
+      )}
       <div
         data-testid="hud"
         className="pointer-events-none fixed inset-x-0 bottom-0 z-20 flex items-end justify-between gap-4 pb-[max(0.75rem,var(--sok-safe-b))] pr-[max(0.75rem,var(--sok-safe-r))] pl-[max(0.75rem,var(--sok-safe-l))] pt-3 transition-opacity duration-700"

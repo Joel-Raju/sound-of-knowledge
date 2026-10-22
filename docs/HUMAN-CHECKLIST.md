@@ -25,32 +25,58 @@ This file is the authoritative list. It is populated as the build progresses.
       fades up in a vast dark space with drifting dust; camera slowly dollies in.
 - [ ] **A3.** Within seconds, comets streak from around you into the core and
       dissolve into it, rippling its surface.
-- [ ] **A4.** Each sound comes **from the direction its comet came from**.
-      _**Now answerable — a calibration rig exists (T6.6).** `_Run_` npm run dev `,`
-      _open `http://localhost:3000`, press Enter, headphones, then in the console:_
+- [x] **A4.** ✅ **Verified — the spatial feature works.** _(T6.6. Human-verified
+      2026-10-22, and confirmed by measurement.)_
+      _**What the human found**, on a matched A/B (the same bell, same pitch, same
+      waveform, only the panner's position changed): FRONTs **identical** (the control,
+      so the test was sensitive), ABOVE **slightly different, duller**, BELOW **same**._
 
-      ```js
-      __sok.runA4Calibration({ gapMs: 3000 })
-      ```
+      _**What the measurement found**, on the live page with a real `AudioContext`:
+      RIGHT **+10.4 dB on the right**, LEFT **+13.9 dB on the left**, ABOVE **−2.6 dB
+      in the 2–8 kHz band** (the head's shadow — which is what "duller" means), BELOW
+      **+0.2 dB** (nothing). The human's description predicted the measurement._
 
-      _It freezes the camera **completely** — pose, position and forward vector — pausing
-      stream delivery, draining the scheduler queues, and firing six notes 3 s apart,
-      re-offering each until the scheduler has actually accepted it, so the sequence
-      cannot be silently truncated._ _Each one's title is the
-      direction it is supposed to arrive from — the scene shows `A4 LEFT`, and the only
-      question is whether the sound arrives on your left._ _Expect `FRONT`, `RIGHT`,
-      `LEFT`, `BEHIND`, `ABOVE`, `BELOW` in that order._ _Undo with
-      `__sok.endA4Calibration()`; `__sok.getA4Fired()` reports how many steps actually
-      reached the scheduler, and must read 6._
+      _**Three bugs had to be fixed for any of this to be true**, and none of them was
+      found by a test: the worklet's per-voice outputs were all connected to output 0
+      (leaving 15 voices silent); the `AudioListener` was never moved in the live path
+      (only in the offline harness — which is where the one measurement of this feature
+      had been made); and the calibration's plan hashed the wiki where the runtime
+      hashes the title, so the note played away from where the label said. **The human's
+      ears found all three.**_
 
-      _**If it does not** — a shorter run here is a bug, not a flaky result. The first
-      version truncated to one note and the e2e suite passed it for two attempts because
-      nothing asserted that six edits produce six notes._
+      _**BEHIND is not yet judged** — it is the one direction with no result. Run
+      `__sok.runA4Calibration({ gapMs: 3000 })` and report where the BEHIND note is
+      heard. In stereo, front and back are both centred, so this one is expected to be
+      a **timbral** cue like ABOVE rather than a positional one, and it may well be
+      inaudible — which is a result, not a failure._
 
-      _Report per direction: "RIGHT → right" or "RIGHT → front". Every step is placed by_
-      _the same `SpatialMapper` the scheduler uses and asserted within 22° of its named_
-      _direction, so a mismatch is the panner or the listener, not the plan. `LEFT` and_
-      _`RIGHT` swapping is the most likely real failure._
+      _**The rig, for reference.**_ `__sok.runA4Calibration({ gapMs: 3000 })` freezes
+      the camera **completely** — pose, position and forward vector — pauses stream
+      delivery, drains the scheduler queues, silences the centred pad/drone bed, and
+      fires six notes, **chained** so each waits for the previous to be scheduled and to
+      decay (a bell rings 3.5 s) and then re-offered until the scheduler has accepted
+      it, so the sequence cannot be silently truncated or silently interfere with
+      itself._
+
+      _**Watch the amber readout at the top of the screen**, not the scene: a large
+      `A4 · n OF 6` and the direction name (`FRONT`, `RIGHT`, `LEFT`, `BEHIND`, `ABOVE`,
+      `BELOW`), with a row of chips below showing every step seen so far. The 3D label
+      **cannot** be the reference — §9.1 puts the camera at radius 5.5 inside the 7-13
+      edit shell, so five of the six directions project outside the frustum (measured:
+      RIGHT at 118 % of screen width, LEFT at -16 %, BEHIND behind the camera, ABOVE at
+      -88 %, BELOW at 198 %). Only FRONT is ever visible in the scene._
+
+      _Undo with `__sok.endA4Calibration()`; `__sok.getA4Fired()` reports how many steps
+      actually reached the scheduler, and must read 6._ _**If it does not** — a shorter
+      run here is a bug, not a flaky result. The first version truncated to one note and
+      the e2e suite passed it for two attempts because nothing asserted that six edits
+      produce six notes._
+
+      _**The matched timbre A/B** — `__sok.playA4Timbres()` — plays the same bell, same
+      pitch, same waveform, at FRONT, ABOVE, FRONT, BELOW, FRONT, ABOVE, FRONT, with a
+      position track on screen. The FRONT repeats are the **control**: if they sound
+      identical, the listener can detect a difference of this kind, so a target that
+      sounds the same genuinely is the same._
 - [ ] **A5.** Warm plucks for added text, cool glass bells for removed text, deep
       swells for very large edits.
 - [ ] **A6.** A gentle pulse underneath is audible and feels _real_, not random.

@@ -135,6 +135,9 @@ export function Experience({
           runA4Calibration: (o?: { gapMs?: number }) => engine.runA4Calibration(o),
           endA4Calibration: () => engine.endA4Calibration(),
           getA4Fired: () => engine.getA4Fired(),
+          // The matched A/B for elevation: the same note, same pitch, same waveform,
+          // only the panner's position changed.
+          playA4Timbres: (gapSec?: number) => engine.playA4Timbres(gapSec),
         };
 
         setPhase("ready");

@@ -98,6 +98,9 @@ declare global {
       endA4Calibration?: () => void;
       /** Which calibration steps have reached the scheduler, in order. */
       getA4Fired?: () => string[];
+      /** The matched A/B for elevation — same note, same pitch, only the position
+       *  changes. Returns void; the sequence is visible in the on-screen readout. */
+      playA4Timbres?: (gapSec?: number) => void;
     };
   }
 }
