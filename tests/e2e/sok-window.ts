@@ -101,6 +101,8 @@ declare global {
       /** The matched A/B for elevation — same note, same pitch, only the position
        *  changes. Returns void; the sequence is visible in the on-screen readout. */
       playA4Timbres?: (gapSec?: number) => void;
+      /** One edit of each §10.2 flavour in turn — for A5, A7 and A8. */
+      playFlavorDemo?: (gapSec?: number) => void;
     };
   }
 }

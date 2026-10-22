@@ -4460,3 +4460,41 @@ the human's description *predicted* the measurement.
 **None of them was found by a test.** All three were found by the human's ears, and the
 first two were found *only* because the human said "left on both airpods". The offline
 §13.4 test passed the whole time, on the one case that happened to work.
+
+## A flavour demo, because "wait for a revert" is not a test
+
+The human chose **A5–A10** as the next block. A5, A7 and A8 ask about *specific* event
+types — a warm pluck for added text, a deep gong for a revert, a rising arpeggio and
+starburst for a new page.
+
+**Reverts and new pages are rare in a live stream.** Asking a human to wait for one is
+asking them to sit through minutes of nothing and then judge on a sample of one — and
+"did a revert happen in the four minutes I watched?" is not a question with a useful
+answer.
+
+`Engine.playFlavorDemo()` fires one edit of each §10.2 flavour deliberately, on a timer,
+with the flavour named on screen. Only the *flavour* is forced: the edits go through the
+**real** path — the scheduler, the router, the allocator, the panner and §10.2's fire
+table — so the visuals fire too, which a directly triggered note would not do.
+
+Measured on the live page:
+
+| step | notes | rings | sparks |
+|---|---|---|---|
+| PLUCK — text added | +1 | 0 | +35 |
+| BELL — text removed | +1 | 0 | +14 |
+| SUB — a very large edit | +1 | 0 | +18 |
+| **GONG — a revert** | +1 | **+1** | 0 |
+| **BIRTH — a new page** | **+4** | 0 | **+24** |
+
+The **ring appears only for the revert** and the **birth is four notes** — the rising
+arpeggio — so A7 and A8 have something concrete to look at. Zero dropped notes, zero
+console errors.
+
+**The first version did not pause the stream**, and the probe saw 52 dropped notes and
+13 "pluck" notes where there should have been one: the synthetic traffic was mixed in
+with the demo. The pause is what makes the demo a *test* rather than a spectacle.
+
+`Engine.getVisualCounts()` was added for the same reason as `getPannerStates`: the layer
+handles were private, so the visual half of A7 and A8 could not be checked from outside
+except by looking — which is the human's job, not the machine's.

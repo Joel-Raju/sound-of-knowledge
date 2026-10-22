@@ -138,6 +138,9 @@ export function Experience({
           // The matched A/B for elevation: the same note, same pitch, same waveform,
           // only the panner's position changed.
           playA4Timbres: (gapSec?: number) => engine.playA4Timbres(gapSec),
+          // One edit of each §10.2 flavour in turn — for A5, A7 and A8, so nobody has
+          // to wait for a revert or a new page to happen to occur.
+          playFlavorDemo: (gapSec?: number) => engine.playFlavorDemo(gapSec),
         };
 
         setPhase("ready");

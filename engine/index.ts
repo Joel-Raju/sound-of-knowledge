@@ -964,9 +964,135 @@ export class Engine {
     this.ingestPaused = false;
   }
 
+  /**
+   * DEBUG ONLY — play one edit of each §10.2 flavor in turn, with the visuals.
+   *
+   * **Why.** A5, A7 and A8 ask about *specific* event types — a warm pluck for added
+   * text, a deep gong for a revert, a rising arpeggio and starburst for a new page.
+   * Reverts and new pages are **rare** in a live stream, so asking a human to wait for
+   * one is asking them to sit through minutes of nothing and then judge on a sample of
+   * one. This fires each flavour deliberately, on a timer, with the flavour named on
+   * screen.
+   *
+   * The edits go through the **real** path — the scheduler, the router, the allocator,
+   * the panner and §10.2's fire table — so the visuals fire too, which a directly
+   * triggered note would not do. Only the *flavour* is forced; nothing else is faked.
+   */
+  playFlavorDemo(gapSec = 4): void {
+    const rig = this.visuals?.rig;
+    if (rig) {
+      rig.setAutoOrbit(false);
+      rig.setFreezePose(true);
+    }
+    this.audio?.setContinuousMuted(true);
+    // Pause the stream, or the demo's voices are buried under live traffic. The first
+    // version did not, and the probe saw 52 dropped notes and 13 "pluck" notes where
+    // there should have been one.
+    this.ingestPaused = true;
+
+    /** One edit per §10.2 flavour, with the fields the router reads. */
+    const cases: Array<{ label: string; edit: Partial<NormalizedEdit> }> = [
+      {
+        label: "PLUCK - text added",
+        edit: { kind: "edit", delta: 400, absDelta: 400, magnitude: 0.3, importance: 0.9 },
+      },
+      {
+        label: "BELL - text removed",
+        edit: { kind: "edit", delta: -300, absDelta: 300, magnitude: 0.3, importance: 0.9 },
+      },
+      {
+        label: "SUB - a very large edit",
+        edit: { kind: "edit", delta: 9000, absDelta: 9000, magnitude: 0.85, importance: 0.9 },
+      },
+      {
+        label: "GONG - a revert",
+        edit: { kind: "revert", delta: -600, absDelta: 600, magnitude: 0.5, importance: 0.9 },
+      },
+      {
+        label: "BIRTH - a new page",
+        edit: { kind: "new", delta: 5000, absDelta: 5000, magnitude: 0.5, importance: 0.9 },
+      },
+    ];
+
+    this.a4Fired.length = 0;
+    this.a4StartNotes = this.getMetrics().notesScheduled ?? 0;
+    this.a4Expected = 0;
+    this.scheduler?.drain();
+
+    cases.forEach((c, i) => {
+      window.setTimeout(() => {
+        this.a4Fired.push(c.label);
+        this.a4Expected += 1;
+        this.emit("a4Step", {
+          label: c.label,
+          index: i + 1,
+          total: cases.length,
+          errorDeg: 0,
+          mode: "direction",
+        });
+        this.injectFlavorEdit(c.edit, c.label);
+      }, 800 + i * gapSec * 1000);
+    });
+  }
+
+  /** Inject one edit of a given flavour and keep offering it until it is scheduled. */
+  private injectFlavorEdit(patch: Partial<NormalizedEdit>, label: string): void {
+    const edit: NormalizedEdit = {
+      id: 900_000 + Math.floor(this.getMetrics().notesScheduled),
+      ts: Date.now(),
+      wiki: "flavor-demo",
+      host: "flavor-demo.invalid",
+      lang: "en",
+      project: "wikipedia",
+      ns: 0,
+      title: label,
+      actor: "registered",
+      kind: "edit",
+      minor: false,
+      delta: 400,
+      absDelta: 400,
+      magnitude: 0.3,
+      importance: 0.9,
+      revNew: 1,
+      ...patch,
+    };
+
+    let tries = 0;
+    const offer = (): void => {
+      const scheduled = (this.getMetrics().notesScheduled ?? 0) - this.a4StartNotes;
+      if (scheduled >= this.a4Expected || tries >= 40) return;
+      this.scheduler?.drain();
+      this.scheduler?.onBatch([edit]);
+      tries++;
+      window.setTimeout(offer, 120);
+    };
+    offer();
+  }
+
   /** DEBUG ONLY — the labels whose calibration callbacks have fired, in order. */
   getA4Fired(): readonly string[] {
     return this.a4Fired;
+  }
+
+  /**
+   * DEBUG ONLY — the visual layers' spawn counts.
+   *
+   * A7 and A8 are about *visuals* — a shockwave ring for a revert, a radial starburst
+   * for a new page — and the layer handles were private, so there was no way to check
+   * them from outside except by looking. Same reasoning as `getPannerStates`.
+   */
+  getVisualCounts(): {
+    rings: number;
+    sparks: number;
+    orbImpacts: number;
+    labelsActive: number;
+  } {
+    return {
+      rings: this.rings?.spawned ?? -1,
+      sparks: this.sparks?.spawned ?? -1,
+      orbImpacts: this.orb?.impactCount ?? -1,
+      labelsActive: this.labels?.activeCount ?? -1,
+    };
   }
 
   /**
