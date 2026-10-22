@@ -4042,3 +4042,75 @@ is evidence that the mutation did nothing**, and the only way to tell is to look
 the mutation actually did.
 
 951 unit tests, 35 files, all gates green.
+
+## "FIRED (6) ... NOTES 22" — the human's own numbers found the bug the tests could not
+
+The human ran the calibration and pasted the console output:
+
+```
+FIRED (6) ['FRONT','RIGHT','LEFT','BEHIND','ABOVE','BELOW']  NOTES 22
+```
+
+**Six steps fired. Twenty-two notes played.** And only one title was ever visible.
+
+### The cause
+
+The re-offer loop added a **new copy** of the edit to the queue on every retry instead of
+replacing the previous one. Every copy eventually played.
+
+Worse, `pickBest` scores `importance + 0.1·age`, so **the oldest queued edit wins**. FRONT's
+retry copies always beat RIGHT/LEFT, which sat behind them where `MELODIC_LOOKAHEAD_COUNT`
+could not reach them. So the six directions collapsed into one: FRONT, repeatedly, forever.
+One title. One direction. Exactly what the human reported.
+
+### Why my test could not see it — the most interesting part
+
+I mutated the fix and **the suite stayed green**. Then I measured why, across six
+configurations (`scripts/probe-a4-count.ts`):
+
+| configuration | with the bug | with the fix |
+|---|---|---|
+| default URL, live, normal density | 8 | 6 |
+| `?source=synthetic&density=sparse` ← **what the test used** | **6** | 6 |
+| `?source=synthetic&density=normal` | 7 | 6 |
+| `?source=synthetic&density=normal`, 10 s warm-up | **10** | 6 |
+| `?source=live&density=sparse` | 7 | 6 |
+| default URL, 20 s warm-up | **10** | 6 |
+
+**The test's own configuration masks the defect.** The melodic gate's probability is
+`p = targetNotesPerSec(density) · STEP_SEC`, and it scales with energy — so how many
+retries happen, and therefore how many copies pile up, depends on the density setting and
+how long the page has been running. `density=sparse` raises `p` enough that the sampler
+usually takes the edit on the first offer, and no copy is left behind.
+
+**A test that only covers the configuration that hides the bug is not a test.** The
+defect was re-tested in the configuration that exposed it — `?source=synthetic&density=normal`
+with a 10 s warm-up — and that test now fails on the mutation and passes on the fix, while
+the sparse test still passes on both. Both results are wanted: one is the regression, one
+is the guard.
+
+### The fix
+
+`fireA4Step` now **replaces** rather than accumulates: it drains the queue before each
+offer, and only offers if this step's note has not been scheduled yet. `drain()` is safe
+here precisely because the stream is paused, so the only edits in the queue are
+calibration edits.
+
+### The count is a range, not an exact number
+
+`toBe(6)` was wrong on the evidence: measured **5, 6 and 7** for a correct run, depending
+on whether a note was in flight when the calibration started and whether the last step
+had been picked when the measurement window closed. The assertion is now
+`5 ≤ delta ≤ 8`, which catches 10 and 22 and tolerates the real variance. **An assertion
+of an exact count would have been flaky, and flaky assertions get disabled.**
+
+### And a process failure worth recording
+
+I ran the mutation twice and **mislabelled the first run "MUTATED"** — the previous command
+had already restored the fix, so both blocks were the fixed code. The numbers looked
+plausible, which is exactly when a mislabelled run does the most damage. The label was
+wrong, not the measurement, and the giveaway was that the "mutated" and "fixed" blocks
+agreed — which should have been impossible.
+
+**Fifth time a mutation proof needed a second attempt.** The rule that survives: check
+that the mutation actually changed the code before believing what the suite says about it.

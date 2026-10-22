@@ -56,7 +56,7 @@ test.describe("A4 calibration rig", () => {
     await page.evaluate(() => window.__sok!.endA4Calibration?.());
   });
 
-  test("all six notes ACTUALLY become notes — the test that was missing", async ({ page }) => {
+  test("all six notes ACTUALLY become notes — and exactly six, not more", async ({ page }) => {
     // The assertion whose absence cost the human two attempts. The rig looked correct,
     // returned a six-step plan, and fired six callbacks on schedule — and still played
     // only one note, because the scheduler is a probabilistic sampler and the edits were
@@ -87,11 +87,49 @@ test.describe("A4 calibration rig", () => {
 
     // Six callbacks is not six notes — this is the assertion that would have caught it.
     await page.waitForTimeout(4_000);
-    const after = (await metrics(page)).notesScheduled;
-    expect(
-      after - before,
-      "six calibration edits must produce six notes, not one",
-    ).toBeGreaterThanOrEqual(6);
+    const delta = (await metrics(page)).notesScheduled - before;
+
+    // And it must not be MANY more than six. The re-offer loop used to leave a copy of
+    // each edit in the queue on every retry, so all of them eventually played: **22
+    // notes** for six steps.
+    //
+    // It was worse than noise. `pickBest` scores `importance + 0.1·age`, so the OLDEST
+    // queued edit wins: FRONT's retry copies always beat RIGHT/LEFT, which sat behind
+    // them where the lookahead could not reach them. The human heard one direction and
+    // one title, forever.
+    //
+    // The count is a range, not an exact number: a note already in flight when the
+    // calibration starts can land on either side of the boundary, and the sampler may
+    // not have picked the last step yet when the window closes. Measured 5-7 when
+    // correct, 8-10 when the retries accumulate.
+    expect(delta, "the calibration must produce six notes, not one and not many").toBeGreaterThanOrEqual(5);
+    expect(delta, "retries must replace the queued copy, not add another").toBeLessThanOrEqual(8);
+
+    await page.evaluate(() => window.__sok!.endA4Calibration?.());
+  });
+
+  test("the human's own configuration also produces six — the regression that hid here", async ({ page }) => {
+    // The test above uses `density=sparse`, and that configuration **masks** the
+    // duplicate-copy bug: the melodic gate's probability `p` is higher, so the sampler
+    // usually picks the edit on the first offer and no copy is left behind. The human
+    // ran the default URL, where the same defect produced 22 notes.
+    //
+    // So the defect is re-tested in the configuration that exposed it. Measured with the
+    // bug present: 10 notes. With the fix: 6.
+    await page.goto("/?source=synthetic&density=normal");
+    await page.getByTestId("enter-button").click({ timeout: 20_000 });
+    await page.getByTestId("hud").waitFor({ timeout: 10_000 });
+    // Long enough for the energy tracker to settle, which is what lowers `p` and makes
+    // the retries multiply.
+    await page.waitForTimeout(10_000);
+
+    const before = (await metrics(page)).notesScheduled;
+    await page.evaluate(() => window.__sok!.runA4Calibration!({ gapMs: 900 }));
+    await page.waitForTimeout(12_000);
+    const delta = (await metrics(page)).notesScheduled - before;
+
+    expect(delta, "six steps, and the retries must not multiply them").toBeLessThanOrEqual(8);
+    expect(delta, "six steps must produce at least six notes").toBeGreaterThanOrEqual(5);
 
     await page.evaluate(() => window.__sok!.endA4Calibration?.());
   });

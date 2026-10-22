@@ -204,6 +204,11 @@ export class Engine {
   private ingestPaused = false;
   /** DEBUG ONLY — which calibration callbacks have fired, in order. Diagnostics only. */
   private a4Fired: string[] = [];
+  /** DEBUG ONLY — `notesScheduled` at calibration start, so steps can be counted against
+   *  a baseline rather than against a moving absolute count. */
+  private a4StartNotes = 0;
+  /** DEBUG ONLY — how many calibration notes should have been scheduled by now. */
+  private a4Expected = 0;
 
   // scratch, reused so a note allocates nothing on the way to the visuals (§12.1)
   private readonly shellPos = new THREE.Vector3();
@@ -777,6 +782,8 @@ export class Engine {
     // never reach them — measured as roughly half the notes silently lost.
     this.scheduler?.drain();
     this.a4Fired.length = 0;
+    this.a4StartNotes = this.getMetrics().notesScheduled ?? 0;
+    this.a4Expected = 0;
 
     const basis = a4Basis(rig.forward);
     const steps = planA4(basis);
@@ -795,10 +802,21 @@ export class Engine {
    * is a *request*, not a guarantee. Retrying removes the dependency on sampler
    * statistics entirely without bypassing anything — the note still goes through the real
    * router, the real queue and the real panner, which is the whole point of the test.
+   *
+   * **Each retry must REPLACE the previous copy, not add to it.** The first version
+   * simply re-offered, and every copy stayed in the queue and eventually played: six
+   * steps produced **22 notes** instead of 6. Worse, `pickBest` scores
+   * `importance + 0.1·age`, so the *oldest* queued edit wins — FRONT's copies always
+   * beat RIGHT/LEFT, which sat behind them where the lookahead could not reach them. The
+   * human heard one direction and one title, forever.
+   *
+   * So: drain before each offer, and only offer if the note has not been scheduled yet.
+   * `drain()` is safe here precisely because the stream is paused, so the only edits in
+   * the queue are calibration edits.
    */
   private fireA4Step(step: A4Step): void {
-    const target = (this.getMetrics().notesScheduled ?? 0) + 1;
     this.a4Fired.push(step.label);
+    this.a4Expected += 1;
 
     const edit: NormalizedEdit = {
       id: step.id,
@@ -821,9 +839,13 @@ export class Engine {
 
     let tries = 0;
     const offer = (): void => {
+      // Offer only if this step's note has not been scheduled yet — and REPLACE any
+      // copy still sitting in the queue rather than adding to it.
+      const scheduled = (this.getMetrics().notesScheduled ?? 0) - this.a4StartNotes;
+      if (scheduled >= this.a4Expected || tries >= 40) return;
+      this.scheduler?.drain();
       this.scheduler?.onBatch([edit]);
       tries++;
-      if ((this.getMetrics().notesScheduled ?? 0) >= target || tries >= 30) return;
       window.setTimeout(offer, 120);
     };
     offer();
