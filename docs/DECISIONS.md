@@ -4725,3 +4725,41 @@ applied to the engine's own measurement, and it is already the value in the conf
 
 `Aeolian in C → Mixolydian in C → Mixolydian in F` — a mode change followed by a key
 change, exactly as the two clocks predict. The harmony drifts.
+
+## A9 closed — the human confirmed the colour shifts with the mode
+
+The human reported: **"yes, the scene's colour shifts with mode"**, on top of the mode
+change they had already observed (`Aeolian in C → Mixolydian in C → Mixolydian in F`).
+
+Both halves of A9 are now verified, and they were verified by two different kinds of
+evidence:
+
+- **the mode drifts** — measured at 28.0 s against the spec's 28.2 s floor, and observed
+  directly by ear;
+- **the colour follows** — §9.3's palette is per-mode in OKLCH (Aeolian violet 295°,
+  Dorian blue-violet 250°, Mixolydian green 165°, Lydian gold 85°, 2 s ease), and the
+  human confirms the scene shifts with it.
+
+**The colour half is the one no test could have covered.** The palette's *values* are
+asserted in unit tests, and the mode changing is asserted in e2e tests, but "the scene
+looks different when the mode changes" is a statement about a rendered image that only
+somebody looking at it can make. It is the third time this session that a human's
+eyeball closed a gap that no number in the repository could have.
+
+**Three bugs were behind this item**, and it is worth noting the shape they shared with
+the bugs that were already found:
+
+| bug | what it was |
+|---|---|
+| `metrics.mode` / `metrics.keyName` | read, **assigned nowhere** — the HUD showed a hardcoded `"lydian"` and `"—"` |
+| `scheduler.onStats(...)` | **never called** — `E` was permanently 0 |
+| `EnergyTracker.update` | divided a **cumulative** total by the window — `E` pinned at 1.000 |
+
+Every one is the same: a value is consumed somewhere, and the producer is not wired. And
+in each case the *consumer* looked fine — the HUD rendered, the mode was a valid mode,
+the energy was a valid number. **Three of them were only visible as "the thing is
+constant".**
+
+That is the third time in this project that the symptom was *"a value never changes"*,
+and the third time the cause was a missing connection rather than a wrong computation.
+**When a readout never moves, look for the wire before the formula.**

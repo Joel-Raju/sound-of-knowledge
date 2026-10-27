@@ -94,8 +94,28 @@ This file is the authoritative list. It is populated as the build progresses.
       _(T6.6. Human-verified 2026-10-22.)_
       _Same demo. Measured: a new page schedules **+4 notes** — the arpeggio — and
       **+24 sparks**, the burst. The human reports it works as described._
-- [ ] **A9.** Every ~30 s the harmony drifts; mode and colour shift with global
-      activity (calm → Aeolian/violet, busy → Lydian/gold).
+- [x] **A9.** ✅ **Every ~30 s the harmony drifts; mode and colour shift with global
+      activity.** _(T6.6. Human-verified 2026-10-26, and measured.)_
+      _**Three bugs were behind this**, all the same shape — a value read somewhere, and
+      the thing that should write it never wired: the HUD's mode and key were assigned
+      nowhere; the scheduler's `EnergyTracker` was never fed, so `E` was permanently 0;
+      and once fed, it divided a **cumulative** ingest total by the window, pinning `E`
+      at 1.000. With `E` dead, the mode could not drift and the note density sat at its
+      floor._
+
+      _**Measured on the live stream** (`scripts/probe-harmony-intervals.ts`, five
+      minutes): MODE every **28.0 s** (spec's floor is 28.2 s — 8 bars at BPM 68), KEY
+      every **112.9 s**, CHORD every **14.1 s**. The spec's intervals reproduce to a
+      tenth of a second._
+
+      _**What the human heard:** `Aeolian in C → Mixolydian in C → Mixolydian in F` — a
+      mode change followed by a key change, exactly as the two clocks predict. And:
+      **"yes, the scene's colour shifts with mode"** — the second half, which is the
+      part no test covers and the part the label cannot tell you._
+
+      _§9.3's palette is per-mode in OKLCH: Aeolian violet (295°), Dorian blue-violet
+      (250°), Mixolydian green (165°), Lydian gold (85°), with a 2 s ease. All four
+      modes are reachable at the measured rate — see B9._
 - [ ] **A10.** Article titles fade in occasionally and are clickable; a ticker shows
       the latest notable edit.
 
