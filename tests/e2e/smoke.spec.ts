@@ -56,21 +56,35 @@ const shoot = (page: import("@playwright/test").Page): Promise<Buffer> =>
  * spec's rounded numbers.
  *
  * ```
- *   LIVE   0.860  0.738  0.638  0.578     (4 samples, unloaded)
- *   FROZEN 0.000  0.000  0.000  0.000     (4 samples, unloaded)
+ *   LIVE   0.817  0.711  0.676            (3 samples, unloaded, comets rendering)
+ *   FROZEN 0.231  0.222  0.140            (3 samples, unloaded, comets rendering)
  * ```
  *
- * Frozen is *exactly* zero when the suite is not competing for the machine — a
- * byte-identical picture. Under full-suite load it picks up up to **0.111** of
- * compositor jitter, which is why the frozen bound is 0.3 and not 0.001: the
- * measurement is good, but it is not infinitely good, and a bound that assumes it is
- * fails on a busy runner for reasons that have nothing to do with the engine.
+ * **The frozen floor is not zero, and it is not the engine.** With the render loop
+ * stopped, every clock the engine owns is frozen — the dust is a pure function of
+ * `uTime`, the palette eases inside the loop, the orb's `uTime` and `uFrame` are set
+ * inside the loop. Something outside the engine still differs between two screenshots
+ * of the same canvas.
  *
- * Nothing lives between 0.111 and 0.578, so the bounds sit in the gap with room on
- * both sides.
+ * What it *is* is clear, though: **the floor scales with how much bright content the
+ * frame holds.**
+ *
+ * ```
+ *   FROZEN, no comets:  0.014  0.017  0.024  0.026
+ *   FROZEN, comets:     0.146  0.210  0.220  0.233
+ * ```
+ *
+ * A near-black frame re-composites to almost the same picture; a frame with a bright
+ * comet does not, and the difference is a large luma change on a handful of pixels.
+ * `preserveDrawingBuffer: true` was tried and made **no** measurable difference
+ * (0.140-0.231 with it, 0.146-0.233 without), so it is not set.
+ *
+ * The distributions still do not overlap — frozen tops out at 0.231 unloaded and 0.305
+ * under full-suite load, live starts at 0.676 — so the test still distinguishes them
+ * with room to spare. The bounds below are set from those measurements.
  */
-const FROZEN_MEAN_ABS_DIFF = 0.3;
-const ANIMATING_MEAN_ABS_DIFF = 0.45;
+const FROZEN_MEAN_ABS_DIFF = 0.5;
+const ANIMATING_MEAN_ABS_DIFF = 0.6;
 
 const stdDev = (a: Float32Array): number => {
   let sum = 0;

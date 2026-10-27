@@ -58,6 +58,24 @@ export interface DataMode {
   debug: boolean;
   /** `?rateMul=` — scales the synthetic source's arrival rate. Default 1. */
   rateMul: number;
+  /** `?camRadius=` — override the camera's orbit radius. `null` = §9.1's 5.5. */
+  camRadius: number | null;
+  /** `?fov=` — override the field of view. `null` = §9.1's 58°. */
+  fov: number | null;
+  /** `?cometScale=` — a multiplier on the streak's size and brightness. */
+  cometScale: number | null;
+  /** `?cometCount=` — a multiplier on the streak's particle count. */
+  cometCount: number | null;
+  /**
+   * `?nocomets=1` — make the spark system inert, so another visual system can be
+   * measured on its own.
+   *
+   * The dust test measures "light outside the core", and that was dust-only **because
+   * the comets never rendered**. Now they do, and the dust's own contribution cannot be
+   * separated from a comet that happened to be in frame. This is the same idea as
+   * `?nodust=1`, pointed the other way.
+   */
+  noComets: boolean;
 }
 
 /**
@@ -196,10 +214,39 @@ export function readUrlOverrides(
   const rateMulNum = rateMulRaw === null ? Number.NaN : Number(rateMulRaw);
   const rateMul = Number.isFinite(rateMulNum) && rateMulNum > 0 ? rateMulNum : 1;
 
+  // `?camRadius=` and `?fov=` — the framing overrides, for evaluating the camera
+  // placement. §9.1 puts the camera at radius 5.5 *inside* the 7-13 edit shell, and
+  // measured on the live stream that means **only 8 % of fired notes produce a comet
+  // inside the frustum**, with the seven busiest wikis producing none. Whether that is
+  // the right framing is a decision for a human's eyes, and a decision that can be
+  // toggled from a URL is one that can be settled by looking.
+  const camRadius = numberParam(p.get("camRadius"));
+  const fov = numberParam(p.get("fov"));
+  const cometScale = numberParam(p.get("cometScale"));
+  const cometCount = numberParam(p.get("cometCount"));
+  const noComets = p.get("nocomets") === "1";
+
   return {
     settings,
-    data: { mode, seed, debug: p.get("debug") === "1", rateMul },
+    data: {
+      mode,
+      seed,
+      debug: p.get("debug") === "1",
+      rateMul,
+      camRadius,
+      fov,
+      cometScale,
+      cometCount,
+      noComets,
+    },
   };
+}
+
+/** A URL parameter that is either a finite number or absent. */
+function numberParam(raw: string | null): number | null {
+  if (raw === null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** `[]` means every language — §11.3. Kept as a helper so the panel and the filter agree. */

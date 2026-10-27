@@ -16,7 +16,7 @@
  */
 import { expect, test } from "@playwright/test";
 
-const HarmonyStats = () => {
+const _HarmonyStats = () => {
   const w = window as unknown as {
     __sok?: {
       metrics?: () => { mode: string; keyName: string };

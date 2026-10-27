@@ -69,6 +69,14 @@ void main() {
     // Streak — a human edit. Accelerates toward the core, follows a curved
     // path, and its size peaks mid-flight so it reads as a comet rather than a
     // line being drawn.
+    //
+    // **§9.5's curve, unchanged.** An alternative was tried — a nearly linear path, a
+    // later size peak and a later fade-out — on the theory that this curve kept the
+    // comet off-screen. That theory was **wrong**: the comets were not rendering at
+    // all, because addUpdateRange was given instance numbers instead of array
+    // elements. Once that was fixed, the human compared the two and **preferred
+    // §9.5's**. So the spec's curve stands, and the alternative is gone rather than
+    // left behind as a knob.
     float e = pow(u, 1.6);
     vec3 dir = normalize(aTarget - aOrigin);
     vec3 perp = normalize(cross(dir, hashVec3(aTimes.w)));

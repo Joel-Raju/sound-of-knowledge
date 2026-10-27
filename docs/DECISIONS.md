@@ -4763,3 +4763,218 @@ constant".**
 That is the third time in this project that the symptom was *"a value never changes"*,
 and the third time the cause was a missing connection rather than a wrong computation.
 **When a readout never moves, look for the wire before the formula.**
+
+## The comets never rendered. A unit mismatch at one call site, and a test that locked it in.
+
+The human reported: **"I see the comet in the first 5 seconds and then no more."** Every
+diagnostic in this session pointed somewhere sensible, and every one of them was a dead
+end, because the comets were not being *drawn at all*.
+
+### The bug
+
+`THREE.BufferAttribute.addUpdateRange(start, count)` takes **array elements**, not
+instances. three.js's renderer does:
+
+```js
+gl.bufferSubData(type, range.start * array.BYTES_PER_ELEMENT, array, range.start, range.count);
+```
+
+`aOrigin` and `aTarget` have `itemSize` 3; `aTimes` and `aStyle` have 4. The engine passed
+*instance* numbers:
+
+```ts
+this.aOrigin.addUpdateRange(r.start, r.count);   // r.start is an INSTANCE index
+```
+
+So every upload was a **misaligned slice of the wrong bytes** — for `aOrigin`, the first
+third of the intended instances, with the wrong stride. The sparks' positions and timings
+never reached the GPU, and no comet rendered, ever.
+
+**The fix** is one multiplication per attribute: `r.start * attr.itemSize`.
+
+### The test that locked it in
+
+`tests/unit/sparks.test.ts` had:
+
+```ts
+const total = s.aOrigin.updateRanges.reduce((n, r) => n + r.count, 0);
+expect(total).toBe(K);          // K = the number of INSTANCES
+```
+
+**The test asserted the bug.** The code passed instance numbers, the test asserted
+instance numbers, and the suite was green — over a whole project, for months. The
+arithmetic helper `spawnRanges` was correct throughout and had its own unit test; the
+error was in the *unit* at the boundary between it and three.js's API, and the test
+asserted that same wrong unit.
+
+**A test that asserts the contract you happen to have implemented is not a test of the
+contract.** It is a test that you have not changed.
+
+### What else was green while the comets were invisible
+
+- the spark pool's `spawned` counter rose steadily
+- `notesScheduled` rose steadily
+- the offline audio renders were unaffected
+- every unit test passed
+- every other e2e test passed
+- the piece looked *finished* — a glowing orb, drifting dust, floating titles, a ticker
+
+**Nothing checked the pixels.** The only instrument that could have caught it — a human
+looking at the screen — was the one that was told the comets were a nice-to-have.
+
+### The measurement, once it was right
+
+`tests/e2e/comet-renders.spec.ts` counts lit pixels outside the core's disc:
+
+| build | lit pixels | brightest |
+|---|---|---|
+| **fixed** | **3879** | 254 |
+| **the original bug** | **541** | 161 |
+
+and the test fails on the broken build. The threshold sits between them.
+
+### The curve, and why the comet was *also* badly timed
+
+With the upload fixed, the comet appears — but §9.5's curve is still wrong for a piece
+watched by a person rather than measured:
+
+- `e = pow(u, 1.6)` puts the particle 60 % of the way to the core in the first 25 % of
+  its life, so it spends most of its existence out in the shell;
+- the size peaks at mid-flight, i.e. **exactly when it is off-screen**;
+- the alpha fades from `u = 0.8`, so the comet reaches the frame as it dissolves.
+
+Measured: with §9.5's curve, every live streak was at `u = 0.99` — the last 1 % of its
+life, at 5 % alpha.
+
+The alternative curve (`?cometTiming=1`, uniform-driven so it can be A/B'd in a browser)
+makes the path nearly linear, peaks the size near the core, and pushes the fade-out to
+the very end. Measured over 30 s: **8.7 → 21.4 visible comets**, 2.5×.
+
+### And the camera's placement, which the human settled
+
+§9.1 puts the camera at radius 5.5, *inside* the 7-13 edit shell. Over a full 349 s orbit
+only **19 %** of notes produce a comet inside the frustum, and the seven busiest wikis
+produce **none** — enwiki 36 fired, 0 visible.
+
+The human's verdict, on the live piece: **the default framing is right**; moving the
+camera outside the shell (`?camRadius=14`) makes the orb "too small". So the framing
+stays, and the camera radius and FOV remain available as URL overrides
+(`?camRadius=`, `?fov=`) for anyone who wants to compare.
+
+### The lesson
+
+**Six bugs in one feature, and the only instrument that found any of them was a person
+looking at a screen.** A unit mismatch, a frozen HUD, an unfed tracker, a mis-scaled
+percentage, a wrong title hash and a missing output index. Every one of them had a
+plausible-looking number behind it, and every one of them was invisible to the suite
+because the suite checked *counts* rather than *pixels*.
+
+The e2e suite now has a test that counts lit pixels outside the core. It is the first
+test in this project that would have caught any of them.
+
+### What the fix broke, and what it revealed
+
+**The dust test failed, correctly.** It measures "light outside the core", and that was
+dust-only *because the comets never rendered*. Now they do, and a comet in frame is
+indistinguishable from dust by that metric. `?nocomets=1` switches the spark system off so
+the dust can be measured on its own — the same idea as `?nodust=1`, pointed the other
+way. The three dust tests pass again.
+
+**A pre-existing failure, confirmed pre-existing.** `security-metadata`'s "the link
+preview tags point at a real image" fetched the **absolute** `og:image` URL, which is
+`https://sound-of-knowledge.example/og.png` by default — and `.example` is a reserved TLD
+that never resolves. The test was checking the resolver, not the tag. Verified by
+`git stash`ing the whole change and re-running: it fails identically on the unmodified
+tree. It now fetches the *path* from the local server, and separately asserts the URL is
+absolute.
+
+### The diagnosis, in order — and how long each wrong turn took
+
+1. "The engine stopped spawning" — **wrong**; the counters rose the whole time.
+2. "The sparks are off-screen" — **right, and not the cause**; measured 19 % over a full
+   orbit, with the seven busiest wikis at zero.
+3. "The comet is too small" — **right, and not the cause**; a typical edit gives 13
+   particles of 4.6 px, but the same build rendered nothing at 30 px.
+4. "The shader discards them" — **wrong**; the shader's alive test was fine.
+5. "The attribute upload is misaligned" — **right**.
+
+The decisive step was reading the **instance attributes** rather than the screen: every
+live streak sat at `u = 0.99`, where the alpha is 0.05, and the `size`/`duration`/
+`origin` were all sensible. That said "the data is right, so the data is not arriving" —
+which is what the `addUpdateRange` unit mismatch says.
+
+**The pixel screenshot was the only instrument that could have found it, and it took
+several attempts to make it meaningful** — first a canvas screenshot (saturated), then
+`readPixels` outside a draw (garbage), then a page screenshot with the HUD and the core
+excluded (the only one that worked).
+
+### A note on the framing, for whoever picks this up
+
+The human settled it: **the default framing is right**, and moving the camera outside the
+shell makes the core "too small". So §9.1's radius stays. The camera radius and FOV
+remain available as `?camRadius=` and `?fov=` URL overrides for anyone who wants to
+compare, and `?cometTiming=1` selects the curve that spends the comet's life in frame
+(measured: 8.7 → 21.4 visible comets over 30 s).
+
+### The human's verdict, and what it settled
+
+> **"comets: visible"** · **"which curve reads better: default"** · **"on the bigger
+> side, make it smaller"**
+
+Three things, and the first is the one that matters: **after the `addUpdateRange` fix, the
+comets are visible.** The whole of this section's diagnosis — the curve, the size, the
+camera radius — was chasing a symptom of a bug that meant nothing was being drawn at all.
+
+**The curve: §9.5's stands, and the alternative is deleted rather than kept as a knob.**
+An "in frame" curve was written on the theory that §9.5's kept the comet off-screen. That
+theory was wrong, and once the comets rendered, the human **preferred §9.5's**. So the
+shader is back to the spec's formula, `uTiming` is gone, and the reason is recorded in
+the shader's comment — so nobody re-adds it on the same false premise.
+
+**The size: 1.0, the default.** At 1.5× the comet is "on the bigger side". The knob
+(`?cometScale=`) stays, because it is how the number was chosen, but the shipped default
+is §9.5's own.
+
+**The framing: unchanged.** The human's earlier verdict — the default framing is right,
+and moving the camera outside the shell makes the core too small — stands, and §9.1's
+radius is untouched. `?camRadius=` and `?fov=` remain as overrides for anyone who wants
+to compare.
+
+### One more thing the fix exposed: §13.4 item 2's test was measuring an artifact
+
+The "the canvas is alive" test screenshots the canvas and compares two frames. With the
+comets rendering, the **frozen** measurement rose from 0.000-0.111 to **0.14-0.23** and
+under full-suite load to **0.305** — over its 0.3 bound.
+
+The floor is not the engine. With the render loop stopped, every clock the engine owns is
+frozen: the dust is a pure function of `uTime`, the palette eases inside the loop, the
+orb's `uTime` and `uFrame` are set inside the loop. And the floor **scales with how much
+bright content the frame holds**:
+
+```
+FROZEN, no comets:  0.014  0.017  0.024  0.026
+FROZEN, comets:     0.146  0.210  0.220  0.233
+```
+
+A near-black frame re-composites to almost the same picture; a frame with a bright comet
+does not. `preserveDrawingBuffer: true` was tried and made **no** measurable difference
+(0.140-0.231 with it, 0.146-0.233 without), so it is not set — it would cost a little
+and buy nothing.
+
+The bounds are now set from the measured distributions — frozen 0.5, live 0.6, with the
+live measurements at 0.676-0.817 and the frozen ones at 0.140-0.231 unloaded / 0.305 under
+load. The distributions still do not overlap, so the test still distinguishes them; and
+tightening the frozen bound to 0.2 was tried and **fails** as it should.
+
+### The dust test, and a pre-existing failure
+
+Three dust tests failed once the comets rendered, because they measure "light outside the
+core" and that was dust-only *because the comets never rendered*. `?nocomets=1` switches
+the spark system off so the dust can be measured on its own — the same idea as
+`?nodust=1`, pointed the other way.
+
+`security-metadata`'s "the link preview tags point at a real image" fetched the **absolute**
+`og:image` URL, which is `https://sound-of-knowledge.example/og.png` by default — and
+`.example` is a reserved TLD that never resolves. Verified pre-existing by `git stash`ing
+the entire change and re-running: it fails identically on the unmodified tree. It now
+fetches the *path* from the local server, and separately asserts the URL is absolute.

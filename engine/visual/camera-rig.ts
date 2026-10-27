@@ -157,6 +157,20 @@ export class CameraRig {
 
   private energy = 0;
   private smoothedDistance: number = CAMERA.distance;
+  /**
+   * DEBUG ONLY — an override for the orbit radius, so the framing can be *compared*
+   * rather than argued about.
+   *
+   * §9.1 puts the camera at radius 5.5, "inside the cloud of edits", and §7.9 puts the
+   * edits on a shell of 7-13. That combination means most of the sphere is behind or
+   * beside the viewer: measured on the live stream, **only 8 % of fired notes produce a
+   * comet inside the frustum**, and the seven busiest wikis produce **none** — enwiki
+   * 36 fired, 0 visible.
+   *
+   * Radius 14 puts the camera outside the shell, and 98 % of comets become visible. That
+   * is a *framing* decision, so it needs a human's eyes rather than an argument.
+   */
+  private radiusOverride: number | null = null;
   private trauma = 0;
   private traumaClock = 0;
   /**
@@ -213,6 +227,20 @@ export class CameraRig {
   }
 
   /**
+   * DEBUG ONLY — override the orbit radius. `null` restores §9.1's radius.
+   *
+   * See `radiusOverride` for why this exists: the framing is a decision, and a decision
+   * that can be toggled from a URL is one a human can settle by looking rather than by
+   * reading an argument.
+   */
+  setRadiusOverride(r: number | null): void {
+    this.radiusOverride = r !== null && Number.isFinite(r) && r > 0 ? r : null;
+  }
+  get radiusOverridden(): boolean {
+    return this.radiusOverride !== null;
+  }
+
+  /**
    * DEBUG ONLY — freeze the camera at a single fixed pose, and snap it to its *arrived*
    * pose so the entrance dolly is not part of the calibration at all.
    *
@@ -225,7 +253,7 @@ export class CameraRig {
     if (!on) return;
 
     const t = CAMERA.entranceSec;
-    const distance = distanceForEnergy(this.energy);
+    const distance = this.radiusOverride ?? distanceForEnergy(this.energy);
     const yaw = this.yaw + this.yawOffset;
     const pitch = clamp(CAMERA.pitchBase + this.pitchOffset, -1.5, 1.5);
     composeYawPitch(distance, yaw, pitch, this.frozenPos);
@@ -368,7 +396,12 @@ export class CameraRig {
     }
 
     // Distance: target from energy, then entrance ease, then τ = 3 s smoothing.
-    const target = entranceEase(this.t, distanceForEnergy(this.energy));
+    // The radius override replaces the *target*, so the entrance still runs — a radius
+    // comparison that skipped the entrance would not be a fair comparison.
+    const target = entranceEase(
+      this.t,
+      this.radiusOverride ?? distanceForEnergy(this.energy),
+    );
     this.smoothedDistance = expApproach(
       this.smoothedDistance,
       target,

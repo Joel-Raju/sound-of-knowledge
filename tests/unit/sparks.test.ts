@@ -170,11 +170,22 @@ describe("Sparks ring buffer", () => {
     const s = new Sparks({ tier: "high" });
     const K = s.spawnStreak(ORIGIN, TO_CORE, COLOUR, 0.5);
     expect(s.aOrigin.updateRanges.length).toBeGreaterThanOrEqual(1);
+    // **The ranges are in ARRAY ELEMENTS, not instances.**
+    //
+    // `BufferAttribute.addUpdateRange(start, count)` takes the attribute's own array
+    // indices, and the renderer does `bufferSubData(type, range.start * BYTES_PER_ELEMENT,
+    // array, range.start, range.count)`. `aOrigin` has itemSize 3, so K instances are
+    // K*3 elements.
+    //
+    // This test used to assert `total === K` — the instance count — and so it
+    // **locked the bug in**: the code passed the instance numbers, the test passed, and
+    // the upload was a misaligned slice of the wrong bytes. The comets did not render,
+    // ever, and nothing in the suite noticed.
     const total = s.aOrigin.updateRanges.reduce((n, r) => n + r.count, 0);
-    expect(total).toBe(K);
+    expect(total).toBe(K * s.aOrigin.itemSize);
     // Same on every attribute — they are written and flagged together.
     for (const attr of [s.aTarget, s.aTimes, s.aStyle, s.aColor]) {
-      expect(attr.updateRanges.reduce((n, r) => n + r.count, 0)).toBe(K);
+      expect(attr.updateRanges.reduce((n, r) => n + r.count, 0)).toBe(K * attr.itemSize);
     }
     s.dispose();
   });
@@ -200,10 +211,12 @@ describe("Sparks ring buffer", () => {
     const ranges = s.aOrigin.updateRanges;
     expect(ranges.length).toBe(2);
     const [head, tail] = ranges as [{ start: number; count: number }, { start: number; count: number }];
-    // The first span runs to the end of the buffer; the second restarts at 0.
-    expect(head.start + head.count).toBe(s.capacity);
+    // The ranges are in ARRAY ELEMENTS (itemSize 3 for `aOrigin`), not instances. The
+    // first span runs to the end of the buffer; the second restarts at 0.
+    const IS = s.aOrigin.itemSize;
+    expect(head.start + head.count).toBe(s.capacity * IS);
     expect(tail.start).toBe(0);
-    expect(head.count + tail.count).toBe(K);
+    expect(head.count + tail.count).toBe(K * IS);
     s.dispose();
   });
 });

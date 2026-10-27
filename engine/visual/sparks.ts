@@ -105,6 +105,144 @@ export class Sparks {
   private factor: number;
   /** §9.11 — 1.3 under reduced motion, 1 otherwise. */
   private durationScale = 1;
+  /** DEBUG ONLY — a multiplier on size and brightness. See `setAppearanceScale`. */
+  private appearanceScale = 1;
+  /**
+   * DEBUG ONLY — what the GPU actually has.
+   *
+   * The live path renders no comet at any scale, while `debugSpawn` renders a glorious
+   * one, and both go through `director.fire`. So the difference has to be in the data the
+   * shader reads: `aOrigin`, `aTarget`, `aTimes`, `aStyle`. This reports, for the most
+   * recently written instances, the values the vertex shader will evaluate.
+   */
+  getLastSpawnDebug(): {
+    uTime: number;
+    instances: Array<{
+      origin: [number, number, number];
+      target: [number, number, number];
+      spawnTime: number;
+      duration: number;
+      delay: number;
+      kind: number;
+      size: number;
+      brightness: number;
+      age: number;
+      alive: boolean;
+    }>;
+    /** alive instances per kind: [streak, botPulse, burst] */
+    aliveByKind: [number, number, number];
+    /** instances ever written per kind */
+    totalByKind: [number, number, number];
+    /** Live streak instances, from anywhere in the pool. */
+    liveStreaks: Array<{
+      origin: [number, number, number];
+      target: [number, number, number];
+      spawnTime: number;
+      duration: number;
+      delay: number;
+      kind: number;
+      size: number;
+      brightness: number;
+      age: number;
+      alive: boolean;
+    }>;
+    capacity: number;
+  } {
+    const uTime = this.material.uniforms.uTime!.value as number;
+    const oA = this.aOrigin.array as Float32Array;
+    const tA = this.aTarget.array as Float32Array;
+    const tmA = this.aTimes.array as Float32Array;
+    const sA = this.aStyle.array as Float32Array;
+    const out: Array<{
+      origin: [number, number, number];
+      target: [number, number, number];
+      spawnTime: number;
+      duration: number;
+      delay: number;
+      kind: number;
+      size: number;
+      brightness: number;
+      age: number;
+      alive: boolean;
+    }> = [];
+    // The whole pool, scanned. Looking only at the last few instances is useless: one
+    // burst writes 48 of them and buries everything else.
+    const aliveByKind: [number, number, number] = [0, 0, 0];
+    const totalByKind: [number, number, number] = [0, 0, 0];
+    // Live **streaks** from the whole pool. Looking only at the last few instances is
+    // useless: one burst writes 48 of them and buries everything else.
+    const liveStreaks: Array<{
+      origin: [number, number, number];
+      target: [number, number, number];
+      spawnTime: number;
+      duration: number;
+      delay: number;
+      kind: number;
+      size: number;
+      brightness: number;
+      age: number;
+      alive: boolean;
+    }> = [];
+    for (let i = 0; i < this.capacity; i++) {
+      const kind = sA[i * 4]!;
+      const spawnTime = tmA[i * 4]!;
+      const duration = tmA[i * 4 + 1]!;
+      const delay = tmA[i * 4 + 2]!;
+      const age = uTime - spawnTime - delay;
+      const alive = age >= 0 && age <= duration && duration > 0;
+      const k = kind < 0.5 ? 0 : kind < 1.5 ? 1 : 2;
+      if (duration > 0) totalByKind[k]!++;
+      if (alive) {
+        aliveByKind[k]!++;
+        if (k === 0 && liveStreaks.length < 48) {
+          liveStreaks.push({
+            origin: [oA[i * 3]!, oA[i * 3 + 1]!, oA[i * 3 + 2]!],
+            target: [tA[i * 3]!, tA[i * 3 + 1]!, tA[i * 3 + 2]!],
+            spawnTime,
+            duration,
+            delay,
+            kind,
+            size: sA[i * 4 + 1]!,
+            brightness: sA[i * 4 + 3]!,
+            age,
+            alive,
+          });
+        }
+      }
+    }
+    for (let k = 0; k < 16; k++) {
+      const i = (this.head - 1 - k + this.capacity * 2) % this.capacity;
+      const spawnTime = tmA[i * 4]!;
+      const duration = tmA[i * 4 + 1]!;
+      const delay = tmA[i * 4 + 2]!;
+      const age = uTime - spawnTime - delay;
+      out.push({
+        origin: [oA[i * 3]!, oA[i * 3 + 1]!, oA[i * 3 + 2]!],
+        target: [tA[i * 3]!, tA[i * 3 + 1]!, tA[i * 3 + 2]!],
+        spawnTime,
+        duration,
+        delay,
+        kind: sA[i * 4]!,
+        size: sA[i * 4 + 1]!,
+        brightness: sA[i * 4 + 3]!,
+        age,
+        alive: age >= 0 && age <= duration,
+      });
+    }
+    return {
+      uTime,
+      instances: out,
+      liveStreaks,
+      aliveByKind,
+      totalByKind,
+      capacity: this.capacity,
+    };
+  }
+
+  /** DEBUG ONLY — a multiplier on the particle count. See `setParticleScale`. */
+  private particleScale = 1;
+  /** DEBUG ONLY — whether the spark system draws at all. See `setEnabled`. */
+  private enabled = true;
   private totalSpawned = 0;
   /** Preallocated so the spawn path never allocates (§9.5). */
   private readonly target = new THREE.Vector3();
@@ -166,7 +304,7 @@ export class Sparks {
   /** Particles an event of `base` particles will actually spawn. */
   countFor(base: number): number {
     // Never below one: a spawn that rounds to zero would silently drop an edit.
-    return Math.max(1, Math.round(base * this.factor));
+    return Math.max(1, Math.round(base * this.factor * this.particleScale));
   }
 
   /**
@@ -177,6 +315,60 @@ export class Sparks {
    * particle drifting slowly for longer is the calmer version of itself. Removing
    * them would remove the visual event entirely.
    */
+  /**
+   * DEBUG ONLY — a multiplier on the streak's size and brightness.
+   *
+   * **Why this exists.** A typical Wikipedia edit has magnitude ≈ 0.19, and §9.5's
+   * formula gives it `10 + 16·m` = **13 particles**, each `0.06 + 0.1·m` ≈ **0.078**
+   * world units across. At the shell's distance that is a **5-pixel** speck, at low
+   * brightness, for 1.7 s, one at a time. `debugSpawn` uses magnitude 0.7 and fires
+   * 400 at once, which is why the T4.2 screenshots looked right — the real path looks
+   * nothing like them.
+   *
+   * So the comet is genuinely too small to read as "a comet streaking into the core".
+   * How much bigger it should be is a judgement, and a judgement that can be dialled
+   * from a URL is one a human can settle by looking.
+   *
+   * **The human's verdict (2026-10-27): the comets are visible, the §9.5 curve reads
+   * better than any alternative, and at 1.5× the comet is "on the bigger side" — so
+   * smaller. The default is therefore 1.0**, with the knob still available for anyone
+   * who wants to compare.
+   */
+  setAppearanceScale(s: number): void {
+    this.appearanceScale = Number.isFinite(s) && s > 0 ? s : 1;
+  }
+
+  /** DEBUG ONLY — the current appearance multiplier, so a URL override can be verified. */
+  get appearanceMultiplier(): number {
+    return this.appearanceScale;
+  }
+
+  /**
+   * DEBUG ONLY — make the whole system inert.
+   *
+   * The dust test measures "light outside the core", and that was dust-only **because
+   * the comets never rendered**. Now they do, so the dust's own contribution cannot be
+   * separated from a comet that happened to be in frame.
+   */
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    this.mesh.visible = on;
+  }
+
+  /**
+   * DEBUG ONLY — a multiplier on the particle count.
+   *
+   * §9.5 gives a typical edit `10 + 16·m` = 13 particles, and the tier's
+   * `particleFactor` cuts that to **6 on the low tier**. Six dots along a trail is a
+   * dotted line, not a streak — and a 2-pixel dot is not a comet.
+   */
+  setParticleScale(s: number): void {
+    this.particleScale = Number.isFinite(s) && s > 0 ? s : 1;
+  }
+  get particleMultiplier(): number {
+    return this.particleScale;
+  }
+
   setReducedMotion(on: boolean): void {
     this.durationScale = on ? 1.3 : 1;
   }
@@ -276,8 +468,8 @@ export class Sparks {
     // §9.11 scales this under reduced motion; §9.5 fixes the base values.
     const duration = sparkDuration(magnitude) * this.durationScale;
     const seed = Math.random() * 1000;
-    const size = (0.06 + 0.1 * magnitude) * sizeScale;
-    const brightness = (1.0 + 1.5 * magnitude) * brightnessScale;
+    const size = (0.06 + 0.1 * magnitude) * sizeScale * this.appearanceScale;
+    const brightness = (1.0 + 1.5 * magnitude) * brightnessScale * this.appearanceScale;
 
     const oA = this.aOrigin.array as Float32Array;
     const tA = this.aTarget.array as Float32Array;
@@ -313,12 +505,27 @@ export class Sparks {
     }
 
     // §9.5 — "wrapping with up to two contiguous ranges".
+    //
+    // **`addUpdateRange` takes ARRAY ELEMENTS, not instances.** three.js's
+    // `BufferAttribute.addUpdateRange(start, count)` documents the start as "position at
+    // which to update" in the attribute's own array, and the renderer does
+    // `bufferSubData(type, range.start * BYTES_PER_ELEMENT, array, range.start, range.count)`.
+    // `aOrigin` has itemSize 3 and `aTimes` itemSize 4, so the instance range
+    // [s, s+c) must be uploaded as the element range [s*itemSize, c*itemSize).
+    //
+    // Passing the instance numbers directly uploaded a **misaligned** slice — the wrong
+    // bytes entirely — so the sparks' positions and timings never reached the GPU and
+    // **the comets did not render at all**. The symptom was "the comet in the first five
+    // seconds and then no more"; the cause was a unit mismatch at one call site.
+    //
+    // `spawnRanges` was right all along and had a unit test: it returns *instance*
+    // spans. The conversion to elements belongs here, at the boundary.
     for (const r of spawnRanges(this.head, K, this.capacity)) {
-      this.aOrigin.addUpdateRange(r.start, r.count);
-      this.aTarget.addUpdateRange(r.start, r.count);
-      this.aTimes.addUpdateRange(r.start, r.count);
-      this.aStyle.addUpdateRange(r.start, r.count);
-      this.aColor.addUpdateRange(r.start, r.count);
+      this.aOrigin.addUpdateRange(r.start * this.aOrigin.itemSize, r.count * this.aOrigin.itemSize);
+      this.aTarget.addUpdateRange(r.start * this.aTarget.itemSize, r.count * this.aTarget.itemSize);
+      this.aTimes.addUpdateRange(r.start * this.aTimes.itemSize, r.count * this.aTimes.itemSize);
+      this.aStyle.addUpdateRange(r.start * this.aStyle.itemSize, r.count * this.aStyle.itemSize);
+      this.aColor.addUpdateRange(r.start * this.aColor.itemSize, r.count * this.aColor.itemSize);
     }
 
     this.head = nextHead(this.head, K, this.capacity);

@@ -98,6 +98,17 @@ declare global {
       endA4Calibration?: () => void;
       /** Which calibration steps have reached the scheduler, in order. */
       getA4Fired?: () => string[];
+      /** How many fired notes produced a comet inside the viewport. */
+      getNoteVisibility?: (window?: number) => {
+        total: number;
+        onScreen: number;
+        fraction: number;
+        byWiki: Record<string, { fired: number; onScreen: number }>;
+        sessionFired: number;
+        sessionOnScreen: number;
+        sessionFraction: number;
+      };
+      resetVisibilityCounters?: () => void;
       /** The matched A/B for elevation — same note, same pitch, only the position
        *  changes. Returns void; the sequence is visible in the on-screen readout. */
       playA4Timbres?: (gapSec?: number) => void;

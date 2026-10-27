@@ -147,8 +147,22 @@ test.describe("T5.4 — metadata", () => {
     // A tag pointing at a 404 is worse than no tag — some crawlers cache the failure.
     const og = /property="og:image" content="([^"]+)"/.exec(html)?.[1];
     expect(og).toBeTruthy();
-    const res = await page.request.get(og!);
-    expect(res.status(), `og:image ${og} must exist`).toBe(200);
+
+    // The **path** is fetched from this server, not the absolute URL.
+    //
+    // `metadataBase` defaults to `https://sound-of-knowledge.example`, and `.example` is
+    // a reserved TLD that never resolves — so fetching the absolute URL was a DNS
+    // lookup, and the test failed with `ENOTFOUND` on any machine without a hosts
+    // entry. It was checking the resolver, not the tag. It fails identically on the
+    // unmodified tree, so it is pre-existing and environmental.
+    //
+    // What the tag actually claims is that the image exists at that path on the site
+    // that serves it, so that is what is checked. The absolute URL is still checked for
+    // being absolute and well-formed.
+    expect(og, "og:image must be an absolute URL").toMatch(/^https?:\/\//);
+    const path = new URL(og!).pathname;
+    const res = await page.request.get(path);
+    expect(res.status(), `og:image ${path} must exist`).toBe(200);
   });
 
   test("the og image really is 1200x630", async ({ page }) => {

@@ -155,6 +155,16 @@ export interface DataSource {
   seed?: number;
   /** `?rateMul=` — scales the synthetic source's arrival rate. */
   rateMul?: number;
+  /** `?camRadius=` — override the camera's orbit radius. */
+  camRadius?: number | null;
+  /** `?fov=` — override the field of view. */
+  fov?: number | null;
+  /** `?cometScale=` — a multiplier on the comet's size and brightness. */
+  cometScale?: number | null;
+  /** `?cometCount=` — a multiplier on the comet's particle count. */
+  cometCount?: number | null;
+  /** `?nocomets=1` — make the spark system inert. */
+  noComets?: boolean;
 }
 
 export interface EngineOptions {
@@ -241,6 +251,12 @@ export class Engine {
   private disposed = false;
   /** DEBUG ONLY — A4 calibration gate on stream delivery. See `runA4Calibration`. */
   private ingestPaused = false;
+  /** DEBUG ONLY — the last notes that fired, so their on-screen visibility can be asked.
+   *  Fixed size, so it cannot grow. */
+  private recentFired: NoteEvent[] = [];
+  /** DEBUG ONLY — whole-session counters for the framing comparison. */
+  private sessionFired = 0;
+  private sessionOnScreen = 0;
   /** DEBUG ONLY — which calibration callbacks have fired, in order. Diagnostics only. */
   private a4Fired: string[] = [];
   /** DEBUG ONLY — `notesScheduled` at calibration start, so steps can be counted against
@@ -345,6 +361,10 @@ export class Engine {
       },
     });
     this.visuals = engine;
+    // `?camRadius=` / `?fov=` — the framing overrides, for evaluating §9.1's camera
+    // placement against the alternative. See `readUrlOverrides`.
+    if (this.opts.data?.camRadius != null) engine.rig.setRadiusOverride(this.opts.data.camRadius);
+    if (this.opts.data?.fov != null) engine.setFovOverride(this.opts.data.fov);
 
     const orb = new Orb({ tier: engine.tier });
     const sparks = new Sparks({ tier: engine.tier });
@@ -369,6 +389,14 @@ export class Engine {
     if (dustOff) dust.points.visible = false;
     this.orb = orb;
     this.sparks = sparks;
+    // `?cometScale=` — a multiplier on the comet's size and brightness. A typical edit
+    // gives a 13-particle, 5-pixel streak; the comet has to be *made* to read as a comet.
+    if (this.opts.data?.cometScale != null) sparks.setAppearanceScale(this.opts.data.cometScale);
+    if (this.opts.data?.cometCount != null) sparks.setParticleScale(this.opts.data.cometCount);
+    // `?nocomets=1` — the spark system inert, so another visual system can be measured
+    // on its own. The dust test needs this: "light outside the core" was dust-only
+    // because the comets never rendered, and now it is not.
+    if (this.opts.data?.noComets === true) sparks.setEnabled(false);
     this.rings = rings;
     this.dust = dust;
 
@@ -524,6 +552,27 @@ export class Engine {
       const d = note.dir;
       this.shellPos.set(d.x * note.radius, d.y * note.radius, d.z * note.radius);
       this.director?.fire(note, this.shellPos, renderNow);
+      // Keep the fired notes so `getNoteVisibility` can ask how many of them actually
+      // landed on screen. A fixed-size ring, so it cannot grow.
+      this.recentFired.push(note);
+      if (this.recentFired.length > 200) this.recentFired.shift();
+
+      // Whole-session visibility counters, so a framing comparison can be read as a
+      // number rather than as an impression.
+      this.sessionFired++;
+      {
+        const cam = this.visuals?.camera;
+        if (cam) {
+          const p = new THREE.Vector3(
+            note.dir.x * note.radius,
+            note.dir.y * note.radius,
+            note.dir.z * note.radius,
+          ).project(cam);
+          if (p.z > -1 && p.z < 1 && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1) {
+            this.sessionOnScreen++;
+          }
+        }
+      }
     }
 
     this.director?.flush(renderNow);
@@ -1138,8 +1187,150 @@ export class Engine {
   }
 
   /**
-   * DEBUG ONLY — the visual layers' spawn counts.
+   * DEBUG ONLY — of the notes that have just fired, how many produced a comet that was
+   * actually **on screen**?
    *
+   * §9.1 puts the camera at radius 5.5 *inside* the 7-13 edit shell, so most of the
+   * sphere is beside or behind the viewer. A note can be scheduled, heard, and struck
+   * into the orb with nothing visible ever happening — and the engine's counters cannot
+   * tell the difference, because every one of those notes counts as a success.
+   *
+   * This projects each fired note's shell position through the live camera and reports
+   * how many landed inside the viewport.
+   */
+  getNoteVisibility(window = 120): {
+    total: number;
+    onScreen: number;
+    fraction: number;
+    /** wiki → { fired, onScreen }, so traffic share can be compared with visibility. */
+    byWiki: Record<string, { fired: number; onScreen: number }>;
+    /** Cumulative since the last reset, for a whole-session figure. */
+    sessionFired: number;
+    sessionOnScreen: number;
+    sessionFraction: number;
+  } {
+    const cam = this.visuals?.camera;
+    if (!cam) {
+      return {
+        total: 0,
+        onScreen: 0,
+        fraction: 0,
+        byWiki: {},
+        sessionFired: 0,
+        sessionOnScreen: 0,
+        sessionFraction: 0,
+      };
+    }
+    const recent = this.recentFired.slice(-window);
+    const byWiki: Record<string, { fired: number; onScreen: number }> = {};
+    let onScreen = 0;
+    for (const n of recent) {
+      const v = new THREE.Vector3(n.dir.x * n.radius, n.dir.y * n.radius, n.dir.z * n.radius);
+      v.project(cam);
+      const on = v.z > -1 && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+      if (on) onScreen++;
+      const w = n.edit.wiki;
+      const rec = byWiki[w] ?? { fired: 0, onScreen: 0 };
+      rec.fired++;
+      if (on) rec.onScreen++;
+      byWiki[w] = rec;
+    }
+    return {
+      total: recent.length,
+      onScreen,
+      fraction: recent.length === 0 ? 0 : onScreen / recent.length,
+      byWiki,
+      sessionFired: this.sessionFired,
+      sessionOnScreen: this.sessionOnScreen,
+      sessionFraction:
+        this.sessionFired === 0 ? 0 : this.sessionOnScreen / this.sessionFired,
+    };
+  }
+
+  /** DEBUG ONLY — reset the whole-session visibility counters. */
+  resetVisibilityCounters(): void {
+    this.sessionFired = 0;
+    this.sessionOnScreen = 0;
+  }
+
+
+  /** DEBUG ONLY — what the GPU actually has for the sparks. */
+  getSparkDebug(): unknown {
+    return this.sparks?.getLastSpawnDebug() ?? null;
+  }
+
+  /**
+   * DEBUG ONLY — where the LIVE streak particles actually are, on screen or not.
+   *
+   * The pool holds 14–33 live streaks at any moment, so the data is there. The question
+   * is whether they are *visible*: a particle sits at
+   * `mix(origin, target, pow(u, 1.6))`, so mid-flight it is still a third of the way
+   * from the shell — off-screen — while the size curve peaks. It only becomes visible
+   * near the core, small and half-faded.
+   *
+   * So this projects each live particle and reports how many are in frame, and how big
+   * they are in pixels when they are.
+   */
+  getLiveSparkVisibility(): {
+    live: number;
+    onScreen: number;
+    /** On screen AND more than half opaque — i.e. actually visible. */
+    visible: number;
+    screenPx: number[];
+    sample: Array<{ u: number; onScreen: boolean; px: number; r: number; alpha: number }>;
+  } {
+    const cam = this.visuals?.camera;
+    const dbg = this.sparks?.getLastSpawnDebug();
+    if (!cam || !dbg) {
+      return { live: 0, onScreen: 0, visible: 0, screenPx: [], sample: [] };
+    }
+
+    const tanH = Math.tan(((cam.fov * Math.PI) / 180 / 2) * cam.aspect);
+    const halfW = this.canvas ? this.canvas.clientWidth / 2 : 640;
+    const v = new THREE.Vector3();
+    let live = 0;
+    let onScreen = 0;
+    let visible = 0;
+    const screenPx: number[] = [];
+    const sample: Array<{ u: number; onScreen: boolean; px: number; r: number; alpha: number }> = [];
+
+    for (const inst of dbg.liveStreaks) {
+      if (!inst.alive) continue;
+      live++;
+      const u = inst.duration > 0 ? Math.min(1, Math.max(0, inst.age / inst.duration)) : 0;
+      const e = Math.pow(u, 1.6);
+      v.set(
+        inst.origin[0] + (inst.target[0] - inst.origin[0]) * e,
+        inst.origin[1] + (inst.target[1] - inst.origin[1]) * e,
+        inst.origin[2] + (inst.target[2] - inst.origin[2]) * e,
+      );
+      const r = v.length();
+      const dist = v.distanceTo(cam.position);
+      const px = (0.5 * inst.size * halfW) / (dist * tanH);
+      v.project(cam);
+      const on = v.z > -1 && v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+      // The shader's alpha for the current curve. "On screen" is not enough — a
+      // particle at 5 % alpha is on screen and invisible.
+      const alpha =
+        u <= 0.08 ? u / 0.08 : u <= 0.9 ? 1 : Math.max(0, 1 - (u - 0.9) / 0.1);
+      if (on) {
+        onScreen++;
+        if (alpha > 0.5) {
+          visible++;
+          screenPx.push(px);
+        }
+      }
+      if (sample.length < 8) sample.push({ u, onScreen: on, px, r, alpha });
+    }
+    return { live, onScreen, visible, screenPx, sample };
+  }
+
+  /** DEBUG ONLY — the comet's appearance multiplier, so a URL override can be verified. */
+  getCometScale(): number {
+    return this.sparks?.appearanceMultiplier ?? 1;
+  }
+
+  /** DEBUG ONLY — the visual layers' spawn counts.
    * A7 and A8 are about *visuals* — a shockwave ring for a revert, a radial starburst
    * for a new page — and the layer handles were private, so there was no way to check
    * them from outside except by looking. Same reasoning as `getPannerStates`.

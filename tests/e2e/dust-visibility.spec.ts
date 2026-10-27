@@ -23,6 +23,12 @@ import "./sok-window";
  * | 0 (off)     | 2   | 0.000 % |
  * | 0.35        | 13  | 0.025 % |
 * | 0.75 (now)  | ~70 | —        |
+ *
+ * **`?nocomets=1` on every page here.** The measurement is "light outside the core",
+ * and that was dust-only *because the comets never rendered* — they did not, for the
+ * whole project, until the `addUpdateRange` unit mismatch was found. Now they do, and a
+ * comet that happens to be in frame is indistinguishable from dust by this metric. So
+ * the spark system is switched off, and the dust is measured on its own.
  */
 
 /** Peak channel value outside the orb's disc, read from inside the frame loop. */
@@ -74,10 +80,10 @@ test.describe("§9.7 — the dust is visible", () => {
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1000, height: 640 });
 
-    await enter(page, "?source=synthetic&nodust=1");
+    await enter(page, "?source=synthetic&nodust=1&nocomets=1");
     const off = await probe(page);
 
-    await enter(page, "?source=synthetic");
+    await enter(page, "?source=synthetic&nocomets=1");
     const on = await probe(page);
 
     // The switch has to actually remove the dust, or the whole measurement is
@@ -116,7 +122,7 @@ test.describe("§9.7 — the dust is visible", () => {
     // measuring the grain — which is precisely the mistake this file exists to avoid.
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1000, height: 640 });
-    await enter(page, "?source=synthetic&nodust=1");
+    await enter(page, "?source=synthetic&nodust=1&nocomets=1");
     const off = await probe(page);
     // 24 is the same bound the visible case has to clear. If the dust is off and the
     // grain alone reaches it, the bound is measuring the grain.
@@ -135,9 +141,9 @@ test.describe("§11.7 — the dust sweep handles exist on the live path", () => 
     test.setTimeout(180_000);
     await page.setViewportSize({ width: 1000, height: 640 });
 
-    await enter(page, "?source=synthetic&dustAlpha=0");
+    await enter(page, "?source=synthetic&dustAlpha=0&nocomets=1");
     const zero = await probe(page);
-    await enter(page, "?source=synthetic&dustAlpha=1");
+    await enter(page, "?source=synthetic&dustAlpha=1&nocomets=1");
     const one = await probe(page);
     expect(one.peak).toBeGreaterThan(zero.peak * 3);
   });

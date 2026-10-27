@@ -78,7 +78,16 @@ export function Experience({
           // down, because reading `window.location` during render is a hydration
           // mismatch (React #418, seen in T5.1).
           settings: urlSettings,
-          data: { mode: dataMode, seed: seed, rateMul: rateMul },
+          data: {
+            mode: dataMode,
+            seed: seed,
+            rateMul: rateMul,
+            camRadius: data.camRadius,
+            fov: data.fov,
+            cometScale: data.cometScale,
+            cometCount: data.cometCount,
+            noComets: data.noComets,
+          },
           search: search,
           debug: false,
         });
@@ -136,6 +145,10 @@ export function Experience({
           runA4Calibration: (o?: { gapMs?: number }) => engine.runA4Calibration(o),
           endA4Calibration: () => engine.endA4Calibration(),
           getA4Fired: () => engine.getA4Fired(),
+          // The framing comparison: how many fired notes produced a comet the viewer
+          // could actually see.
+          getNoteVisibility: (window?: number) => engine.getNoteVisibility(window),
+          resetVisibilityCounters: () => engine.resetVisibilityCounters(),
           // The matched A/B for elevation: the same note, same pitch, same waveform,
           // only the panner's position changed.
           playA4Timbres: (gapSec?: number) => engine.playA4Timbres(gapSec),
@@ -163,7 +176,7 @@ export function Experience({
     // `urlSettings` / `dataMode` / `seed` are derived from `search` by `useMemo`, so
     // they are stable for a given URL and re-running on them only rebuilds the engine
     // when the query string actually changed — which is the point of listing them.
-  }, [debug, urlSettings, dataMode, seed, rateMul, search]);
+  }, [debug, urlSettings, dataMode, seed, rateMul, data.camRadius, data.fov, data.cometScale, data.cometCount, data.noComets, search]);
 
   /**
    * §11.2 — `start()` runs **inside the click handler**, because that is the only

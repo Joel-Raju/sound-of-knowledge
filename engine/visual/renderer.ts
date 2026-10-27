@@ -151,6 +151,13 @@ export class VisualEngine {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
+  /**
+   * DEBUG ONLY — a field-of-view override, for the same reason as the camera's radius
+   * override: §9.1's 58° FOV combined with a camera inside the edit shell means most
+   * of the sphere is out of frame, and the framing is a decision a human should settle
+   * by looking.
+   */
+  private fovOverride: number | null = null;
   readonly rig: CameraRig;
   readonly palette: Palette;
   readonly governor: Governor;
@@ -307,6 +314,10 @@ export class VisualEngine {
       // Spec §9.1: no MSAA (post-processing does the AA), no alpha, no stencil.
       // `depth: false` is deliberately NOT set — §9.2 needs depth testing even
       // though nothing writes depth.
+      // `preserveDrawingBuffer: true` was tried here and **made no measurable
+      // difference** to the frozen-frame measurement (§13.4 item 2's test): 0.146-0.233
+      // without it, 0.140-0.231 with it. So it is not set — it costs a little and buys
+      // nothing.
       antialias: false,
       alpha: false,
       powerPreference: "high-performance",
@@ -418,7 +429,7 @@ export class VisualEngine {
     this.renderer.setSize(w, h, true);
 
     this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.applyFov();
 
     // §9.8 — the composer's targets follow the same size, on every resize and on
     // every governor scale change. Called after `renderer.setSize` so the composer
@@ -632,6 +643,17 @@ export class VisualEngine {
   /** §10.2 — fire a visual event's trauma shake, subject to reduced motion. */
   addTrauma(amount: number): void {
     this.rig.addTrauma(amount);
+  }
+
+  /** DEBUG ONLY — override the field of view. `null` restores §9.1's 58°. */
+  setFovOverride(fov: number | null): void {
+    this.fovOverride = fov !== null && Number.isFinite(fov) && fov > 10 && fov < 170 ? fov : null;
+    this.applyFov();
+  }
+
+  private applyFov(): void {
+    this.camera.fov = this.fovOverride ?? CAMERA.fov;
+    this.camera.updateProjectionMatrix();
   }
 
   private applyRig(): void {
