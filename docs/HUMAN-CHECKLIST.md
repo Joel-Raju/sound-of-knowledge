@@ -126,13 +126,24 @@ This file is the authoritative list. It is populated as the build progresses.
 
 ## B. Audio quality
 
-- [ ] **B1.** First 60 seconds feel calm and musical, **never cacophonous**.
-- [ ] **B2.** Nothing harsh on headphones at 80 % volume.
-- [ ] **B3.** Loudness comfortable at 80 %; **gongs are not startling**.
+- [x] **B1.** ✅ **First 60 seconds feel calm and musical, never cacophonous.** _(T6.6.
+      Human-verified 2026-10-27.)_
+- [x] **B2.** ✅ **Nothing harsh on headphones at 80 % volume.** _(T6.6. Human-verified
+      2026-10-27.)_
+- [x] **B3.** ✅ **Loudness comfortable at 80 %; gongs are not startling.** _(T6.6.
+      Human-verified 2026-10-27.)_
+      _Also confirmed in the same pass: **the busier character is "about right"** — with
+      the energy finally alive, the note density follows the traffic instead of sitting at
+      its floor, and the human judged the result as correct rather than too dense._
 - [ ] **B4.** No audio glitches over 30 continuous minutes.
 - [ ] **B5.** Sound direction matches comet origin (left/right/behind) on headphones.
-- [ ] **B6.** Audio and visual feel simultaneous. If Bluetooth desyncs, adjust
-      `avSyncMs` (`?debug=1`) and record the value used here: `______ ms`.
+- [x] **B6.** ✅ **Audio and visual feel simultaneous.** _(T6.6. Human-verified
+      2026-10-27.)_
+      _No `avSyncMs` correction was needed — the value used here is **0 ms**._
+      _This is §10.1's heard-time gate doing its job: the visual is queued when the note
+      is *scheduled* (up to 0.15 s ahead, or 1.25 s when the tab is hidden), and released
+      only once `currentTime − outputLatency − avSyncMs ≥ note.when`. So the comet
+      appears at the instant the sound is audible, not when it was booked._
 - [ ] **B7.** Harmony never sounds random — it always sounds like one piece.
 - [ ] **B8.** Silence between events reads as a feature, not a dropout.
 - [x] **B9.** ✅ **Aeolian/violet is actually reachable. `EPS_REF = 15`.** _(T6.6.)_
