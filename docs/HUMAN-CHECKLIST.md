@@ -116,8 +116,13 @@ This file is the authoritative list. It is populated as the build progresses.
       _§9.3's palette is per-mode in OKLCH: Aeolian violet (295°), Dorian blue-violet
       (250°), Mixolydian green (165°), Lydian gold (85°), with a 2 s ease. All four
       modes are reachable at the measured rate — see B9._
-- [ ] **A10.** Article titles fade in occasionally and are clickable; a ticker shows
-      the latest notable edit.
+- [x] **A10.** ✅ **Article titles fade in occasionally and are clickable; a ticker shows
+      the latest notable edit.** _(T6.6. Human-verified 2026-10-27.)_
+      _Both halves confirmed separately: **"floating titles → appeared and clickable"**
+      and **"ticker → updating"**. The floating titles are §9.9's six-anchor pool in the
+      3D scene — each one an `<a>` with the article's real URL, and the space→underscore
+      →`encodeURIComponent` ordering in `buildArticleHref` is load-bearing. The ticker is
+      §11.4's bottom-left line, throttled at 2.5 s and excluding bots by design._
 
 ## B. Audio quality
 
