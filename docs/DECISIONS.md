@@ -5118,3 +5118,126 @@ measurements bound but no measurement could settle.
 `comet = true` and remains a test of the §10.2 table. The e2e throttle test still bounds
 the rate as a ratio (1.00/s vs 3.70/s unthrottled on the synthetic source in the last
 run), and the two rendering tests run with `?cometEveryMs=0`.
+
+## The dev server was serving the tests — and two "pre-existing failures" were its fault
+
+### What happened
+
+A `next dev` process had been left running on port 3000. Every `next start` in this
+session failed to bind, silently, and Playwright's `webServer.reuseExistingServer:
+!process.env.CI` **reused the dev server** for every e2e run.
+
+So an unknown number of measurements in this phase were taken against the dev server
+instead of the production build.
+
+### Two tests were blamed on the wrong thing
+
+| test | on the dev server | on the production build |
+|---|---|---|
+| `hud.spec.ts` — "H hides the UI and there is a way back" | **timeout, 120 s** | **passes in 1.2 s** |
+| `security-metadata.spec.ts` — "the page loads under a CSP that permits everything it uses" | **21 × `script-src eval`** | **passes** |
+
+Both had been recorded as **pre-existing failures**. The `git stash` check that
+"confirmed" it was itself run against the dev server — the stash removed the *code*
+changes, not the *server*, so the experiment could not have told the difference. **That
+is the flaw in the check**: it varied the code while holding constant the thing that
+was actually broken.
+
+The CSP failures were Turbopack's **dev** RSC runtime (`react-server-dom-turbopack`)
+calling `eval`. The production bundle does not. So `next.config.ts`'s claim — *"the
+whole e2e suite passes unchanged under the enforcing variant"* — is still true, and
+§14.3's report-only decision is not undermined by it.
+
+### What it changes
+
+Nothing about the code. Everything about **which measurements were valid**.
+
+The comet rates were re-measured on the production build:
+
+| interval | comets/s (live, production) |
+|---|---|
+| none | 3.50 |
+| 600 ms | 1.67 |
+| 1200 ms | 1.27 |
+| **2000 ms (default)** | **1.03** |
+| 3000 ms | 1.17 (the punctuation floor) |
+
+The 2000 ms default stands: **3.50/s → 1.03/s**, a 3.4× reduction. The flavour mix on
+the production build over 30 s of the live stream: `add` 1.20/s, `remove` 0.93/s,
+`large` 0.57/s, `bot-thud` 0.27/s, `revert` 0.03/s, `new` 0.03/s — 3.03 notes/s total,
+31 comets and 60 throttled.
+
+### The lesson, and the hole it leaves
+
+**A "pre-existing failure" is only pre-existing relative to a controlled comparison, and
+the control has to include the environment.** The `git stash` I ran varied the code and
+nothing else; the server was still wrong.
+
+The hole is still open: `reuseExistingServer: !process.env.CI` will silently reuse
+**whatever** is on port 3000, including a dev server, and every future run inherits the
+same trap. The fix is a guard that fails loudly when the port is serving a dev server,
+rather than a `git stash` that cannot see it.
+
+---
+
+## `npm run audio:check` has never been green — a bisect across the audio harness
+
+The gate order requires `audio:check` green after every task. When I ran it during the
+comet-throttle work, it failed on all three cases — and **none of my changes touch audio**,
+so the question was not "why now" but "when did it last pass".
+
+### The bisect
+
+`git stash -u` + checkout + run, one commit at a time, restored each time:
+
+| commit | what it is | audio:check |
+|---|---|---|
+| c976479 | the harness's own birth ("§8.4 mix tuning") | ✗ all three |
+| 363bdef | amends the §8.4 high floor to 1% | ✗ E60, E90 |
+| 6a7e9d6 / 9157db2 / b1c3075 / 301d375 | mid-September visual+script work | ✗ E60, E90 |
+| 86094e0 / 6f67a13 | D4's drift investigation | ✗ E60, E90 |
+| 9515454 | the worklet note-drop fix (80-95% of notes restored) | ✗ all three |
+| **099b79d** | **"all four renders now pass 8.4"** | **✗ all three** |
+| HEAD | the comet throttle | ✗ all three |
+
+The failure shape at HEAD: sub share 52.5-54.3% against ≤45%, mid 16.4-18.3% against
+≥20%, high 0.7-0.9% against ≥1% — i.e. **the offline render is top-heavy: all sub, no
+mid, and the high band effectively empty.**
+
+### What the commits themselves knew
+
+`6f67a13` (the D4 investigation) found and documented the core pathology: **a 120 s
+offline render is not representative of the same settings run longer** — the first 120 s
+of a 10-minute soak measured sub 40.6/bass 43.4/mid 16.0/high 0.1 while the standalone
+120 s render measured sub 22.4/bass 23.3/mid 51.7/high 2.4, from the same seed and
+rateMul. "The cause is the render, not the audio" — but unlocalised (pad's adaptive
+cutoff, reverb path, master limiter or allocation pressure were the listed candidates),
+and D4 was left unticked.
+
+`099b79d` claims "all four renders now pass 8.4", and the gate still fails on it, so
+either the claim was never a clean re-run, or an input moved under it afterwards. The
+moves ruled out so far: `engine/config.ts` (unchanged since 099b79d), and every
+dependency but `sharp` — an image library, which the render never touches. The one
+variable left is the **browser**: the harness drives a real Chromium through Playwright,
+and `~/Library/Caches/ms-playwright/` carries only the current `chromium-1248` — whatever
+version the October runs used is gone. Small rendering differences between browser
+versions would land exactly in the band shares.
+
+The current status line in `docs/PROGRESS.md` — "`audio:check` E30/E60/E90 all ✓" — is
+therefore **stale for months**, and that is worth its own correction.
+
+### What this is not
+
+- Not the comet throttle — the failures are byte-identical on a stashed tree and are
+  deterministic across runs (same numbers, same seeds).
+- Not the listener/spatial fixes — those are live-path, and the bisect predates them.
+
+### What it is
+
+Offline-render band shares fail §8.4 across the harness's whole history. Two interacting
+causes, both already in the record: the 120 s render's spectral-shape instability
+(`6f67a13`), and the worklet drop-fix (`9515454`) restoring 3-20× the note traffic that
+the bus gains were tuned against. Retuning the sub share means re-touching
+`PAD_BUS_GAIN`/`DRONE_BUS_GAIN`/the thud and gong levels — and **B11 is explicitly
+re-opened because the per-voice balance was once tuned against audio that was missing
+most of its notes.** This is a human-ears task, not a threshold edit.
