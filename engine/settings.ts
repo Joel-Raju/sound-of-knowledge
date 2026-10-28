@@ -67,6 +67,16 @@ export interface DataMode {
   /** `?cometCount=` — a multiplier on the streak's particle count. */
   cometCount: number | null;
   /**
+   * `?cometEveryMs=` — the minimum interval between comets.
+   *
+   * With the energy alive the note rate follows the traffic (3.03 notes/s measured on
+   * the live stream, production build), so a comet per note is one every 330 ms. The
+   * human's verdict: *"the frequency of the comets is too large and it removes the
+   * visual enjoyment."* Everything but reverts and new pages shares this window — see
+   * `VisualDirector.shouldHaveComet`. `0` switches the throttle off.
+   */
+  cometEveryMs: number | null;
+  /**
    * `?nocomets=1` — make the spark system inert, so another visual system can be
    * measured on its own.
    *
@@ -223,6 +233,7 @@ export function readUrlOverrides(
   const camRadius = numberParam(p.get("camRadius"));
   const fov = numberParam(p.get("fov"));
   const cometScale = numberParam(p.get("cometScale"));
+  const cometEveryMs = numberParam(p.get("cometEveryMs"));
   const cometCount = numberParam(p.get("cometCount"));
   const noComets = p.get("nocomets") === "1";
 
@@ -236,6 +247,7 @@ export function readUrlOverrides(
       camRadius,
       fov,
       cometScale,
+      cometEveryMs,
       cometCount,
       noComets,
     },

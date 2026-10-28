@@ -85,6 +85,7 @@ export function Experience({
             camRadius: data.camRadius,
             fov: data.fov,
             cometScale: data.cometScale,
+            cometEveryMs: data.cometEveryMs,
             cometCount: data.cometCount,
             noComets: data.noComets,
           },
@@ -176,7 +177,7 @@ export function Experience({
     // `urlSettings` / `dataMode` / `seed` are derived from `search` by `useMemo`, so
     // they are stable for a given URL and re-running on them only rebuilds the engine
     // when the query string actually changed — which is the point of listing them.
-  }, [debug, urlSettings, dataMode, seed, rateMul, data.camRadius, data.fov, data.cometScale, data.cometCount, data.noComets, search]);
+  }, [debug, urlSettings, dataMode, seed, rateMul, data.camRadius, data.fov, data.cometScale, data.cometCount, data.cometEveryMs, data.noComets, search]);
 
   /**
    * §11.2 — `start()` runs **inside the click handler**, because that is the only

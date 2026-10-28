@@ -16,7 +16,15 @@
  */
 import * as THREE from "three";
 
-import type { ModeId, NoteEvent, NormalizedEdit, Settings, Tier, Vec3 } from "./types";
+import type {
+  ModeId,
+  NoteEvent,
+  NoteFlavor,
+  NormalizedEdit,
+  Settings,
+  Tier,
+  Vec3,
+} from "./types";
 
 import { VisualEngine } from "./visual/renderer";
 import { Orb } from "./visual/orb";
@@ -161,6 +169,8 @@ export interface DataSource {
   fov?: number | null;
   /** `?cometScale=` — a multiplier on the comet's size and brightness. */
   cometScale?: number | null;
+  /** `?cometEveryMs=` — the minimum interval between comets, `0` = off. */
+  cometEveryMs?: number | null;
   /** `?cometCount=` — a multiplier on the comet's particle count. */
   cometCount?: number | null;
   /** `?nocomets=1` — make the spark system inert. */
@@ -463,6 +473,11 @@ export class Engine {
       labels,
     });
     this.director = director;
+    // `?cometEveryMs=` — the minimum interval between comets. The default is
+    // `DEFAULT_COMET_INTERVAL_SEC`; the knob is how the number was chosen.
+    if (this.opts.data?.cometEveryMs != null) {
+      director.setCometInterval(this.opts.data.cometEveryMs / 1000);
+    }
 
     engine.start();
 
@@ -551,7 +566,11 @@ export class Engine {
       }
       const d = note.dir;
       this.shellPos.set(d.x * note.radius, d.y * note.radius, d.z * note.radius);
-      this.director?.fire(note, this.shellPos, renderNow);
+      // §10.2 — the fire table is unchanged; this only decides *which* notes get to be a
+      // comet. Everything except reverts and new pages shares the 2 s window — see
+      // `shouldHaveComet` for the arithmetic that forces `large` into it.
+      const comet = this.director?.shouldHaveComet(note, renderNow) ?? true;
+      this.director?.fire(note, this.shellPos, renderNow, comet);
       // Keep the fired notes so `getNoteVisibility` can ask how many of them actually
       // landed on screen. A fixed-size ring, so it cannot grow.
       this.recentFired.push(note);
@@ -1340,12 +1359,21 @@ export class Engine {
     sparks: number;
     orbImpacts: number;
     labelsActive: number;
+    /** Comets actually fired, and routine notes throttled away. */
+    comets: number;
+    throttled: number;
+    /** Notes of each §10.2 flavour. */
+    flavors: Partial<Record<NoteFlavor, number>>;
   } {
+    const v = this.director?.visualCounts ?? { comets: 0, throttled: 0 };
     return {
       rings: this.rings?.spawned ?? -1,
       sparks: this.sparks?.spawned ?? -1,
       orbImpacts: this.orb?.impactCount ?? -1,
       labelsActive: this.labels?.activeCount ?? -1,
+      comets: v.comets,
+      throttled: v.throttled,
+      flavors: this.director?.flavorCounts ?? {},
     };
   }
 

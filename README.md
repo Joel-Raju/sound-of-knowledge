@@ -107,10 +107,17 @@ None are persisted — they exist so a data point can be reproduced from a URL a
 | `?density=` | `sparse` · `normal` · `dense` | musical density |
 | `?deep=` | 0–1 | override the background lightness (see below) |
 | `?dustAlpha=` · `?dustDensity=` · `?nodust=1` | 0–4 · `1` | the ambient dust, for measuring its contribution |
+| `?rateMul=` | > 0 | scales the synthetic source's arrival rate (the default is a stress test) |
+| `?camRadius=` · `?fov=` | number | overrides the §9.1 framing (radius 5.5, FOV 58°) |
+| `?cometScale=` · `?cometCount=` · `?cometEveryMs=` · `?nocomets=1` | number · `1` | the comet's size, particle count, and minimum interval (default 2000 ms); every flavour but reverts and new pages shares the interval, so the total lands near one comet per window. `?nocomets=1` switches comets off entirely |
 
 `?source` and `?project` are **different things** and both exist deliberately:
 `?source` is the data mode, `?project` is `Settings.source`. Collapsing them would break
 both.
+
+The last three rows are the **measurement knobs** — they exist because the numbers were
+chosen by measurement, and a number you cannot reproduce from a URL is a number you
+cannot check. `?cometEveryMs=0` switches the comet throttle off entirely.
 
 ---
 

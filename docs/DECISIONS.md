@@ -4978,3 +4978,143 @@ the spark system off so the dust can be measured on its own — the same idea as
 `.example` is a reserved TLD that never resolves. Verified pre-existing by `git stash`ing
 the entire change and re-running: it fails identically on the unmodified tree. It now
 fetches the *path* from the local server, and separately asserts the URL is absolute.
+
+## The comet frequency — a second fault the first fix exposed
+
+With the comets rendering at all, the human's next verdict was blunt: *"the frequency of
+the comets is too large and it removes the visual enjoyment."*
+
+**Why it was too large.** With the energy finally alive, the note rate follows the
+traffic: **3.0 notes/s** on the live stream. §10.2 gives every note a streak, so that is a
+comet every **330 ms**.
+
+**This was invisible until the comets rendered at all** — the same pattern as the curve
+before it. A feature that was broken was also, separately, wrong, and the second problem
+only became audible once the first was fixed.
+
+### The flavour mix, measured over 30 s of the live stream
+
+| flavour | rate | throttled? |
+|---|---|---|
+| `add` | 1.43/s | yes |
+| `remove` | 0.83/s | yes |
+| `large` | 0.27/s | no — punctuation |
+| `revert` | 0.17/s | no — punctuation |
+| `new` | 0.17/s | no — punctuation |
+| `bot-thud` | 0.17/s | yes |
+
+So the routine traffic is 2.26/s and the punctuation is 0.61/s.
+
+### The fix — a selection step *before* §10.2, not a change to it
+
+`VisualDirector.shouldHaveComet(note, now)` decides **which notes get to be a comet**. The
+fire table is untouched: §10.2 still says exactly what a note does when it has a comet, and
+its unit tests still pass unchanged.
+
+**The throttle lives outside the director on purpose.** The first attempt put it *inside*
+`fire()`'s switch, and it broke three §10.2 unit tests — correctly, because two notes in
+quick succession no longer both produced visuals. Keeping the selection and the table
+apart is what lets §10.2's tests stay a test of §10.2.
+
+**Reverts and new pages are never throttled.** They are the piece's
+punctuation, and §10.2 gives them their own distinct visuals — a shockwave ring, a radial
+burst, a streak at ×1.8 with a trauma shake and a bloom swell. A throttled note has **no
+comet at all**: no streak, no ring, no orb impact. It is not a degraded comet; it simply
+is not a visual event. §9.9's labels and the ticker still run for it, because they have
+their own gates and their own cadence.
+
+### The number
+
+**The human chose 2.0 s** over 1.2 s, for "more breathing room".
+
+| interval | comets/s (live) |
+|---|---|
+| none | 3.05 |
+| 600 ms | 1.60 |
+| 1200 ms | 1.15 |
+| 2000 ms | 0.87-1.03 |
+| 3000 ms | 1.15 (the punctuation floor) — **superseded, see the half-workers below** |
+
+`?cometEveryMs=` remains as the knob the number was chosen with.
+
+### The cost, stated
+
+Two things the throttle does that it should not have to:
+
+- **A routine edit that would have been a comet is just a sound.** The intended trade.
+- **The orb is pushed less often.** The orb's push is part of the comet, so the core
+  ripples less. At ~1.0 comets/s it still ripples about once a second, but it is
+  measurably calmer than before.
+
+### And what is now asserted
+
+`tests/e2e/comet-renders.spec.ts` has three tests:
+
+- **a comet renders** — lit pixels outside the core, thresholded on **peak brightness
+  (> 200)** rather than on lit-pixel count, because the count swung 923-4163 across runs
+  of the same build while the peak stayed stable (241-255 rendered, at most 161 with the
+  original `addUpdateRange` bug, which the test still fails on). It runs with
+  `?cometEveryMs=0` so it measures *rendering*, not *density*.
+- **the comet rate is bounded** — throttled vs unthrottled compared *in the same
+  process*, as a ratio, because the synthetic source is several times busier than the
+  live stream and an absolute bound failed for that reason alone.
+- **the update ranges are expressed in array elements** — the structural guard against the
+  unit mismatch coming back. Also runs unthrottled: its sampling needs a streak alive at
+  the instant of reading, and the default throttle now empties the pool.
+
+---
+
+## "Reduce it again by half" — the throttle reaches `large`
+
+With the 2.0 s interval shipping at ~1.0 comets/s, the human looked again:
+*"reduce it again by half."*
+
+### Why the interval alone could not do it
+
+The unthrottled portion was already the floor. Measured over 30 s of the live stream
+(production build): `add` 1.20/s, `remove` 0.93/s, `large` 0.57/s, `bot-thud` 0.27/s,
+`revert` 0.03/s, `new` 0.03/s — 3.03 notes/s. With `large` exempt, **no interval setting
+could take the total below ~0.6 comets/s of `large` alone**, and half of ~1.0 is 0.5.
+
+So the exempt set shrank: **everything except `revert` and `new` now shares one window**.
+The interval itself stays 2.0 s — the change is in *what competes*, not in *how often*.
+
+`revert` and `new` stay exempt deliberately. Their §10.2 visuals are the two most distinct
+things in the piece — a shockwave ring with a chromatic-aberration kick, and a radial
+birth burst (already one per page, `NoteEvent.visual` false for the trailing arpeggio) —
+and a combined 0.06-0.23/s of traffic. A throttle that could eat them would risk going
+minutes without a pagebirth or a revert ring, which is a different piece than the one
+§10.2 describes.
+
+### The cost, restated
+
+- **Most large edits are now sound only.** `large` competes with `add`/`remove` for the
+  window on arrival order, and at 0.5-0.6 arrivals/s vs 1.7/s it wins roughly one window
+  in four. Its trauma shake and bloom swell happen only when it *does* win — a rarer,
+  louder event, which is arguably closer to what "large" should mean.
+- **The orb is pushed at most once per window.** Succinct.
+
+### The measured rate
+
+| | comets/s (live, production build) |
+|---|---|
+| no throttle | 3.50 / 2.85 / 3.03 across three 30-64 s windows |
+| previous default (2000 ms, `large` exempt) | 1.03 |
+| **new default (2000 ms, all but `revert`/`new` sharing)** | **0.60-0.63 across three 60 s windows** |
+
+The window-limited portion sits at ~0.40/s (the shared 2 s window, bit by bursty
+arrivals) and the exempt `revert`/`new` add 0.03-0.20/s depending on the window — the
+stream's birth rate is the most variable of its flavours, so the shipped total ranges
+roughly 0.4-0.65/s window to window. Against the target (half of ~1.0) it lands close to
+half, and well under it whenever births are quiet.
+
+**Verified by the human on the live stream: "the rate feels right."** That is the
+acceptance criterion the numbers existed to serve — the rate is a judgement the
+measurements bound but no measurement could settle.
+
+### What the tests say
+
+`tests/unit/visual-fire.test.ts` is untouched — it calls `fire()` directly with
+`comet = true` and remains a test of the §10.2 table. The e2e throttle test still bounds
+the rate as a ratio (1.00/s vs 3.70/s unthrottled on the synthetic source in the last
+run), and the two rendering tests run with `?cometEveryMs=0`.

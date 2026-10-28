@@ -23,8 +23,14 @@ This file is the authoritative list. It is populated as the build progresses.
       reading "Best with headphones".
 - [ ] **A2.** On Enter, a low drone swells in over ~2.5 s; a dim breathing core
       fades up in a vast dark space with drifting dust; camera slowly dollies in.
-- [ ] **A3.** Within seconds, comets streak from around you into the core and
-      dissolve into it, rippling its surface.
+- [x] **A3.** ✅ **Verified — comets streak in, dissolve into the core, and the rate
+      reads.** _(Human-verified 2026-10-27.)_ The comets render (fixed `addUpdateRange`
+      units — see DECISIONS.md), fly from the shell into the core, and dissolve into it
+      with an orb ripple. Their frequency went through two rounds of human tuning —
+      *"the frequency of the comets is too large and it removes the visual enjoyment"*,
+      then *"reduce it again by half"* — landing at the shared 2.0 s window
+      (~0.4-0.65 comets/s on the live stream). Final verdict on the live stream:
+      **"the rate feels right."**
 - [x] **A4.** ✅ **Verified — the spatial feature works.** _(T6.6. Human-verified
       2026-10-22, and confirmed by measurement.)_
       _**What the human found**, on a matched A/B (the same bell, same pitch, same

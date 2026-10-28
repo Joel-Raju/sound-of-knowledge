@@ -124,12 +124,58 @@ interface PendingImpact {
   kind: ImpactKind;
 }
 
+/**
+ * §10.2 — the minimum interval between comets, in seconds.
+ *
+ * Measured: the live stream (production build) carries 3.03 notes/s, so a comet per
+ * note is one every 330 ms. The human's verdicts, in order: *"the frequency of the
+ * comets is too large and it removes the visual enjoyment"* — then, after 2.0 s brought
+ * the rate to ~1.0/s — *"reduce it again by half"*.
+ *
+ * The constant stayed 2.0 s while the **exempt set** shrank: `large` and the bot
+ * flavours now share this window with `add`/`remove`, so the total is capped at one
+ * comet per window (~0.5/s) plus the exempt ~0.06/s. Only `revert` and `new` — the
+ * two rarest, most distinct §10.2 visuals — stay unthrottled.
+ */
+export const DEFAULT_COMET_INTERVAL_SEC = 2.0;
+
 export class VisualDirector {
   private readonly pending: PendingImpact[] = [];
   /** The pooled colours, so a fire allocates no garbage per note. */
   private readonly dirToCore = new THREE.Vector3();
 
-  constructor(private readonly targets: FireTargets) {
+  /**
+   * §10.2 — the minimum interval between comets, in seconds.
+   *
+   * **Why this exists.** With the energy finally alive, the note rate follows the
+   * traffic: measured at 3.03 notes/s on the live stream (production build). With a
+   * comet per note, that is a comet every 330 ms — and the human's verdict was blunt:
+   * *"the frequency of the comets is too large and it removes the visual enjoyment."*
+   *
+   * It was invisible until the comets started rendering at all (the `addUpdateRange`
+   * fix), which is the usual pattern here: a feature that was broken was also,
+   * separately, wrong, and the second problem only became audible once the first was
+   * fixed.
+   *
+   * **Everything except `revert` and `new` shares this window**, `large` and the bot
+   * pulses included — at 0.57/s the `large` flavour alone is bigger than the target
+   * rate, so no interval could halve the total while it stayed exempt. The throttle is
+   * the difference between a piece that reads and a firehose.
+   */
+  private cometIntervalSec: number;
+  /** The render clock of the last routine comet. */
+  private lastRoutineCometAt = -Infinity;
+  /** Comets actually fired, and routine notes throttled away. */
+  private cometsFired = 0;
+  private throttled = 0;
+  /** How many notes of each §10.2 flavour have been fired. */
+  private readonly flavors: Partial<Record<NoteFlavor, number>> = {};
+
+  constructor(
+    private readonly targets: FireTargets,
+    cometIntervalSec = DEFAULT_COMET_INTERVAL_SEC,
+  ) {
+    this.cometIntervalSec = cometIntervalSec;
     for (let i = 0; i < PENDING_IMPACT_SLOTS; i++) {
       this.pending.push({
         active: false,
@@ -139,6 +185,65 @@ export class VisualDirector {
         kind: "push",
       });
     }
+  }
+
+  /** §10.2 — the interval between routine comets. See `cometIntervalSec`. */
+  setCometInterval(sec: number): void {
+    if (Number.isFinite(sec) && sec >= 0) this.cometIntervalSec = sec;
+  }
+
+  /**
+   * How many comets have actually been fired, and how many routine notes were
+   * throttled away.
+   *
+   * The throttle is the one thing in the visual chain that *removes* events, so it needs
+   * to be countable — otherwise "the comets feel right" is not a claim that can be
+   * checked.
+   */
+  get visualCounts(): { comets: number; throttled: number } {
+    return { comets: this.cometsFired, throttled: this.throttled };
+  }
+
+  /** How many notes of each §10.2 flavour have been fired. */
+  get flavorCounts(): Record<string, number> {
+    return { ...this.flavors };
+  }
+
+  /**
+   * §10.2 — may this note have a comet?
+   *
+   * **This is a selection step, not a change to §10.2.** The fire table still says
+   * exactly what a note does when it has a comet; this decides *which notes get to be
+   * one*. Keeping the two apart is what lets §10.2's unit tests stay a test of §10.2.
+   *
+   * **Everything except `revert` and `new` shares one window.** The measured mix
+   * (production build, 30 s of the live stream) is `add` 1.20/s, `remove` 0.93/s,
+   * `large` 0.57/s, `bot-thud` 0.27/s at 3.03 notes/s — so with `large` unthrottled
+   * the punctuation floor alone was ~0.6 comets/s, and no interval setting could take
+   * the total below it. Halving the rate again (the human, after seeing ~1.0/s:
+   * *"reduce it again by half"*) therefore means the throttle has to reach `large` too.
+   *
+   * `revert` and `new` stay exempt. At a combined 0.06/s they cost nothing, and
+   * §10.2 gives them the piece's two most distinct visuals — a shockwave ring with a
+   * chromatic-aberration kick, and a radial burst — which a throttle that might eat
+   * them would risk silencing for minutes at a time. `large` keeps its trauma shake
+   * and bloom swell whenever it *does* win the window; the cost is that most large
+   * edits are sound only.
+   */
+  shouldHaveComet(note: NoteEvent, now: number): boolean {
+    const flavor = note.flavor;
+    this.flavors[flavor] = (this.flavors[flavor] ?? 0) + 1;
+    if (flavor === "revert" || flavor === "new") {
+      this.cometsFired++;
+      return true;
+    }
+    if (now - this.lastRoutineCometAt < this.cometIntervalSec) {
+      this.throttled++;
+      return false;
+    }
+    this.lastRoutineCometAt = now;
+    this.cometsFired++;
+    return true;
   }
 
   /** Impacts waiting for their activation time. §5.5's `visualQueueLen` cousin. */
@@ -154,11 +259,20 @@ export class VisualDirector {
    * `now` is the render clock (seconds since `t0`), matching the `uTime` the particle
    * shaders evaluate against. `shellOrigin` is where the edit sits in the world.
    */
-  fire(note: NoteEvent, shellOrigin: THREE.Vector3, now: number): void {
+  fire(note: NoteEvent, shellOrigin: THREE.Vector3, now: number, comet = true): void {
     const { edit, flavor } = note;
     // The burst is radial and has no direction; the streaks all point at the core.
     this.dirToCore.copy(shellOrigin).normalize().multiplyScalar(-1);
     const mag = edit.magnitude;
+
+    // A throttled note has **no comet** — no streak, no ring, no orb impact. It is not a
+    // degraded comet; it is simply not a visual event. §9.9's labels and the ticker
+    // still run, because they have their own gates and their own cadence.
+    if (!comet) {
+      this.targets.labels?.spawn(edit, shellOrigin, now);
+      this.targets.labels?.maybeEmitNotable(edit, now);
+      return;
+    }
 
     switch (flavor) {
       case "add":

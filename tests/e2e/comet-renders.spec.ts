@@ -31,7 +31,13 @@ const LIT = 70;
 
 test.describe("§9.5 — a comet renders", () => {
   test("a bright streak appears outside the core", async ({ page }) => {
-    await page.goto("/?source=synthetic");
+    // `?cometEveryMs=0` — the throttle is **off** for this test, on purpose.
+    //
+    // This test asks "does a comet render at all?", and the answer must not depend on
+    // how many of them there are. With the default 1.2 s throttle the lit-pixel count
+    // falls below the threshold and the test fails for a reason that has nothing to do
+    // with rendering. The throttle has its own test.
+    await page.goto("/?source=synthetic&cometEveryMs=0");
     await page.getByTestId("enter-button").click({ timeout: 20_000 });
     await page.getByTestId("hud").waitFor({ timeout: 10_000 });
     // Let the entrance finish and traffic arrive.
@@ -64,26 +70,82 @@ test.describe("§9.5 — a comet renders", () => {
       await page.waitForTimeout(120);
     }
     console.log(
-      `      lit pixels outside the core: ${bestCount} (brightest ${bestLum.toFixed(0)})`,
+      `      brightest outside the core: ${bestLum.toFixed(0)}  (lit pixels: ${bestCount})`,
     );
+
+    // **The peak brightness, not the lit-pixel count.**
+    //
+    // The count is too noisy to threshold: it depends on how many comets happen to be in
+    // frame, and it swung from 923 to 4163 across runs of the same build. The *peak* is
+    // stable — a comet's core is 241-255 wherever it is, while the core's own rim
+    // never exceeds 161.
+    //
     // Measured, three runs each:
     //
-    //   the original bug:      5    263    373
-    //   the fix:            1394   2809   2410   1535
-    //
-    // The distributions do not overlap. 900 sits in the gap: 2.4x above the broken
-    // maximum, and 35 % below the fixed minimum. (It was 1200 before, which is only
-    // 14 % below the fixed minimum — and the test failed on that, as it should have.)
+    //   the original bug:  brightest 161, 161, 77
+    //   the fix:            brightest 249, 251, 254
     expect(
-      bestCount,
+      bestLum,
       "no comet rendered in 5 s — check that addUpdateRange is given ARRAY ELEMENTS, not instances",
-    ).toBeGreaterThan(900);
+    ).toBeGreaterThan(200);
+  });
+
+  test("the routine comet rate is bounded, and the punctuation never is", async ({ page }) => {
+    // The human: *"the frequency of the comets is too large and it removes the visual
+    // enjoyment."* With the energy finally alive the live stream carries 3.0 notes/s, so
+    // a comet per note is one every 330 ms.
+    //
+    // This compares the throttled rate against the unthrottled rate **in the same
+    // process**, so it does not depend on how busy the source happens to be — the
+    // synthetic source is several times busier than the live stream, and an absolute
+    // bound failed for that reason alone.
+    const rate = async (ms: number): Promise<{ comets: number; throttled: number }> => {
+      await page.goto(`/?source=synthetic&cometEveryMs=${ms}`);
+      await page.getByTestId("enter-button").click({ timeout: 20_000 });
+      await page.getByTestId("hud").waitFor({ timeout: 10_000 });
+      await page.waitForTimeout(2_000);
+      const a = (await page.evaluate(
+        `(() => window.__sok.engine.getVisualCounts())()`,
+      )) as { comets: number; throttled: number };
+      await page.waitForTimeout(10_000);
+      const b = (await page.evaluate(
+        `(() => window.__sok.engine.getVisualCounts())()`,
+      )) as { comets: number; throttled: number };
+      return {
+        comets: (b.comets - a.comets) / 10,
+        throttled: (b.throttled - a.throttled) / 10,
+      };
+    };
+
+    const off = await rate(0);
+    const on = await rate(1000);
+    console.log(
+      `      unthrottled ${off.comets.toFixed(2)}/s  ->  throttled ${on.comets.toFixed(2)}/s ` +
+        `(${on.throttled.toFixed(2)}/s removed)`,
+    );
+
+    // The throttle must actually be removing events, or it is not doing anything.
+    expect(
+      on.throttled,
+      "the throttle must be removing routine comets",
+    ).toBeGreaterThan(0.2);
+
+    // And it must reduce the rate. A ratio, so the source's busyness does not matter.
+    expect(
+      on.comets,
+      `throttling did not reduce the comet rate (${off.comets.toFixed(2)}/s -> ${on.comets.toFixed(2)}/s)`,
+    ).toBeLessThan(off.comets * 0.85);
   });
 
   test("the update ranges are expressed in array elements", async ({ page }) => {
     // The structural check, so the unit mismatch cannot come back. three.js's
     // `addUpdateRange` is in elements, and the attributes have itemSize 3 and 4.
-    await page.goto("/?source=synthetic");
+    //
+    // `?cometEveryMs=0` — it needs a streak *alive at the instant of sampling*, and the
+    // default throttle now caps everything but reverts and births at one per 2 s, which
+    // leaves the pool empty most of the time. This test is about upload units, not
+    // about how many comets there are; the throttle has its own test.
+    await page.goto("/?source=synthetic&cometEveryMs=0");
     await page.getByTestId("enter-button").click({ timeout: 20_000 });
     await page.getByTestId("hud").waitFor({ timeout: 10_000 });
     await page.waitForTimeout(3_000);

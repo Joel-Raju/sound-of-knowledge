@@ -227,9 +227,12 @@ Tracked in `docs/HUMAN-CHECKLIST.md` — the agent cannot verify these.
 
 ## Status
 
-**Phase 6** — **30 of 31 tasks**. 934 unit tests (34 files) · 91 Chromium e2e · build
-clean · `audio:check` E30/E60/E90 all ✓.
-**Human checklist: 26 of 51 closed, 25 open** — `docs/HUMAN-CHECKLIST.md`.
+**Phase 6** — **30 of 31 tasks**. 957 unit tests (36 files) · 109 Chromium e2e · build
+clean. **`audio:check` FAILS on all three cases — pre-existing since the offline
+harness's first commit, and its §8.4 status claims of October do not reproduce; full
+bisect in `DECISIONS.md`.** Retuning the band shares is its own task and needs human
+ears (it touches the bus gains and the per-voice balance — see B11).
+**Human checklist: 27 of 51 closed, 24 open** — `docs/HUMAN-CHECKLIST.md`.
 
 **Two tasks are unticked and both are deliberate.** `T6.4` is deferred — Firefox and
 WebKit are not installed, and the human chose not to install them. `T6.6` is ticked
