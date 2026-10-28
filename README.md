@@ -1,163 +1,252 @@
 # Sound of Knowledge
 
-A real-time, generative audiovisual experience that transforms live Wikipedia edits into an immersive 3D soundscape. Every edit becomes a note; every article update shapes the visuals.
+**Listen to humanity writing its encyclopedia, live.**
 
-**Live Demo:** [sound-of-knowledge.vercel.app](https://sound-of-knowledge.vercel.app)
+Every edit to Wikipedia becomes a note and a streak of light. The size of the change
+sets the length of the note, the article it touched sets the pitch, and the language it
+came from sets the direction it arrives from. Reverts land as a deep gong. New pages
+burst. Nothing is sampled away silently, and the meter reports what was really played.
 
-![Sound of Knowledge Preview](/public/preview.png)
-
-## Overview
-
-Sound of Knowledge listens to the [Wikimedia Recent Changes stream](https://stream.wikimedia.org/v2/stream/recentchange) — a high-throughput SSE feed broadcasting every edit across all Wikimedia projects in real-time. These edits drive both a WebGL visualization engine and a generative audio synthesis system, creating a living, breathing representation of human knowledge being built.
-
-## Features
-
-### Visual Experience
-- **Procedural Shader Orb** — A custom vertex shader with multi-scale noise displacement that reacts to edit magnitudes in real-time
-- **High-Performance Particle System** — Instanced `BufferGeometry` with object pooling; particles spawn dynamically from live SSE events
-- **Volumetric Glow** — Raymarched inner glow using Fractional Brownian Motion (fBm) for organic, ethereal effects
-- **Cinematic Camera** — Drift and shake that responds to massive edits and reverts
-- **Audio-Reactive Visuals** — Real-time FFT analysis drives particle turbulence and glow intensity
-
-### Audio Experience
-- **100% Generative** — No pre-recorded samples; all audio synthesized in real-time using Tone.js
-- **Modal Harmony** — Shifts between Lydian/Mixolydian centers every 16 bars to maintain consonance
-- **Edit-to-Sound Mapping:**
-  - Large edits → Deep sub-basses and Shepard tone pads
-  - Small edits → High-frequency FM bell chimes
-  - Bot edits → Short percussive thuds
-  - Reverts → Long metallic gongs
-- **Zero-Latency Feedback Loop** — Tone.js analyzers feed amplitude/frequency data back into shader uniforms
-
-### Performance
-- Dynamic quality scaling based on device capability
-- Automatic fallback to simplified shaders on low-tier devices
-- Object pooling to minimize garbage collection in the hot path
-- Typed arrays (`Float32Array`) for particle state management
-
-## Tech Stack
-
-| Category | Technology |
-|----------|------------|
-| Framework | [Next.js](https://nextjs.org) 16 (App Router) |
-| UI | [React](https://react.dev) 19, [TailwindCSS](https://tailwindcss.com) 4 |
-| 3D | [Three.js](https://threejs.org), [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) |
-| Audio | [Tone.js](https://tonejs.github.io) (Web Audio API) |
-| State | [Zustand](https://github.com/pmndrs/zustand) |
-| Deployment | [Vercel](https://vercel.com) |
-
-## Project Structure
-
-```
-app/
-├── api/wiki-stream/route.ts    # SSE proxy for Wikimedia stream
-├── page.tsx                     # Main page with AudioEngine + Scene
-├── layout.tsx                   # Root layout with Analytics
-components/
-├── scene.tsx                    # R3F canvas + postprocessing
-├── orb.tsx                      # Central shader orb with volumetric glow
-├── particles.tsx                # High-performance particle system
-├── audio-engine.tsx             # Tone.js synthesis + analysis
-└── ui.tsx                       # Start overlay and controls
-lib/
-├── wiki-stream.ts               # SSE client logic
-├── particle-pool.ts             # Object pool for particles
-└── utils.ts                     # Utility functions
-public/
-└── preview.png                  # Social preview image
-```
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 20+ (see `.tool-versions`)
-- npm or your preferred package manager
-
-### Installation
-
-```bash
-npm install
-```
-
-### Development
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Build
-
-```bash
-npm run build
-```
-
-## Architecture
-
-### Data Flow
-
-```
-Wikimedia SSE → Next.js API Route → Client SSE → Particle Pool + Audio Engine
-                                                    ↓
-                                              Shader Uniforms ← FFT Analysis
-```
-
-1. **Backend Proxy** — The `/api/wiki-stream` route consumes Wikimedia's SSE stream, filters for `edit` events, and normalizes metadata (size delta, bot/human, revert status)
-2. **Client Dequeue** — Events are dequeued on the client and routed to both the particle system and audio engine
-3. **Visual Synthesis** — Particles spawn at pseudorandom spherical coordinates; the orb shader receives displacement uniforms
-4. **Audio Synthesis** — Tone.js synths trigger based on event type and magnitude
-5. **Feedback Loop** — `Tone.Analyser` nodes extract frequency data that modulates shader uniforms every frame
-
-## Customization
-
-### Shader Parameters
-
-Edit the shader material in `components/orb.tsx`:
-
-```glsl
-// Adjust turbulence intensity
-float n = fbm(swirlP + fbm(swirlP.yzx * 0.75 + 9.2));
-
-// Modify glow density
-float sampleDensity = smoothstep(0.28, 0.95, turbulence) * radial;
-```
-
-### Audio Modes
-
-Modify modal centers in `components/audio-engine.tsx`:
-
-```typescript
-const modalCenters = [
-  ["C3", "G3", "E4", "B4"],  // Lydian-ish
-  ["F3", "C4", "A4", "E5"],  // Mixolydian-ish
-  // Add your own...
-];
-```
-
-## Deployment
-
-The app is optimized for [Vercel](https://vercel.com) deployment:
-
-```bash
-vercel
-```
-
-The `vercel.json` config enables streaming support for the SSE endpoint.
-
-## Resources
-
-- [Blog Post](https://www.joelraju.com/blog/sound-of-knowledge/) — Deep dive into the technical implementation
-- [Wikimedia Event Streams](https://stream.wikimedia.org/v2/stream/recentchange) — Data source documentation
-- [React Three Fiber Docs](https://docs.pmnd.rs/react-three-fiber) — 3D rendering in React
-- [Tone.js Docs](https://tonejs.github.io/docs/) — Web Audio API abstraction
-
-## License
-
-Open source. Feel free to explore, fork, and build upon this project.
+Built directly against the [Wikimedia Recent Changes SSE
+stream](https://stream.wikimedia.org/v2/stream/recentchange) — no proxy, no scraping, one
+connection per tab.
 
 ---
 
-*Every byte added to Wikipedia becomes a note in an ever-evolving ambient composition.*
+## How it works
 
+### An edit becomes a sound
+
+The routing is a fixed, readable cascade ([`engine/music/router.ts`](engine/music/router.ts)):
+
+| the edit | voice | what you hear |
+|---|---|---|
+| a **revert** | `gong` | a deep metallic strike with an expanding shockwave |
+| a **new page** | `birth` | a rising arpeggio and a radial starburst |
+| a **bot** | `thud` / `tick` | a soft pulse, sized by the change |
+| **large** (≥ 60 % of the byte range) | `sub` | a deep swell underneath everything |
+| **text added** (`delta > 0`) | `pluck` | warm, rounded |
+| **text removed** | `bell` | cool, glassy, slightly inharmonic |
+
+### An edit becomes a visual
+
+[`§10.2`](sound-of-knowledge-v2-rewrite-spec.md) is the fire table, and
+[`engine/visual/fire.ts`](engine/visual/fire.ts) is its only implementation:
+
+| flavor | sparks | rings | orb | other |
+|---|---|---|---|---|
+| add | streak, *accent* | – | push, at arrival | – |
+| remove | streak, *core* | – | push, at arrival | – |
+| large | streak ×1.8 size | – | strong push | trauma +0.15, bloom swell |
+| revert | – | ring at the edit | **dent**, immediately | CA kick, trauma +0.30 |
+| new | burst (48) | – | – | label priority |
+| bot-thud | bot pulse | – | small push | – |
+| bot-tick | bot pulse, smaller | – | – | – |
+
+*At arrival* means 85 % of the note's length, so the orb is struck when the sound arrives
+rather than when it was scheduled.
+
+### Why it sounds like it is coming from where the comet came from
+
+Each edit gets a **home direction** from its wiki, chosen from 64 points on a Fibonacci
+sphere and jittered slightly per-edit, and a **radius** of 7–13 world units. The listener
+is the camera (§8.9), so it sits *inside* the shell at radius 5.5 and a German edit and
+a Japanese edit arrive from genuinely different places.
+
+Measured on the live page, with a real `AudioContext`: a source to the listener's right
+lands **10.4 dB** louder on the right channel, and one to the left **13.9 dB** louder on
+the left ([`tests/e2e/live-pan.spec.ts`](tests/e2e/live-pan.spec.ts)).
+
+Elevation is subtler, and honestly so: a source overhead is **2.6 dB duller** in the
+2–8 kHz band (the head's shadow) and one below is indistinguishable from one in front.
+That is a property of two-channel audio — only *azimuth* produces an interaural level
+difference — and the piece is built to be listened to on headphones rather than
+measured.
+
+---
+
+## Running it
+
+Requires **Node ≥ 20**.
+
+```bash
+npm ci
+npm run dev          # http://localhost:3000
+```
+
+`npm run dev` bundles the two Web Platform workers first, so the audio engine and the
+ingest worker are present before Next starts.
+
+### The commands that matter
+
+| command | what it does |
+|---|---|
+| `npm run dev` | workers in watch mode + Next dev |
+| `npm run build` / `npm start` | production build and serve |
+| **`npm run check`** | typecheck, lint, project check, docs check, unit tests — **run this before every commit** |
+| `npm run test:cov` | unit tests with §13.2's per-module coverage thresholds |
+| `npm run test:e2e` | the Chromium suite |
+| `npm run audio:check` | offline audio renders at three energy levels, checked against §8.4 |
+| `npm run test:soak` | the §13.5 ten-minute leak test |
+| `npm run bench` | the DSP real-time benchmark |
+| `npm run og:image` | regenerate `public/og.png` from a live capture |
+
+---
+
+## URL parameters
+
+None are persisted — they exist so a data point can be reproduced from a URL alone.
+
+| parameter | values | effect |
+|---|---|---|
+| `?debug=1` | — | the T4 visual harness, `window.__sok`, and `?avSyncMs` in settings |
+| `?source=` | `live` · `replay` · `synthetic` | **data mode.** Default `live` |
+| `?seed=` | integer | PRNG seed for synthetic/replay |
+| `?project=` | `wikipedias` · `no-wikidata` · `all` | which projects the ingest core accepts |
+| `?quality=` | `auto` · `low` · `medium` · `high` | pins the tier and disables `improve()` beyond it |
+| `?density=` | `sparse` · `normal` · `dense` | musical density |
+| `?deep=` | 0–1 | override the background lightness (see below) |
+| `?dustAlpha=` · `?dustDensity=` · `?nodust=1` | 0–4 · `1` | the ambient dust, for measuring its contribution |
+| `?rateMul=` | > 0 | scales the synthetic source's arrival rate (the default is a stress test) |
+| `?camRadius=` · `?fov=` | number | overrides the §9.1 framing (radius 5.5, FOV 58°) |
+| `?cometScale=` · `?cometCount=` · `?cometEveryMs=` · `?nocomets=1` | number · `1` | the comet's size, particle count, and minimum interval (default 2000 ms); every flavour but reverts and new pages shares the interval, so the total lands near one comet per window. `?nocomets=1` switches comets off entirely |
+
+`?source` and `?project` are **different things** and both exist deliberately:
+`?source` is the data mode, `?project` is `Settings.source`. Collapsing them would break
+both.
+
+The last three rows are the **measurement knobs** — they exist because the numbers were
+chosen by measurement, and a number you cannot reproduce from a URL is a number you
+cannot check. `?cometEveryMs=0` switches the comet throttle off entirely.
+
+---
+
+## Settings
+
+Persisted to `localStorage` under `sok.settings.v2`, validated field-by-field on load.
+A corrupt or hand-edited value falls back to its default rather than throwing — a broken
+preference must never be able to stop the piece from starting.
+
+| setting | default | effect |
+|---|---|---|
+| `volume` | 0.8 | master gain |
+| `muted` | false | |
+| `source` | `wikipedias` | which projects to accept |
+| `langs` | `[]` (all) | language filter, as chips |
+| `density` | `normal` | how many edits become notes |
+| `quality` | `auto` | tier ceiling |
+| `spatialAudio` | true | HRTF vs equal-power panning |
+| `showTitles` | true | the article titles floating beside the orb |
+| `reduceMotion` | `matchMedia('(prefers-reduced-motion: reduce)')` | §9.11 |
+| `avSyncMs` | 0 | A/V correction, `?debug=1` only |
+
+### Keyboard
+
+`M` mute · `F` fullscreen · `H` hide UI · `S` settings · `Esc` close.
+Shortcuts are ignored while typing in a field.
+
+---
+
+## Architecture at a glance
+
+```
+Wikimedia SSE ──► Ingest Worker ──► IngestCore ──► Scheduler ──┬──► AudioEngine ──► AudioWorklet
+   (EventSource)   (normalize,     (token bucket,    (25 ms)    │     (16 voice slots,
+                    filter, dedupe)  importance-      tick      │      allocator, FX chain)
+                                  weighted sampling)             │
+                                                               └──► VisualQueue ──► fire.ts
+                                                                    (heard-time gate)   │
+                                                                            ┌────────────┴───────────┐
+                                                                            sparks · rings · orb    labels
+```
+
+Four **clocks**, and mixing them up is the single most common bug in a piece like this:
+
+| clock | used by | why |
+|---|---|---|
+| `performance.now()` | the render loop | frames advance it, nothing else |
+| `ctx.currentTime` | the scheduler, the worklet | the only clock audio is scheduled on |
+| `heard` = `currentTime − outputLatency − avSyncMs` | the visual queue | so a visual lands when its note is *heard* |
+| a virtual clock in offline renders | `render-audio.ts` | every note is scheduled before `startRendering()` |
+
+**The visual queue gate uses `heard`, not the render clock.** `note.when` is
+`AudioContext` time; comparing it against a render-clock value puts every visual at an
+arbitrary offset from its sound.
+
+Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Performance
+
+Measured numbers, with how each was taken, are in [`docs/TUNING.md`](docs/TUNING.md).
+
+| budget | target | measured |
+|---|---|---|
+| DSP real-time factor | ≥ 10× | **11.4×** |
+| first-load JS | ≤ 450 KB gzip | **384.4 KB** |
+| ingest worker | < 40 KB gzip | **8.1 KB** |
+| voice-pool worklet | < 40 KB gzip | **3.0 KB** |
+| heap growth over a 10-minute soak | < 0.5 MB/min | see `npm run test:soak` output |
+
+---
+
+## Tech stack
+
+Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS 4 · three.js ·
+Web Audio API · Playwright · Vitest · esbuild
+
+three.js is **dynamically imported** behind the debug harness and the start overlay, so
+it never costs a production visitor a byte in the initial load.
+
+---
+
+## Project structure
+
+```
+app/                  # two routes. page.tsx decides ?debug=1 on the server
+components/           # React shell ONLY — overlay, HUD, settings panel, harness
+engine/
+  index.ts            # §5.5 the facade. The only thing the shell talks to
+  config.ts           # every named constant (§1.1.9)
+  settings.ts         # §11.3 defaults, validation, persistence, URL overrides
+  ingest/             # worker, SSE client, normaliser, sampler, replay, synthetic
+  music/              # scheduler, router, harmony, pitch, spatial mapper, density
+  audio/              # worklet, allocator, FX chain, pad, analysis, WAV encode
+  visual/             # renderer, orb, sparks, rings, dust, labels, fire table
+  debug/              # the offline renderer the audio harness drives
+scripts/              # bench, audio renders, captures, sweeps, worker bundling
+tests/unit/           # Vitest — 934 tests
+tests/e2e/            # Playwright — 90 tests
+docs/                 # ARCHITECTURE, TUNING, DECISIONS, PROGRESS, HUMAN-CHECKLIST
+```
+
+---
+
+## Known deviations from the spec
+
+All of them are recorded with their reason and their measurement in
+[`docs/DECISIONS.md`](docs/DECISIONS.md) — there are several hundred lines of it, and it
+is the most useful document in this repository. The ones you are most likely to notice:
+
+- **The background is black** (`deep` at L = 0.04). §9.3's authored value renders as
+  navy through AgX; the human chose black and the harmony is carried by the orb and dust
+  instead.
+- **Orb absorption 1.2, not 3.2**; **emission 0.55, not 1.0.** At §9.4's values the core
+  is a structureless wash — the detail is lost to alpha saturation, not colour scale.
+- **Dust base alpha 0.75**, which §9.7 never specifies. 0.35 was correct against the
+  navy background and invisible against a black one.
+- **The CSP ships as `Content-Security-Policy-Report-Only`**, with the full suite
+  measured passing under the enforcing variant.
+
+---
+
+## Credits and data
+
+- **Data: [Wikimedia EventStreams](https://wikitech.wikimedia.org/wiki/EventStreams)** —
+  © Wikimedia Foundation, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
+  One SSE connection per tab; no polling, no scraping, no proxy.
+- Built to the spec in [`sound-of-knowledge-v2-rewrite-spec.md`](sound-of-knowledge-v2-rewrite-spec.md).
+- Article titles are public data and may occasionally be offensive. The **Show titles**
+  setting hides them. No automatic filtering is implemented, by choice — a filter that
+  silently drops titles would make the meter lie about what was played.

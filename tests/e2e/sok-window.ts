@@ -1,0 +1,121 @@
+/**
+ * The `window.__sok` debug handle, declared **once** for the whole e2e suite.
+ *
+ * Two spec files each used to declare `Window.__sok` with the subset they needed, and
+ * `tsc` rejected it: interface merging requires duplicate members to have identical
+ * types, so the second declaration silently changed the first's meaning and the
+ * typecheck failed with errors pointing at property accesses that were perfectly valid
+ * in the file that owned them.
+ *
+ * One declaration, in one place, covering everything the suite touches. Adding a
+ * capability to the debug handle now means adding it here — which is the point: a
+ * handle that only one spec knows about is a handle nothing else can rely on.
+ */
+
+export interface SokStats {
+  fps: number;
+  emaMs: number;
+  p95Ms: number;
+  tier: string;
+  level: number;
+  scale: number;
+  drawCalls: number;
+  triangles: number;
+  /** Real GPU frame cost from the last synchronised sample (see DECISIONS.md). */
+  syncedMs: number;
+}
+
+export interface SokNotable {
+  text: string;
+  href: string;
+}
+
+/** §5.5's `Metrics`, as the live piece reports it. */
+export interface SokMetrics {
+  fps: number;
+  muted: boolean;
+  audioState: string;
+  streamState: string;
+  mode: string;
+  keyName: string;
+  acceptedTotal: number;
+  notesScheduled: number;
+  visualQueueLen: number;
+  /** §5.5 — voices currently allocated in the pool. */
+  activeVoices: number;
+  droppedNotes: number;
+}
+
+export interface SokVisual {
+  engine: unknown;
+  status: string;
+  message?: string;
+  stats(): SokStats | null;
+  /** §9.3 — the harness's harmony override, used by the palette-ease test. */
+  engineWithHarmony?: { setHarmony(mode: string, rootPc: number): void };
+
+  // --- T4.1–T4.4: spawn helpers -------------------------------------------
+  debugSpawn(n?: number): void;
+  addImpacts(n?: number, magnitude?: number, kind?: "push" | "dent"): void;
+  poolCounts(): { sparks: number; rings: number };
+
+  // --- T4.5: §10.2's fire table and §9.9's labels -------------------------
+  debugFire(flavor: string): void;
+  labelCounts(): { active: number; notable: number };
+  lastNotable(): SokNotable | null;
+
+  // --- layer handles the specs assert against -----------------------------
+  sparks: { spawned: number } | null;
+  rings: { spawned: number } | null;
+  orb: { impactCount: number } | null;
+  dust: { drawn: number } | null;
+  post: { bloomIntensity: number } | null;
+}
+
+declare global {
+  interface Window {
+    __sokVisualReady?: boolean;
+    /**
+     * One handle, two owners, decided by the URL:
+     *
+     *  `?debug=1` → `visual` — the T4 harness, with its spawn helpers.
+     *  otherwise  → the T5.1 engine facade's fields.
+     *
+     * Declaring both here rather than per spec file is the whole point of this module:
+     * interface merging demands identical types, so two files declaring `__sok` with
+     * the subset they needed made `tsc` fail pointing at accesses that were perfectly
+     * valid in the file that owned them.
+     */
+    __sok?: {
+      visual?: SokVisual;
+      engine?: { dispose(): void };
+      metrics?: () => SokMetrics;
+      setSettings?: (p: Record<string, unknown>) => void;
+      injectEdits?: (edits: unknown[]) => void;
+      /** A4 calibration — freezes the orbit, pauses the stream, fires one edit per
+       *  named direction. The steps come back so a caller can print what to expect. */
+      runA4Calibration?: (opts?: { gapMs?: number }) => unknown[];
+      endA4Calibration?: () => void;
+      /** Which calibration steps have reached the scheduler, in order. */
+      getA4Fired?: () => string[];
+      /** How many fired notes produced a comet inside the viewport. */
+      getNoteVisibility?: (window?: number) => {
+        total: number;
+        onScreen: number;
+        fraction: number;
+        byWiki: Record<string, { fired: number; onScreen: number }>;
+        sessionFired: number;
+        sessionOnScreen: number;
+        sessionFraction: number;
+      };
+      resetVisibilityCounters?: () => void;
+      /** The matched A/B for elevation — same note, same pitch, only the position
+       *  changes. Returns void; the sequence is visible in the on-screen readout. */
+      playA4Timbres?: (gapSec?: number) => void;
+      /** One edit of each §10.2 flavour in turn — for A5, A7 and A8. */
+      playFlavorDemo?: (gapSec?: number) => void;
+    };
+  }
+}
+
+export {};

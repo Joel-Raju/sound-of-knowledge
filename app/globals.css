@@ -1,40 +1,61 @@
 @import "tailwindcss";
 
+/**
+ * §11.7 — mobile.
+ *
+ * `env(safe-area-inset-*)` is the whole reason the HUD does not sit under a notch or a
+ * home indicator. The values are 0 on a desktop browser that supports the property, so
+ * this costs nothing there.
+ *
+ * `--sok-safe-*` are read by Tailwind's arbitrary-value classes (`pb-[max(1rem,var(--sok-safe-b))]`),
+ * which keeps the safe-area maths out of the components.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --sok-safe-t: env(safe-area-inset-top, 0px);
+  --sok-safe-r: env(safe-area-inset-right, 0px);
+  --sok-safe-b: env(safe-area-inset-bottom, 0px);
+  --sok-safe-l: env(safe-area-inset-left, 0px);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/**
+ * `body { touch-action: pan-y }` so the page can still scroll normally.
+ *
+ * The canvas overrides this to `none` — §11.7 requires it, because a drag on the canvas
+ * is a camera rotation (§9.1) and the browser claiming that gesture for scroll makes the
+ * piece feel broken on a phone. The HUD is left scrollable deliberately: the settings
+ * panel must be scrollable, and `touch-action` inherits per element rather than being
+ * a page-wide lockdown.
+ */
+canvas {
+  touch-action: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@media (prefers-reduced-motion: reduce) {
+  /*
+   * §11.6 — a belt-and-braces companion to §9.11's engine-side clauses. The engine
+   * handles everything on the canvas; this covers the DOM chrome around it, which the
+   * engine cannot reach. Not `* { animation: none }` — that would also stop the
+   * overlay's 1.2 s fade, which is the one motion that helps.
+   */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  touch-action: pan-y;
-  overscroll-behavior: none;
-}
-
-* {
-  -webkit-tap-highlight-color: transparent;
-}
-
-@media (max-width: 640px) {
-  * {
-    -webkit-touch-callout: none;
+/**
+ * §11.6 — no flashing above 3 Hz in any state.
+ *
+ * There is no `@keyframes` here producing a flash, which is the real guarantee; this
+ * documents the budget so a future addition has to confront it. §9.11 already caps
+ * bloom and CA, and the burst particle's `sin(uTime * 20)` (§9.5) is bounded by its
+ * 0.6–1.0 s lifetime, giving ~3 Hz — at the ceiling, not over it.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --sok-max-flash-hz: 3;
   }
 }

@@ -1,0 +1,96 @@
+# Spec §13.7 — CI jobs: static → build → e2e → audio-check.
+name: CI
+
+on:
+  push:
+    branches: [main, master, v2-rewrite]
+  pull_request:
+
+# Keep one job running at a time; the e2e/audio jobs build the app anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run test:cov
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
+  build:
+    name: production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # Spec §12.1 — worker and worklet bundles must stay under 40 KB gzip.
+      - name: verify engine bundle budget
+        run: |
+          set -euo pipefail
+          for f in public/engine/ingest.worker.js public/engine/voice-pool.worklet.js; do
+            gz=$(gzip -c "$f" | wc -c)
+            echo "$f: $((gz / 1024)) KB gzip"
+            if [ "$gz" -ge 40960 ]; then echo "OVER BUDGET: $f"; exit 1; fi
+          done
+
+  e2e:
+    name: e2e (chromium)
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  audio-check:
+    name: offline audio render (the "ears")
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Spec §13.3 — exits non-zero if any §8.4 threshold fails.
+      - run: npm run audio:check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audio-renders
+          path: artifacts/audio/
+          retention-days: 14

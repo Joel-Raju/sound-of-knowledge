@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+import { renderIr, irLengthFor } from "@/engine/audio/reverb-ir";
+import { padDuckAutomation, pingPongTimes, MASTER_COMP_SETTINGS } from "@/engine/audio/fx-chain";
+import { padCutoffHz, oscillatorsForVoicing, plannedOscillators } from "@/engine/audio/pad-layer";
+import { padVoicing } from "@/engine/music/pitch";
+import { MODES } from "@/engine/music/modes";
+import * as config from "@/engine/config";
+import {
+  PAD_CUTOFF_BASE_HZ,
+  PAD_CUTOFF_ENERGY_HZ,
+  PAD_CUTOFF_WOBBLE_HZ,
+  PAD_MAX_OSCILLATORS,
+  REVERB_SEND,
+  DELAY_SEND,
+  PAD_REVERB_SEND,
+  PAD_DUCK_GAIN,
+  PAD_DUCK_ATTACK_TC,
+  PAD_DUCK_RELEASE_AT,
+  PAD_DUCK_RELEASE_TC,
+  DELAY_STEPS_A,
+  DELAY_STEPS_B,
+  STEP_SEC,
+  TIER_PARAMS,
+  IR_PRE_DELAY_SEC,
+  MODE_NAMES,
+} from "@/engine/config";
+
+const SR = 48000;
+
+function rms(buf: Float32Array, from: number, to: number): number {
+  const a = Math.floor(buf.length * from);
+  const b = Math.floor(buf.length * to);
+  let s = 0;
+  let n = 0;
+  for (let i = a; i < b; i++) {
+    s += buf[i]! * buf[i]!;
+    n++;
+  }
+  return n > 0 ? Math.sqrt(s / n) : 0;
+}

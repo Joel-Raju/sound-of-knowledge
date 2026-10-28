@@ -1,0 +1,531 @@
+# Human Check Checklist — Sound of Knowledge v2
+
+Items the autonomous agent **cannot** verify: they require ears and eyes.
+Every other acceptance criterion in the spec is automated.
+
+This file is the authoritative list. It is populated as the build progresses.
+
+> **This is §16's `HUMAN-CHECK` list and nothing else.** Every item below needs a pair
+> of ears, a pair of eyes, or a device the agent does not have. The eight automated §16
+> criteria are verified by `npm run check`, `npm run test:e2e` and `npm run audio:check`,
+> and their state is in `docs/PROGRESS.md`.
+>
+> **Nothing here can be closed by the agent, including by reasoning about the code.**
+> Four of this project's real defects were found by a human *looking at the screen* while
+> every automated assertion was green. An item below is closed by someone noticing, not
+> by a test passing.
+
+---
+
+## A. First impression (§2.2) — the 60-second walkthrough
+
+- [ ] **A1.** Page opens near-black with a quiet title and a single **Enter** button
+      reading "Best with headphones".
+- [ ] **A2.** On Enter, a low drone swells in over ~2.5 s; a dim breathing core
+      fades up in a vast dark space with drifting dust; camera slowly dollies in.
+- [x] **A3.** ✅ **Verified — comets streak in, dissolve into the core, and the rate
+      reads.** _(Human-verified 2026-10-27.)_ The comets render (fixed `addUpdateRange`
+      units — see DECISIONS.md), fly from the shell into the core, and dissolve into it
+      with an orb ripple. Their frequency went through two rounds of human tuning —
+      *"the frequency of the comets is too large and it removes the visual enjoyment"*,
+      then *"reduce it again by half"* — landing at the shared 2.0 s window
+      (~0.4-0.65 comets/s on the live stream). Final verdict on the live stream:
+      **"the rate feels right."**
+- [x] **A4.** ✅ **Verified — the spatial feature works.** _(T6.6. Human-verified
+      2026-10-22, and confirmed by measurement.)_
+      _**What the human found**, on a matched A/B (the same bell, same pitch, same
+      waveform, only the panner's position changed): FRONTs **identical** (the control,
+      so the test was sensitive), ABOVE **slightly different, duller**, BELOW **same**._
+
+      _**What the measurement found**, on the live page with a real `AudioContext`:
+      RIGHT **+10.4 dB on the right**, LEFT **+13.9 dB on the left**, ABOVE **−2.6 dB
+      in the 2–8 kHz band** (the head's shadow — which is what "duller" means), BELOW
+      **+0.2 dB** (nothing). The human's description predicted the measurement._
+
+      _**Three bugs had to be fixed for any of this to be true**, and none of them was
+      found by a test: the worklet's per-voice outputs were all connected to output 0
+      (leaving 15 voices silent); the `AudioListener` was never moved in the live path
+      (only in the offline harness — which is where the one measurement of this feature
+      had been made); and the calibration's plan hashed the wiki where the runtime
+      hashes the title, so the note played away from where the label said. **The human's
+      ears found all three.**_
+
+      _**BEHIND is not yet judged** — it is the one direction with no result. Run
+      `__sok.runA4Calibration({ gapMs: 3000 })` and report where the BEHIND note is
+      heard. In stereo, front and back are both centred, so this one is expected to be
+      a **timbral** cue like ABOVE rather than a positional one, and it may well be
+      inaudible — which is a result, not a failure._
+
+      _**The rig, for reference.**_ `__sok.runA4Calibration({ gapMs: 3000 })` freezes
+      the camera **completely** — pose, position and forward vector — pauses stream
+      delivery, drains the scheduler queues, silences the centred pad/drone bed, and
+      fires six notes, **chained** so each waits for the previous to be scheduled and to
+      decay (a bell rings 3.5 s) and then re-offered until the scheduler has accepted
+      it, so the sequence cannot be silently truncated or silently interfere with
+      itself._
+
+      _**Watch the amber readout at the top of the screen**, not the scene: a large
+      `A4 · n OF 6` and the direction name (`FRONT`, `RIGHT`, `LEFT`, `BEHIND`, `ABOVE`,
+      `BELOW`), with a row of chips below showing every step seen so far. The 3D label
+      **cannot** be the reference — §9.1 puts the camera at radius 5.5 inside the 7-13
+      edit shell, so five of the six directions project outside the frustum (measured:
+      RIGHT at 118 % of screen width, LEFT at -16 %, BEHIND behind the camera, ABOVE at
+      -88 %, BELOW at 198 %). Only FRONT is ever visible in the scene._
+
+      _Undo with `__sok.endA4Calibration()`; `__sok.getA4Fired()` reports how many steps
+      actually reached the scheduler, and must read 6._ _**If it does not** — a shorter
+      run here is a bug, not a flaky result. The first version truncated to one note and
+      the e2e suite passed it for two attempts because nothing asserted that six edits
+      produce six notes._
+
+      _**The matched timbre A/B** — `__sok.playA4Timbres()` — plays the same bell, same
+      pitch, same waveform, at FRONT, ABOVE, FRONT, BELOW, FRONT, ABOVE, FRONT, with a
+      position track on screen. The FRONT repeats are the **control**: if they sound
+      identical, the listener can detect a difference of this kind, so a target that
+      sounds the same genuinely is the same._
+- [x] **A5.** ✅ **Warm plucks for added text, cool glass bells for removed text, deep
+      swells for very large edits.** _(T6.6. Human-verified 2026-10-22.)_
+      _Checked with `__sok.playFlavorDemo()`, which fires one edit of each §10.2
+      flavour through the real path. The human reports it works as described._
+      _The routing behind it is §7.5's cascade: `delta > 0` → pluck, `delta ≤ 0` → bell,
+      `magnitude ≥ 0.60` → sub. Measured: +1 note each, 0 dropped._
+- [ ] **A6.** A gentle pulse underneath is audible and feels _real_, not random.
+- [x] **A7.** ✅ **Reverts land as a deep metallic gong with an expanding shockwave ring.**
+      _(T6.6. Human-verified 2026-10-22.)_
+      _`__sok.playFlavorDemo()` fires a revert through the real path. The human reports
+      it works as described. Measured: the revert spawns **+1 ring and 0 sparks**, and
+      every other flavour spawns 0 rings — so the ring is specific to the revert, not a
+      side effect of any note arriving._
+- [x] **A8.** ✅ **New pages appear as a rising little arpeggio and a radial star burst.**
+      _(T6.6. Human-verified 2026-10-22.)_
+      _Same demo. Measured: a new page schedules **+4 notes** — the arpeggio — and
+      **+24 sparks**, the burst. The human reports it works as described._
+- [x] **A9.** ✅ **Every ~30 s the harmony drifts; mode and colour shift with global
+      activity.** _(T6.6. Human-verified 2026-10-26, and measured.)_
+      _**Three bugs were behind this**, all the same shape — a value read somewhere, and
+      the thing that should write it never wired: the HUD's mode and key were assigned
+      nowhere; the scheduler's `EnergyTracker` was never fed, so `E` was permanently 0;
+      and once fed, it divided a **cumulative** ingest total by the window, pinning `E`
+      at 1.000. With `E` dead, the mode could not drift and the note density sat at its
+      floor._
+
+      _**Measured on the live stream** (`scripts/probe-harmony-intervals.ts`, five
+      minutes): MODE every **28.0 s** (spec's floor is 28.2 s — 8 bars at BPM 68), KEY
+      every **112.9 s**, CHORD every **14.1 s**. The spec's intervals reproduce to a
+      tenth of a second._
+
+      _**What the human heard:** `Aeolian in C → Mixolydian in C → Mixolydian in F` — a
+      mode change followed by a key change, exactly as the two clocks predict. And:
+      **"yes, the scene's colour shifts with mode"** — the second half, which is the
+      part no test covers and the part the label cannot tell you._
+
+      _§9.3's palette is per-mode in OKLCH: Aeolian violet (295°), Dorian blue-violet
+      (250°), Mixolydian green (165°), Lydian gold (85°), with a 2 s ease. All four
+      modes are reachable at the measured rate — see B9._
+- [x] **A10.** ✅ **Article titles fade in occasionally and are clickable; a ticker shows
+      the latest notable edit.** _(T6.6. Human-verified 2026-10-27.)_
+      _Both halves confirmed separately: **"floating titles → appeared and clickable"**
+      and **"ticker → updating"**. The floating titles are §9.9's six-anchor pool in the
+      3D scene — each one an `<a>` with the article's real URL, and the space→underscore
+      →`encodeURIComponent` ordering in `buildArticleHref` is load-bearing. The ticker is
+      §11.4's bottom-left line, throttled at 2.5 s and excluding bots by design._
+
+## B. Audio quality
+
+- [x] **B1.** ✅ **First 60 seconds feel calm and musical, never cacophonous.** _(T6.6.
+      Human-verified 2026-10-27.)_
+- [x] **B2.** ✅ **Nothing harsh on headphones at 80 % volume.** _(T6.6. Human-verified
+      2026-10-27.)_
+- [x] **B3.** ✅ **Loudness comfortable at 80 %; gongs are not startling.** _(T6.6.
+      Human-verified 2026-10-27.)_
+      _Also confirmed in the same pass: **the busier character is "about right"** — with
+      the energy finally alive, the note density follows the traffic instead of sitting at
+      its floor, and the human judged the result as correct rather than too dense._
+- [ ] **B4.** No audio glitches over 30 continuous minutes.
+- [ ] **B5.** Sound direction matches comet origin (left/right/behind) on headphones.
+- [x] **B6.** ✅ **Audio and visual feel simultaneous.** _(T6.6. Human-verified
+      2026-10-27.)_
+      _No `avSyncMs` correction was needed — the value used here is **0 ms**._
+      _This is §10.1's heard-time gate doing its job: the visual is queued when the note
+      is *scheduled* (up to 0.15 s ahead, or 1.25 s when the tab is hidden), and released
+      only once `currentTime − outputLatency − avSyncMs ≥ note.when`. So the comet
+      appears at the instant the sound is audible, not when it was booked._
+- [ ] **B7.** Harmony never sounds random — it always sounds like one piece.
+- [ ] **B8.** Silence between events reads as a feature, not a dropout.
+- [x] **B9.** ✅ **Aeolian/violet is actually reachable. `EPS_REF = 15`.** _(T6.6.)_
+      _**Answered by measurement, not by judgement.** The energy was never alive at all
+      when this item was written — the `EnergyTracker` was not fed, so `E` was 0 and
+      Aeolian was reachable for the wrong reason. With it fed correctly (§7.4's bands:
+      `aeolian E<0.22 | dorian E<0.45 | mixolydian E<0.70 | lydian else`):_
+
+      _**§7.3's rule applied to the engine's own numbers**, read from the HUD's own
+      readout over 60 s of live traffic: mean 4.73 edits/s, p50 4.00, p90 10.00, **p95
+      10.00**, max 12.00, giving `E` 0.339 … 0.680._
+
+      _**`EPS_REF = 1.5 × p95(eps) = 1.5 × 10 = 15`** — which is exactly the value
+      already in `engine/config.ts`. The constant was right; what made it look wrong was
+      that the tracker was never fed and then was fed wrongly. Raising it would have
+      "fixed" a symptom and destroyed a correct calibration._
+
+      _**All four modes are reachable** at this rate: p50 → mixolydian, p95 → lydian,
+      the measured minimum → dorian, and Aeolian at startup and in genuinely quiet
+      stretches. A five-minute live run held the energy at 0.53–0.68 — one band — so the
+      mode changed **once**; 28.2 s is the floor on the interval, not a schedule._
+
+      _The one caveat: Aeolian needs `E < 0.22`, i.e. under ~0.85 edits/s sustained. It
+      is reached at startup and in quiet periods, but it is the least likely of the four
+      on a busy day._
+
+## C. Visual quality
+
+- [ ] **C1.** 60 fps on a mid-range laptop (p95 frame time ≤ 18 ms).
+- [ ] **C2.** ≥ 30 fps on a mid-range phone (p95 ≤ 36 ms).
+- [ ] **C3.** Mode/colour transitions feel smooth, not abrupt.
+- [ ] **C4.** Reduced-motion mode feels calm; no flashing anywhere.
+- [ ] **C5.** No full-screen strobing (> 3 Hz) in any state, including bot bursts.
+- [x] **C6.** ✅ **No banding; background is black (`deep` at L = 0.04, chosen by eye).** _(T4.4, T5.2.)_
+      Corner-patch luminance std-dev **2.27–2.70** throughout, inside T4.4's (0, 6),
+      and no contouring visible in the captures — the grain is dithering correctly.
+
+      The background was **navy rather than near-black**, diagnosed by sweeping the post
+      stack: bloom off scored 80.05 against AgX's 80.03 and the vignette off 80.11, so
+      neither was responsible — the lift is **tone mapping**, and the fix belongs in the
+      palette's `deep` rather than in the curve.
+
+      **The floor turned out to be the wrong thing to optimise.** At L ≈ 0.06 the four
+      modes' `deep` colours quantise to 8-bit triples and lydian and mixolydian land on
+      the *identical* triple, so the §9.3 harmony drift measured exactly 0 — and `deep`
+      was held at L = 0.10 to preserve it. The human looked at the result and called it
+      navy. **The trade was wrong**: a background washed with blue to observe a harmony
+      change the orb, the dust and the sparks all show far more legibly.
+
+      Measured across the sweep, rendered (not authored) 8-bit values:
+
+      | `deep` L | lydian | mixolydian | dorian | aeolian | distinct |
+      |---|---|---|---|---|---|
+      | 0.10 | (0,4,18) | (0,5,18) | (0,4,22) | (2,3,24) | 4 |
+      | 0.08 | (0,1,8) | (0,2,8) | (0,1,11) | (0,1,14) | 4 |
+      | 0.06 | (0,0,3) | (0,0,3) | (0,0,4) | (0,0,5) | 3 |
+      | **0.04** | (0,0,1) | (0,0,1) | (0,0,2) | (0,0,2) | **2** |
+
+      **L = 0.04, chosen by eye.** §9.3's harmony survives it entirely, in the channels
+      that carry it: `core` and `dust` are **50–140 units** apart between modes, against
+      1 unit in `deep`. Asserted by a dedicated e2e test, which also asserts that `deep`
+      is *not* carrying it — so the trade is written down rather than forgotten.
+
+      **`?deep=<L>` now sweeps it**, so the next person to want it darker does not have
+      to rebuild: `artifacts/shots/deep-compare.html` is the side-by-side.
+
+      **Two tests had to be re-pointed**, and one of them taught the session's lesson
+      again:
+
+      - The clear-colour test compared against the palette at the shipped L = 0.04 and
+        **still passed with the clear colour hardcoded to black** — verified by
+        deliberately breaking it. At that darkness the background spans one 8-bit unit,
+        so any tolerance wide enough to absorb rounding also absorbs the fault. It now
+        loads `?deep=0.5` and asserts against the palette with a ±2 tolerance.
+      - The cross-browser smoke read the *background* to prove "something got drawn".
+        It is now black by design, so it reads the **orb at the centre** instead.
+
+      ⚠️ **Related, from T4.4:** with the dust entirely off the background is still
+      **navy rather than near-black** — AgX lifting the clear colour, visible in
+      `artifacts/shots/t6s-dust-a-off.png`. The grain is doing its job (T4.4's corner
+      std-dev passes), so this is a tone-mapping question about how dark "dark" should
+      be, not a banding one.
+- [ ] **C7.** The orb body is readable — not washed flat against the background.
+      _(Regression risk: LEGACY-NOTES §3.2 found `AdditiveBlending` washed the orb
+      out, but spec §9.2 mandates additive. Verify and report.)_
+- [ ] **C8.** Clicking a label opens the correct article in a new tab.
+- [x] **C9.** ✅ **Resolved — the orb now reads as a luminous core.** _(T4.2. Not a
+      taste call after all: §9.4's `smoothstep(0.15, 0.85, …)` window only makes sense
+      against a [0,1] signal, but §9.4 also mandates Ashima's *signed* `snoise`, so raw
+      `fbm` landed near ±0.4 and nearly every fragment mapped to 0. The `smoothstep`
+      was a near-total clip, not a contrast curve. Normalising `fbm` to [0,1] first
+      took mean centre luminance 13.5 → 30.0 and std-dev 20.3 → 46.5. See
+      `DECISIONS.md`.)_
+- [x] **C10.** ✅ **Resolved — the weave is gone at every tier.** _(T4.2. Swept
+      §9.4's IGN jitter at 3× magnification: 1.0 / 0.5 / 0.35 all show a strong
+      diagonal lattice, and **0.0 shows neither the lattice nor any concentric
+      banding** — the banding the jitter exists to hide does not occur, because the
+      density field varies by more than a `stepLen` across each step. Set to 0;
+      the uniform is retained as insurance with a measured reason for being off.)_
+- [x] **C11.** ✅ **Resolved — the core has interior structure.** _(T4.4, three
+      wrong hypotheses before the right one.)_
+      Parked since T2 precisely waiting for §9.8 to land. Once it did, the core was a
+      structureless wash, and the diagnosis went:
+
+      1. **Tone mapping** — ACES tested against AgX. It *does* restore separation
+         (8.23 % of pixels above luminance 230 against AgX's 0.00 %), but the magnified
+         core is a smooth wash either way. **Wrong.**
+      2. **Bloom** — intensity 0.9 over a bright orb would both wash the frame and add
+         glow over the orb. Disabling it scored 80.05 against 80.03. **Wrong.**
+      3. **The orb's own shader** — the actual cause. Transmittance decays by the
+         per-step absorption every step, so deep in the volume the accumulated colour
+         converges on the emitted one and the fbm structure is cancelled *before*
+         anything downstream sees it. Scaling the colour cannot recover detail that is
+         already gone.
+
+      Two deviations from §9.4, both chosen by eye and both pinned by tests:
+      **absorption 3.2 → 1.2** and **emission 1.0 → 0.55**. The human compared the
+      sweep at 3.2 / 2.0 / 1.2 / 0.7 and found 1.2 and 0.7 both better than the spec's
+      3.2; 1.2 is the default because the orb still reads as a luminous body there,
+      and 0.7 is one `?absorb=` away.
+- [x] **C11b.** ⚠️ **Re-opened and re-closed — the 0.35 figure was tuned against a
+      background that no longer existed.** _(T4.4; re-measured T5.4.)_
+
+      §9.7 specifies 30 000 points and a twinkle spanning [0.25, 1.0] but **never says
+      what the twinkle multiplies**. At 1.0 the motes render at full strength and the
+      scene reads as a starfield — a second subject competing with the orb.
+
+      **Density was the wrong lever.** Sweeping it showed 10 500 motes at alpha 1.0 score
+      a corner std-dev *identical* to having no dust at all (0.34): cutting the count
+      deletes the depth cue rather than thinning it. Only dimming keeps it.
+
+      **Chosen in T4.4: base alpha 0.35.** Then the human ran the piece and said
+      **the star dust was not visible** — which was true. Measured on the live path, the
+      brightest mote *outside the orb* was **13 of 255** against a grain floor of 2, with
+      0.025 % of pixels lit. That is not dust; that is dither.
+
+      **Two later decisions had moved the ground without touching the dust.** Dust is
+      *additive*, and additive behaves differently depending on what it adds to:
+
+      - **C6** moved `deep` from L = 0.10 — rendering as navy **(0,4,18)** — to
+        L = 0.04, rendering as **(0,0,1)**. On a background that is already emitting, a
+        small addition reads as a change in brightness; on near-black it does not.
+      - **C11** dropped absorption 3.2 → 1.2 and emission 1.0 → 0.55, so the orb stopped
+        lighting its own surroundings.
+
+      0.35 was "read as depth, not a second subject" **on a background that is gone**.
+      The decision was not wrong when it was made.
+
+      **Chosen now: base alpha 0.75**, by eye over 0.35 / 0.55 / 0.75 / 1.0 on the live
+      path. Peak outside the orb goes 2 → 13 → ~70.
+
+      **The guard is a differential, not a constant.** `dust-visibility.spec.ts` renders
+      with the dust and without it (`?nodust=1`) and measures what the dust *adds*. A
+      test asserting `=== 0.35` would have passed through the entire invisible period,
+      and would still pass after the background changed again. The second test asserts
+      that the grain alone does **not** clear the bound — without it, a test passing in
+      both states would be measuring the grain.
+
+      A `litFraction` bound was written and then **removed**: it measured 0.035 % at 0.75
+      and 0.025 % at 0.35, which cannot distinguish them. Area barely moves for something
+      sparse while brightness moves 5×; a bound that cannot fail for the reason it exists
+      only fails when the suite is busy.
+
+      Sweep, for the record: as-specified 6.14 · alpha 0.35 → 2.16 · alpha 0.15 → 0.56
+      · density 0.35 → 0.34 (= dust off). Still overridable via `?dustAlpha=` without a
+      code change.
+
+      ⚠️ **Separate issue, not fixed:** with dust *entirely off* the background is still
+      **navy, not near-black** — AgX lifting the clear colour. Folding this into C6
+      (banding / dark gradients) since it is a background question, not a dust one.
+
+## D. Audio listen files
+
+Generated by `npm run audio:check` into `artifacts/audio/` (120 s each, 32-bit
+float stereo, ~46 MB):
+
+- [x] **D1.** ✅ **Musical.** _(Re-listened 2026-10-15 on the regenerated render, after
+      the `WORKLET_QUEUE_CAP` fix and the bus-gain rebalance.)_ 201 notes, 0 dropped,
+      sub 21.0 / bass 15.9 / mid 50.0 / high 8.0 %, RMS −16.4 dBFS, 0 clipped, §8.4
+      passes.
+
+      **Noted by ear:** *"some bell sounds are a bit sharper and louder but that's
+      okay."* Acceptable as it stands, but it is a symptom — see **B11**.
+- [x] **D2.** ✅ **Judged via the soak.** _(Not played as a 120 s file; the human was
+      told it was covered by the 600 s soak at the same energy and chose to skip it.
+      That verdict is carried over: E ≈ 0.6, same code path, 5× the duration. Recorded
+      this way so it is not mistaken for a direct listen.)_ 620 notes, 8.4 % dropped,
+      sub 14.9 / bass 10.4 / mid 62.0 / high 8.0 %, RMS −16.8, §8.4 passes.
+- [x] **D3.** ✅ **The gaps feel like breathing.** _(Re-listened 2026-10-15.)_ 31.3 % of
+      attempted notes are still dropped — 425 of ~1350 — against §8.4's 35 % ceiling,
+      unchanged by the rebalance.
+
+      **This is the verdict that could not be given before.** The earlier "reads as
+      texture, not breakage" was made on audio that was missing 80–95 % of its notes —
+      including the notes that would have filled those gaps and shown whether the gaps
+      were breathing or dropouts. Now it is answered on complete audio, and **no cap
+      change is warranted**: raising the 35 % ceiling would admit a denser mess for no
+      benefit, and lowering it would thin a texture that works.
+
+      E90 reports bass 9.9 % and mid 66.6 %, outside §8.4's *stated* 10–40 % and
+      20–55 % ranges, yet `checkMixTargets` passes it — the enforced bounds are softer
+      than the printed ones. Logged as **B12**.
+- [x] **D4.** ✅ **Listened to in full and liked.** _(Rendered 2026-10-15, 600 s,
+      230 MB, after the `WORKLET_QUEUE_CAP` fix and the bus-gain rebalance.)_
+      Measured alongside: **spread 2.99 dB** across twenty 30 s buckets,
+      **slope +0.10 dB/min**, no silence run, peak −4.79 dBFS, 0 clipped,
+      0 non-finite. §8.4 passes on every band (sub 32.5 / bass 23.7 / mid 40.1 /
+      high 3.5 / air 0.2 %).
+
+      This is the first D-check judged on audio that was not missing most of its
+      notes. Before the fix the same file scored 8.84 dB of bucket spread — variation
+      that turned out to be dropped notes, not the piece.
+
+      **It also confirms the pad-forward balance.** The rebalance was chosen from
+      band-share arithmetic, not from listening, so the human hearing it and being
+      happy with it is the only evidence the numbers pointed the right way.
+- [x] **D5.** ✅ **Resolved: the air layer is inaudible at §8.8's own values.**
+      Confirmed by ear at the end of T3.5. It was briefly raised +37 dB to chase
+      §8.4's 2–8 kHz target, and that raised version _was_ genuinely loud — but
+      the four "still hissing" reports that followed described a **cached file**,
+      not the render (see D7). The layer is now at §8.8's exact values with no
+      deviation, and `audio:check` shows air-on and air-off to be identical to two
+      decimal places (rms −21.0 dBFS, `high` 2.40 % vs 2.43 %).
+- [x] **D6.** ✅ **Answered: originally a wash — fixed.** The bed was changed
+      **spectrally, not by level**: the pad's cutoff coefficient went 2800 → 1400 Hz
+      (darkening it so its energy sits below the melody rather than competing with
+      it) and `VOICE_GAIN.pluck` 0.26 → 0.31. A level cut was tried first and
+      failed — the pad's fundamentals sit at 130–392 Hz, so it is both the thing
+      masking the melody and the mix's only real bass source; −4 dB collapsed
+      `bass` from 30 % to 7 %. Confirmed by ear: _"it is better"_. This fix
+      stands on its own evidence and was not affected by the caching incident.
+- [x] **D7.** ✅ **Root cause: macOS Quick Look served a cached render.** Every
+      render in this project is exactly **46,080,044 bytes**, so `open`ing
+      `artifacts/audio/render-E60.wav` again served a stale preview
+      indistinguishable from a fresh one. `afplay`, which re-reads the file,
+      showed no hiss at all. Full account in `DECISIONS.md`.
+
+      **Protocol for every future listen of an artefact:**
+      - Play with **`afplay`, never `open`** — it does not cache.
+      - Or copy to a unique name first: `cp x.wav /tmp/x-$(date +%s).wav`
+      - **Give a timestamp** with anything audible. _"Hiss at 2:10"_ is
+        debuggable; _"hiss"_ is a 120-second search.
+      - A **confirmed no-change result means suspect the input**, not that the fix
+        needs to be smaller. That was the tell available throughout and it was
+        read the wrong way five times.
+
+## E. Live data
+
+> Most of section E was resolved at **T1.1** by `scripts/probe-stream.ts`
+> (see `docs/DECISIONS.md`). What remains is perceptual or device-specific.
+
+- [x] **E1.** Live stream connects — CORS returns `access-control-allow-origin: *`,
+      HTTP 200, 0 parse errors over a 120 s capture. **No proxy needed.**
+- [x] **E2.** Real throughput measured: Wikipedias + `edit|new` = mean 5.9/s,
+      p95 10/s → `EPS_REF = 15`. Bot ratio 18.8 % (spec model 20 % ✓).
+- [ ] **E3.** ⏳ **Measured over 20 minutes and the "English is fine" note was wrong.**
+      `scripts/probe-reverts.ts` recorded 1 200 s of the real stream: **6 428 edits,
+      2 659 distinct summaries, 51 matched**, with three reconnects handled cleanly.
+      **English 29 / 1 483 = 1.96 %** (95 % CI 1.25 % – 2.66 %); covered languages
+      combined 48 / 2 993 = 1.60 %. §6.2's **3 % model is not supported** — even the
+      upper bound sits below it.
+
+      But detection is incomplete, and the residual is now *enumerated*, not suspected.
+      A second pass over all 2 659 summaries finds **18** revert-shaped ones the
+      patterns miss — **8 of them English**: `Reverting edit(s) by …` ×3 (the `\b` in
+      `/^Revert(ed)?\b/` defeats `Reverting`), `Bot: Undo …`, `S-revert:`, `partial
+      revert …`, `rv, …`. Also Italian `Annullate` (plural vs `/^Annullata/`),
+      French `Bot : Annulation`, Japanese `… による ID`.
+
+      Counting all of them: English **2.49 %** (CI ≈ 1.76 % – 3.22 %), which puts 3 %
+      back *inside* the interval. **Both** the model and the patterns are off; the
+      patterns are the smaller half.
+
+      The sample also settles the false-positive question that was left open: two of
+      the eighteen are *not* reverts — `/* Clarification Regarding Reverted Edits to the
+      Hastinapur Article */ Reply`. So un-anchoring `Reverted` demonstrably costs
+      false positives; widening by **shape** (`Reverting`, `Bot: Undo`) rather than by
+      **position** does not.
+
+      **Decision taken: widen by shape, never by position.** All enumerated classes
+      applied as anchored or word-bounded patterns — `/^Reverting\b/`,
+      `/^Bot:\s*Undo\b/`, `/^S-revert:/`, `/^rv[.,]/`, `/^partial revert\b/`,
+      `/\bUndid \d+ revisions?\b/`, and Italian `Annullat[eo]` behind an optional
+      bot-signature template.
+
+      **Replaying all 2 659 summaries of the capture through the new set: 51 → 63
+      matched, +23.5 %, and all 12 newly-matched are revert-shaped.** Neither
+      Hastinapur false positive matches. English goes 1.96 % → ~2.5 %.
+
+      **Not applied, and why:** Japanese `… による ID` (no pattern exists for the
+      language), French `Bot : Annulation des modifications`, and Italian
+      `Avviso di annullamento automatico` / `Annullo:` — the last two need
+      un-anchored stems, which is exactly what the Hastinapur sample forbids. These
+      remain open; 32 % of traffic still has no pattern at all.
+
+      **One existing test case retired.** `"reverting to the previous version of the
+      intro"` sat in the negative list, cited as an anchoring example. It *is* a
+      revert, and the capture showed the present participle is the commonest revert
+      phrasing there is — so it moved to the positives. The anchoring property it
+      was guarding is still asserted, on a summary that is genuinely not a revert
+      (`"/* Prose */ I am reverting the change I made earlier today"`).
+- [ ] **E4.** Bot ratio in the HUD looks plausible on live traffic.
+- [ ] **E5.** Article titles seen in the wild match the §6.1 shape, including
+      temporary accounts `~YYYY-N` and `server_name` (not just `server_url`).
+      _Partly confirmed: the E3 captures show temporary accounts (`~2026-54929-97`,
+      `~2026-55118-67`, `~2026-55219-42`) appearing **inside real edit summaries**,
+      not only as `server_url`._
+
+## F. Browser / device matrix
+
+- [ ] **F1.** Chrome desktop — full experience. _What CI already covers: the whole
+      Playwright suite runs on Chromium (90 tests)._ **Not covered:** anything about
+      Chrome's *own* audio and GL quirks that Chromium-under-Playwright does not
+      reproduce — real device output latency, hardware GL, power management.
+- [ ] **F2.** Safari 16.4+ desktop — `AudioContext` unlock, `interrupted` handling.
+      _**Partial automated coverage:** `crossbrowser.spec.ts` asserts `AudioContext`
+      reaches `running` and that `outputLatency` falls back to `baseLatency` (§8.2).
+      Wired into the `webkit-smoke` project and **never executed** — WebKit is not
+      installed, and installing it was declined (T6.4 deferred). The `interrupted`
+      state handling is unverified, and that is the real F2 risk._
+- [ ] **F3.** Firefox desktop — `EventSource` in worker, `outputLatency` absence.
+      _**Partial automated coverage**, same file, same status — Firefox is not
+      installed, and installing it was declined. Firefox's lack of `outputLatency` is
+      exactly what the fallback assertion targets, so the half of F3 that matters most
+      is the half that has never run. `EventSource` in a worker is also untested and
+      needs a live-stream test._
+- [ ] **F4.** iOS Safari — `Enter`-tap unlock, safe-area HUD, touch drag to look.
+- [ ] **F5.** Android Chrome — touch drag, tier detection → low/medium.
+- [x] **F6.** ✅ **Verified in CI** — `tests/e2e/reduced-motion.spec.ts`, 5 tests. §9.11's
+      two halves both asserted: the rig adds no trauma shake at all, and the ambient
+      drift is _reduced rather than removed_ so the camera does not freeze. Covers the
+      live mid-session change via `emulateMedia`, mutation-checked (unwiring the
+      listener fails exactly one test). Added at T4.2 pause — T4.1 shipped the feature
+      with no test, which is the mistake this project has now made and caught three times.
+
+---
+
+## Sign-off
+
+Reviewed by: ____________________ Date: ____________
+
+Outstanding issues:
+<!-- free text -->
+
+- [ ] **B11.** ⚠️ **The per-voice balance was tuned against audio that was missing most
+      of its notes.** Noted by ear at D1 on the first honest render: *"some bell sounds
+      are a bit sharper and louder but that's okay."*
+
+      This is not really about bells. While `WORKLET_QUEUE_CAP` was 8, **80–95 % of notes
+      were dropped** and the survivors bunched into the render's final seconds. Any
+      balance fitted by ear to that audio was fitted to a piece that was mostly pad.
+      Bells are the most exposed by this — they are high-frequency and short, so they
+      were masked by the thinned mid before, and now every one of them is present.
+
+      **Left as-is deliberately**, since the verdict was "okay" and the band targets
+      pass (E30 high band 8.0 % against a 1–25 % range). Worth revisiting only if a
+      later listen finds the bells abrasive rather than present. The lever is the bell
+      voice's own gain and partial mix, not the bus gains.
+
+      The general form of this hazard — **a mix tuned against broken renders** — is the
+      same shape as the Phase 3 caching incident that produced the listening protocol in
+      `DECISIONS.md`.
+- [ ] **B12.** §8.4's *stated* band ranges are stricter than the ones enforced.
+      `MIX_TARGETS` reports `share.bass 10…40 %` and `share.mid 20…55 %`, but E90 passes
+      at bass **9.9 %** and mid **66.6 %** — outside both. Either the enforcement has a
+      tolerance the documentation does not mention, or the check is not testing what it
+      says. Whichever it is, the printed numbers are currently a false promise: someone
+      reading §8.4 would conclude E90 fails when the harness says it passes. Low effort,
+      and it is the kind of mismatch that hides a real regression.
+      2 % fundamental check on the bell, but the spec's own inharmonic FM ratio
+      of 3.99 makes the waveform quasi-periodic and leaves the carrier at a Bessel
+      null — measured carrier energy was **3e-7 of the band peak**, so every
+      measurement method tried (FFT peak-pick, autocorrelation, carrier energy,
+      spectral centroid) either measures a sideband or does not scale with pitch.
+      Full evidence in `DECISIONS.md` at T3.1. **Confirm by ear** that
+      bell/removal notes move to the expected pitch as an edit grows. If they do
+      not, the lever is a _rational_ FM ratio (4.0) — which would change the
+      metallic timbre the spec deliberately specifies, so it is a real trade-off,
+      not a free fix.
